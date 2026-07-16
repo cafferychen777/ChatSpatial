@@ -15,8 +15,9 @@ from ..utils.adata_utils import (
     sample_expression_values,
     standardize_adata,
 )
-from ..utils.dependency_manager import require, validate_r_package
+from ..utils.dependency_manager import require, validate_r_environment
 from ..utils.exceptions import (
+    ChatSpatialError,
     DataError,
     DependencyError,
     ParameterError,
@@ -351,10 +352,18 @@ async def preprocess_data(
         sc.pp.log1p(adata)
     elif params.normalization == "sct":
         # SCTransform v2 variance-stabilizing normalization via R's sctransform
-        # Check R sctransform availability using centralized dependency manager
+        # Validate the count contract before loading the optional R runtime.
+        X_sample = sample_expression_values(adata)
+        if np.any((X_sample % 1) != 0):
+            raise DataError(
+                "SCTransform requires raw count data (integers). "
+                "Use normalization='log' for normalized data."
+            )
+
         try:
-            validate_r_package("sctransform", ctx)
-            validate_r_package("Matrix", ctx)
+            r_env = validate_r_environment(
+                ctx, required_packages=["sctransform", "Matrix"]
+            )
         except DependencyError as e:
             full_error = (
                 f"SCTransform requires R and the sctransform package.\n\n"
@@ -369,35 +378,18 @@ async def preprocess_data(
             )
             raise DependencyError(full_error) from e
 
-        # Check if data appears to be raw counts (required for SCTransform)
-        X_sample = sample_expression_values(adata)
-
-        # Check for non-integer values (indicates normalized data)
-        if np.any((X_sample % 1) != 0):
-            raise DataError(
-                "SCTransform requires raw count data (integers). "
-                "Use normalization='log' for normalized data."
-            )
-
         # Map method parameter to vst.flavor
         vst_flavor = "v2" if params.sct_method == "fix-slope" else "v1"
 
         try:
-            # Import rpy2 modules
-            import rpy2.robjects as ro
-            from rpy2.robjects import numpy2ri
-            from rpy2.robjects.conversion import localconverter
-
             # Note: counts layer is already created earlier in this preprocessing workflow.
             # It will be properly subsetted if SCT filters genes
             # Convert to sparse CSC matrix (genes × cells) for R's dgCMatrix
-            if scipy.sparse.issparse(adata.X):
-                counts_sparse = scipy.sparse.csc_matrix(adata.X.T)
-            else:
-                counts_sparse = scipy.sparse.csc_matrix(adata.X.T)
+            counts_sparse = scipy.sparse.csc_matrix(adata.X.T)
 
-            # Transfer sparse matrix components to R
-            with localconverter(ro.default_converter + numpy2ri.converter):
+            # Keep the complete R session under one lock and conversion context.
+            with r_env.conversion_context(numpy=True):
+                ro = r_env.robjects
                 ro.globalenv["sp_data"] = counts_sparse.data.astype(np.float64)
                 ro.globalenv["sp_indices"] = counts_sparse.indices.astype(np.int32)
                 ro.globalenv["sp_indptr"] = counts_sparse.indptr.astype(np.int32)
@@ -410,12 +402,9 @@ async def preprocess_data(
                     params.sct_n_cells if params.sct_n_cells else ro.NULL
                 )
 
-            # Reconstruct sparse matrix and run SCTransform in R
-            ro.r(
-                """
-                library(Matrix)
-                library(sctransform)
-
+                # Reconstruct sparse matrix and run SCTransform in R.
+                ro.r(
+                    """
                 # Create dgCMatrix from components
                 umi_matrix <- new(
                     "dgCMatrix",
@@ -444,10 +433,8 @@ async def preprocess_data(
                 # Extract gene names that survived SCTransform filtering
                 kept_genes <- rownames(vst_result$y)
             """
-            )
+                )
 
-            # Extract results from R
-            with localconverter(ro.default_converter + numpy2ri.converter):
                 pearson_residuals = np.array(ro.r("pearson_residuals"))
                 residual_variance = np.array(ro.r("residual_variance"))
                 kept_genes = list(ro.r("kept_genes"))
@@ -505,6 +492,8 @@ async def preprocess_data(
                 f"Memory error for SCTransform on {adata.n_obs}×{adata.n_vars} matrix. "
                 f"Use normalization='log' or subsample data."
             ) from e
+        except ChatSpatialError:
+            raise
         except Exception as e:
             raise ProcessingError(f"SCTransform failed: {e}") from e
     elif params.normalization == "pearson_residuals":
@@ -574,9 +563,6 @@ async def preprocess_data(
     elif params.normalization == "scvi":
         # scVI deep learning-based normalization
         # Uses variational autoencoder to learn latent representation
-        require("scvi", feature="scVI normalization")
-        import scvi
-
         # Validate counts layer (created earlier) for scVI's count-based model
         is_int, has_neg, _ = check_is_integer_counts(adata.layers["counts"])
         if has_neg:
@@ -593,6 +579,8 @@ async def preprocess_data(
                 "contains non-integer values. This may indicate "
                 "pre-normalized data; results may be suboptimal."
             )
+
+        scvi = require("scvi", ctx, feature="scVI normalization")
 
         try:
             # Note: counts layer is already created earlier in this preprocessing workflow.

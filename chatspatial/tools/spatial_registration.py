@@ -7,7 +7,8 @@ optimal transport (PASTE) or diffeomorphic mapping (STalign).
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, Optional
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
@@ -24,9 +25,14 @@ from ..utils.adata_utils import (
     shallow_copy_adata,
     store_analysis_metadata,
 )
-from ..utils.dependency_manager import require
+from ..utils.dependency_manager import require, require_module
 from ..utils.device_utils import get_device, get_ot_backend
-from ..utils.exceptions import DataError, ParameterError, ProcessingError
+from ..utils.exceptions import (
+    ChatSpatialError,
+    DataError,
+    ParameterError,
+    ProcessingError,
+)
 from ..utils.results_export import export_analysis_result
 
 logger = logging.getLogger(__name__)
@@ -36,7 +42,11 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-def _patch_paste_line_search_for_pot(pst) -> None:
+def _patch_paste_line_search_for_pot(
+    pst: Any,
+    *,
+    ot_module: Any | None = None,
+) -> None:
     """Patch paste-bio line-search callbacks for POT versions that pass df_G."""
     paste_module = getattr(pst.pairwise_align, "__globals__", {})
     solver = paste_module.get("solve_gromov_linesearch")
@@ -50,6 +60,11 @@ def _patch_paste_line_search_for_pot(pst) -> None:
     original = paste_module.get("my_fused_gromov_wasserstein")
     if original is None or getattr(original, "_chatspatial_pot_compat", False):
         return
+    ot = (
+        ot_module
+        if ot_module is not None
+        else require("ot", feature="PASTE compatibility layer")
+    )
 
     def compatible_my_fused_gromov_wasserstein(
         M,
@@ -68,8 +83,6 @@ def _patch_paste_line_search_for_pot(pst) -> None:
         use_gpu=False,
         **kwargs,
     ):
-        import ot
-
         p, q = ot.utils.list_to_array(p, q)
         nx = ot.backend.get_backend(p, q, C1, C2, M)
         if G_init is None:
@@ -86,10 +99,7 @@ def _patch_paste_line_search_for_pot(pst) -> None:
         def df(G):
             return ot.gromov.gwggrad(constC, hC1, hC2, G)
 
-        if loss_fun == "kl_loss":
-            armijo_local = True
-        else:
-            armijo_local = armijo
+        armijo_local = True if loss_fun == "kl_loss" else armijo
 
         if armijo_local:
 
@@ -199,11 +209,106 @@ def _get_common_genes(adata_list: list["ad.AnnData"]) -> list[str]:
 # =============================================================================
 
 
+@dataclass(frozen=True)
+class _ImageCoordinateTransform:
+    """Map spatial x/y coordinates to and from an image row/column grid."""
+
+    x_min: float
+    x_max: float
+    y_min: float
+    y_max: float
+    height: int
+    width: int
+    padding: float = 0.1
+
+    @classmethod
+    def from_coords(
+        cls,
+        coords: np.ndarray,
+        image_size: tuple[int, int],
+    ) -> "_ImageCoordinateTransform":
+        """Build a reversible transform for a non-degenerate 2D point cloud."""
+        if coords.ndim != 2 or coords.shape[1] != 2:
+            raise DataError(
+                f"STalign coordinates must have shape (n_points, 2), got {coords.shape}."
+            )
+        if coords.shape[0] == 0:
+            raise DataError("STalign coordinates must contain at least one point.")
+        if not np.isfinite(coords).all():
+            raise DataError("STalign coordinates contain non-finite values.")
+
+        height, width = image_size
+        if height < 2 or width < 2:
+            raise DataError("STalign image dimensions must both be at least 2.")
+
+        x_min = float(coords[:, 0].min())
+        x_max = float(coords[:, 0].max())
+        y_min = float(coords[:, 1].min())
+        y_max = float(coords[:, 1].max())
+        if x_max <= x_min or y_max <= y_min:
+            raise DataError("STalign coordinates must span both spatial dimensions.")
+        return cls(x_min, x_max, y_min, y_max, height, width)
+
+    @staticmethod
+    def _scale(
+        values: np.ndarray,
+        source_min: float,
+        source_max: float,
+        target_size: int,
+        padding: float,
+    ) -> np.ndarray:
+        target_max = float(target_size - 1)
+        lower = padding * target_max
+        upper = (1.0 - padding) * target_max
+        return lower + (values - source_min) * (upper - lower) / (
+            source_max - source_min
+        )
+
+    @staticmethod
+    def _unscale(
+        values: np.ndarray,
+        target_min: float,
+        target_max: float,
+        source_size: int,
+        padding: float,
+    ) -> np.ndarray:
+        source_max_value = float(source_size - 1)
+        lower = padding * source_max_value
+        upper = (1.0 - padding) * source_max_value
+        return target_min + (values - lower) * (target_max - target_min) / (
+            upper - lower
+        )
+
+    def to_image(self, coords: np.ndarray) -> np.ndarray:
+        """Convert spatial x/y points to STalign row/column coordinates."""
+        coords = np.asarray(coords, dtype=np.float32)
+        rows = self._scale(
+            coords[:, 1], self.y_min, self.y_max, self.height, self.padding
+        )
+        columns = self._scale(
+            coords[:, 0], self.x_min, self.x_max, self.width, self.padding
+        )
+        return np.column_stack((rows, columns)).astype(np.float32, copy=False)
+
+    def from_image(self, row_column: np.ndarray) -> np.ndarray:
+        """Convert STalign row/column points back to spatial x/y coordinates."""
+        row_column = np.asarray(row_column, dtype=np.float32)
+        x = self._unscale(
+            row_column[:, 1], self.x_min, self.x_max, self.width, self.padding
+        )
+        y = self._unscale(
+            row_column[:, 0], self.y_min, self.y_max, self.height, self.padding
+        )
+        return np.column_stack((x, y)).astype(np.float32, copy=False)
+
+
 def _prepare_stalign_image(
     coords: np.ndarray,
     intensity: np.ndarray,
-    image_size: tuple,
-) -> tuple:
+    image_size: tuple[int, int],
+    *,
+    torch_module: Any | None = None,
+) -> tuple[list[Any], Any, _ImageCoordinateTransform]:
     """
     Convert point cloud to rasterized image for STalign.
 
@@ -213,40 +318,46 @@ def _prepare_stalign_image(
         image_size: Output image dimensions (height, width)
 
     Returns:
-        Tuple of (xgrid, image_tensor)
+        Tuple of (row/column grid, channel-first image tensor, coordinate transform)
     """
-    import torch
-
-    coords = np.asarray(coords)
+    coords = np.asarray(coords, dtype=np.float32)
     intensity = np.asarray(intensity, dtype=np.float32)
-    padding = 0.1
+    transform = _ImageCoordinateTransform.from_coords(coords, image_size)
+    if intensity.ndim != 1 or intensity.shape[0] != coords.shape[0]:
+        raise DataError(
+            "STalign intensity must be a one-dimensional value per spatial point."
+        )
+    if not np.isfinite(intensity).all():
+        raise DataError("STalign intensity contains non-finite values.")
+    if np.any(intensity < 0):
+        raise DataError("STalign intensity must be non-negative.")
+    if not np.any(intensity > 0):
+        raise DataError("STalign intensity must contain at least one positive value.")
 
-    def _to_image_indices(values: np.ndarray, size: int) -> np.ndarray:
-        values = np.asarray(values, dtype=np.float32)
-        vmin, vmax = values.min(), values.max()
-        vrange = vmax - vmin
-        if vrange > 0:
-            target_min = padding * size
-            target_max = (1 - padding) * size
-            values = ((values - vmin) / vrange) * (target_max - target_min) + target_min
-        return np.clip(values.astype(np.int32, copy=False), 0, size - 1)
+    if torch_module is None:
+        torch_module = require("torch", feature="STalign image preparation")
 
     # Create coordinate grid
     xgrid = [
-        torch.linspace(0, image_size[0], image_size[0], dtype=torch.float32),
-        torch.linspace(0, image_size[1], image_size[1], dtype=torch.float32),
+        torch_module.arange(image_size[0], dtype=torch_module.float32),
+        torch_module.arange(image_size[1], dtype=torch_module.float32),
     ]
 
     # Rasterize with Gaussian smoothing (vectorized for 40-500x speedup)
     from scipy.ndimage import gaussian_filter
 
     # Vectorized coordinate mapping
-    x_indices = _to_image_indices(coords[:, 1], image_size[0])
-    y_indices = _to_image_indices(coords[:, 0], image_size[1])
+    image_coords = transform.to_image(coords)
+    row_indices = np.clip(
+        np.rint(image_coords[:, 0]).astype(np.intp), 0, image_size[0] - 1
+    )
+    column_indices = np.clip(
+        np.rint(image_coords[:, 1]).astype(np.intp), 0, image_size[1] - 1
+    )
 
     # Accumulate intensities (np.add.at handles duplicate indices correctly)
     image = np.zeros(image_size, dtype=np.float32)
-    np.add.at(image, (x_indices, y_indices), intensity)
+    np.add.at(image, (row_indices, column_indices), intensity)
 
     # Apply Gaussian filter (sigma=1.0 approximates the original kernel radius 2)
     image = gaussian_filter(image, sigma=1.0)
@@ -255,7 +366,8 @@ def _prepare_stalign_image(
     if image.max() > 0:
         image /= image.max()
 
-    return xgrid, torch.tensor(image, dtype=torch.float32)
+    image_tensor = torch_module.tensor(image[None, ...], dtype=torch_module.float32)
+    return xgrid, image_tensor, transform
 
 
 # =============================================================================
@@ -305,12 +417,10 @@ def _register_paste(
     adata_list: list["ad.AnnData"],
     params: RegistrationParameters,
     spatial_key: str = "spatial",
+    *,
+    pst: Any | None = None,
 ) -> list["ad.AnnData"]:
     """Register slices using PASTE optimal transport."""
-    import paste as pst
-
-    _patch_paste_line_search_for_pot(pst)
-
     reference_idx = params.reference_idx or 0
     if reference_idx < 0 or reference_idx >= len(adata_list):
         raise ParameterError(
@@ -328,8 +438,13 @@ def _register_paste(
             "check that input datasets use the same gene naming convention."
         )
 
+    if pst is None:
+        pst = require("paste", feature="PASTE spatial registration")
+    _patch_paste_line_search_for_pot(pst)
+
     # Unified preparation: gene subset + normalize + ensure obsm["spatial"]
     slices = _prepare_paste_slices(registered, common_genes, spatial_key)
+    backend = get_ot_backend(params.use_gpu)
 
     if len(registered) == 2:
         # Pairwise alignment — reference_idx determines which slice
@@ -342,7 +457,10 @@ def _register_paste(
             slices[other_idx],
             alpha=params.paste_alpha,
             numItermax=params.paste_numItermax,
+            backend=backend,
+            use_gpu=params.use_gpu,
             verbose=False,
+            gpu_verbose=False,
         )
 
         # Stack and extract aligned coordinates
@@ -352,8 +470,6 @@ def _register_paste(
 
     else:
         # Multi-slice center alignment
-        backend = get_ot_backend(params.use_gpu)
-
         # Initial pairwise alignments to reference
         pis = []
         for i, slice_data in enumerate(slices):
@@ -364,6 +480,7 @@ def _register_paste(
                     slices[reference_idx],
                     slice_data,
                     alpha=params.paste_alpha,
+                    numItermax=params.paste_numItermax,
                     backend=backend,
                     use_gpu=params.use_gpu,
                     verbose=False,
@@ -372,7 +489,7 @@ def _register_paste(
                 pis.append(pi)
 
         # Center alignment
-        _, pis_new = pst.center_align(
+        center_slice, pis_new = pst.center_align(
             slices[reference_idx],
             slices,
             pis_init=pis,
@@ -390,17 +507,23 @@ def _register_paste(
                 f"received {len(pis_new)}."
             )
 
-        # Apply transformations — read coords from prepared slices
-        # (which have "spatial" guaranteed by _prepare_paste_slices)
-        for i, (adata, pi) in enumerate(zip(registered, pis_new, strict=True)):
-            if i == reference_idx:
-                adata.obsm["spatial_registered"] = adata.obsm[spatial_key].copy()
-            else:
-                adata.obsm["spatial_registered"] = _transform_coordinates(
-                    pi,
-                    slices[reference_idx].obsm["spatial"],
-                    query_coords=adata.obsm[spatial_key],
-                )
+        # PASTE transport plans map center rows to slice columns. Its own
+        # Procrustes projection handles that orientation and unequal spot counts.
+        _, aligned_slices = pst.stack_slices_center(
+            center_slice,
+            slices,
+            pis_new,
+        )
+        if len(aligned_slices) != len(registered):
+            raise ProcessingError(
+                "PASTE center projection returned a different number of slices "
+                f"than requested: expected {len(registered)}, "
+                f"received {len(aligned_slices)}."
+            )
+        for adata, aligned in zip(registered, aligned_slices, strict=True):
+            adata.obsm["spatial_registered"] = np.asarray(
+                aligned.obsm["spatial"], dtype=np.float32
+            )
 
     return registered
 
@@ -409,11 +532,11 @@ def _register_stalign(
     adata_list: list["ad.AnnData"],
     params: RegistrationParameters,
     spatial_key: str = "spatial",
+    *,
+    stalign_module: Any | None = None,
+    torch_module: Any | None = None,
 ) -> list["ad.AnnData"]:
     """Register slices using STalign diffeomorphic mapping."""
-    import STalign.STalign as ST
-    import torch
-
     if len(adata_list) != 2:
         raise ParameterError(
             f"STalign only supports pairwise registration, got {len(adata_list)} slices. "
@@ -453,13 +576,31 @@ def _register_stalign(
         source_intensity = np.ones(len(source_coords), dtype=np.float32)
         target_intensity = np.ones(len(target_coords), dtype=np.float32)
 
+    if stalign_module is None:
+        stalign_module = require_module(
+            "stalign",
+            "STalign.STalign",
+            feature="STalign spatial registration",
+        )
+    if torch_module is None:
+        torch_module = require("torch", feature="STalign spatial registration")
+
     # Prepare images
-    image_size = tuple(params.stalign_image_size)
-    source_grid, source_image = _prepare_stalign_image(
-        source_coords, source_intensity, image_size
+    image_size = (
+        params.stalign_image_size[0],
+        params.stalign_image_size[1],
     )
-    target_grid, target_image = _prepare_stalign_image(
-        target_coords, target_intensity, image_size
+    source_grid, source_image, source_transform = _prepare_stalign_image(
+        source_coords,
+        source_intensity,
+        image_size,
+        torch_module=torch_module,
+    )
+    target_grid, target_image, target_transform = _prepare_stalign_image(
+        target_coords,
+        target_intensity,
+        image_size,
+        torch_module=torch_module,
     )
 
     # STalign parameters
@@ -480,11 +621,11 @@ def _register_stalign(
         "sigmaR": 500000.0,
         "sigmaP": 20.0,
         "device": device,
-        "dtype": torch.float32,
+        "dtype": torch_module.float32,
     }
 
     try:
-        result = ST.LDDMM(
+        result = stalign_module.LDDMM(
             xI=source_grid,
             I=source_image,
             xJ=target_grid,
@@ -500,10 +641,16 @@ def _register_stalign(
             raise ProcessingError("STalign did not return valid transformation")
 
         # Transform coordinates
-        source_points = torch.tensor(source_coords, dtype=torch.float32)
-        transformed = ST.transform_points_source_to_target(xv, v, A, source_points)
+        source_points = torch_module.tensor(
+            source_transform.to_image(source_coords),
+            dtype=torch_module.float32,
+            device=device,
+        )
+        transformed = stalign_module.transform_points_source_to_target(
+            xv, v, A, source_points
+        )
 
-        if isinstance(transformed, torch.Tensor):
+        if isinstance(transformed, torch_module.Tensor):
             if hasattr(transformed, "detach"):
                 transformed = transformed.detach()
             if hasattr(transformed, "cpu"):
@@ -511,38 +658,20 @@ def _register_stalign(
             if hasattr(transformed, "numpy"):
                 transformed = transformed.numpy()
 
-        source.obsm["spatial_registered"] = np.asarray(transformed, dtype=np.float32)
+        transformed = target_transform.from_image(
+            np.asarray(transformed, dtype=np.float32)
+        )
+        source.obsm["spatial_registered"] = transformed
         target.obsm["spatial_registered"] = np.array(target_coords, copy=True)
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(
             f"STalign registration failed: {e}. Consider using PASTE method."
         ) from e
 
     return registered
-
-
-def _transform_coordinates(
-    transport_matrix: np.ndarray,
-    reference_coords: np.ndarray,
-    query_coords: Optional[np.ndarray] = None,
-) -> np.ndarray:
-    """Transform coordinates via optimal transport matrix.
-
-    Cells with no transport signal (zero rows) retain their original
-    coordinates when *query_coords* is provided, preventing false
-    spatial clustering at the origin.
-    """
-    # Equivalent to (transport_matrix / row_sums) @ reference_coords, but avoids
-    # materializing a large normalized matrix in memory.
-    row_sums = transport_matrix.sum(axis=1, keepdims=True)
-    zero_mask = row_sums.ravel() == 0
-    row_sums[row_sums == 0] = 1  # Avoid division by zero
-    weighted = transport_matrix @ reference_coords
-    result = weighted / row_sums
-    if query_coords is not None and zero_mask.any():
-        result[zero_mask] = query_coords[zero_mask]
-    return result
 
 
 # =============================================================================
@@ -553,6 +682,8 @@ def _transform_coordinates(
 def register_slices(
     adata_list: list["ad.AnnData"],
     params: Optional[RegistrationParameters] = None,
+    *,
+    ctx: Optional["ToolContext"] = None,
 ) -> list["ad.AnnData"]:
     """
     Register multiple spatial transcriptomics slices.
@@ -574,11 +705,24 @@ def register_slices(
     spatial_key = _validate_spatial_coords(adata_list)
 
     if params.method == "paste":
-        return _register_paste(adata_list, params, spatial_key)
-    elif params.method == "stalign":
-        return _register_stalign(adata_list, params, spatial_key)
-    else:
-        raise ParameterError(f"Unknown method: {params.method}")
+        pst = require("paste", ctx, feature="PASTE spatial registration")
+        return _register_paste(adata_list, params, spatial_key, pst=pst)
+    if params.method == "stalign":
+        stalign_module = require_module(
+            "stalign",
+            "STalign.STalign",
+            ctx,
+            feature="STalign spatial registration",
+        )
+        torch_module = require("torch", ctx, feature="STalign spatial registration")
+        return _register_stalign(
+            adata_list,
+            params,
+            spatial_key,
+            stalign_module=stalign_module,
+            torch_module=torch_module,
+        )
+    raise ParameterError(f"Unknown method: {params.method}")
 
 
 # =============================================================================
@@ -607,18 +751,19 @@ async def register_spatial_slices_mcp(
     if params is None:
         params = RegistrationParameters()
 
-    # Check dependencies
-    if params.method == "paste":
-        require("paste", ctx, feature="PASTE spatial registration")
-    elif params.method == "stalign":
-        require("STalign", ctx, feature="STalign spatial registration")
+    if params.method not in {"paste", "stalign"}:
+        raise ParameterError(f"Unknown method: {params.method}")
 
     # Get data
     source_adata = await ctx.get_adata(source_id)
     target_adata = await ctx.get_adata(target_id)
 
     try:
-        registered = register_slices([source_adata, target_adata], params)
+        registered = register_slices(
+            [source_adata, target_adata],
+            params,
+            ctx=ctx,
+        )
 
         # Copy registered coordinates back (in-place modification)
         if "spatial_registered" in registered[0].obsm:
@@ -696,5 +841,7 @@ async def register_spatial_slices_mcp(
 
         return result
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"Registration failed: {e}") from e

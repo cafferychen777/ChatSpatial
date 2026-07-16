@@ -17,7 +17,7 @@ from ..utils.adata_utils import (
     store_analysis_metadata,
     to_dense,
 )
-from ..utils.dependency_manager import require
+from ..utils.dependency_manager import require_module
 from ..utils.exceptions import (
     DataError,
     ParameterError,
@@ -474,10 +474,20 @@ async def _run_pydeseq2(
             "sample_key='sample')"
         )
 
-    # Import pydeseq2 after validating the optional backend.
-    require("pydeseq2", ctx, feature="DESeq2 differential expression")
-    from pydeseq2.dds import DeseqDataSet
-    from pydeseq2.ds import DeseqStats
+    dds = require_module(
+        "pydeseq2",
+        "pydeseq2.dds",
+        ctx,
+        feature="DESeq2 differential expression",
+    )
+    ds = require_module(
+        "pydeseq2",
+        "pydeseq2.ds",
+        ctx,
+        feature="DESeq2 differential expression",
+    )
+    DeseqDataSet = dds.DeseqDataSet
+    DeseqStats = ds.DeseqStats
 
     # Get data
     adata = await ctx.get_adata(data_id)

@@ -39,7 +39,13 @@ async def test_compare_conditions_rejects_missing_condition_value(
     adata.obs["sample"] = ["s1"] * 15 + ["s2"] * 15 + ["s3"] * 15 + ["s4"] * 15
     ctx = DummyCtx(adata)
 
-    monkeypatch.setattr(cc_module, "require", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        cc_module,
+        "require_module",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("dependency should load only after input validation")
+        ),
+    )
 
     params = ConditionComparisonParameters(
         condition_key="condition",
@@ -60,8 +66,6 @@ async def test_compare_conditions_uses_global_branch_and_returns_contract(
     adata.obs["condition"] = ["treated"] * 30 + ["control"] * 30
     adata.obs["sample"] = ["s1"] * 15 + ["s2"] * 15 + ["s3"] * 15 + ["s4"] * 15
     ctx = DummyCtx(adata)
-
-    monkeypatch.setattr(cc_module, "require", lambda *args, **kwargs: None)
 
     class _RawStub:
         def __init__(self, X, var_names):

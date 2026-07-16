@@ -15,6 +15,7 @@ from chatspatial.tools import differential as differential_mod
 from chatspatial.tools.differential import _run_pydeseq2, differential_expression
 from chatspatial.utils.exceptions import (
     DataError,
+    DependencyError,
     ParameterError,
     ProcessingError,
 )
@@ -216,6 +217,24 @@ async def test_differential_specific_group_warns_on_missing_genes(monkeypatch: p
     assert any("genes not found in raw data" in msg for msg in ctx.warnings)
 
 
+def _patch_pydeseq2_modules(
+    monkeypatch: pytest.MonkeyPatch,
+    dds_module=None,
+    ds_module=None,
+):
+    dds_module = dds_module or SimpleNamespace(DeseqDataSet=object)
+    ds_module = ds_module or SimpleNamespace(DeseqStats=object)
+    modules = {
+        "pydeseq2.dds": dds_module,
+        "pydeseq2.ds": ds_module,
+    }
+    monkeypatch.setattr(
+        differential_mod,
+        "require_module",
+        lambda _name, module_name, *_args, **_kwargs: modules[module_name],
+    )
+
+
 def _install_fake_pydeseq2(monkeypatch: pytest.MonkeyPatch, results_df, captured: dict[str, object]):
     from types import ModuleType
 
@@ -246,6 +265,7 @@ def _install_fake_pydeseq2(monkeypatch: pytest.MonkeyPatch, results_df, captured
     monkeypatch.setitem(__import__("sys").modules, "pydeseq2", m_pkg)
     monkeypatch.setitem(__import__("sys").modules, "pydeseq2.dds", m_dds)
     monkeypatch.setitem(__import__("sys").modules, "pydeseq2.ds", m_ds)
+    _patch_pydeseq2_modules(monkeypatch, m_dds, m_ds)
 
 
 
@@ -273,6 +293,27 @@ def _make_pydeseq2_adata() -> AnnData:
 
 
 @pytest.mark.asyncio
+async def test_run_pydeseq2_preserves_managed_submodule_error(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def _missing_submodule(*_args, **_kwargs):
+        raise DependencyError("pydeseq2.dds is unavailable")
+
+    monkeypatch.setattr(differential_mod, "require_module", _missing_submodule)
+
+    with pytest.raises(DependencyError, match="pydeseq2.dds is unavailable"):
+        await _run_pydeseq2(
+            "d_missing",
+            DummyCtx(_make_pydeseq2_adata()),
+            DifferentialExpressionParameters(
+                group_key="cluster",
+                method="pydeseq2",
+                sample_key="sample",
+            ),
+        )
+
+
+@pytest.mark.asyncio
 async def test_run_pydeseq2_success_auto_group_selection_and_persistence(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -292,7 +333,6 @@ async def test_run_pydeseq2_success_auto_group_selection_and_persistence(
 
     _install_fake_pydeseq2(monkeypatch, results_df, captured)
 
-    monkeypatch.setattr(differential_mod, "require", lambda *_a, **_k: None)
     monkeypatch.setattr(
         differential_mod,
         "get_raw_data_source",
@@ -340,7 +380,6 @@ async def test_run_pydeseq2_warns_for_non_integer_counts(monkeypatch: pytest.Mon
     )
     _install_fake_pydeseq2(monkeypatch, results_df, captured)
 
-    monkeypatch.setattr(differential_mod, "require", lambda *_a, **_k: None)
     monkeypatch.setattr(
         differential_mod,
         "get_raw_data_source",
@@ -372,7 +411,7 @@ async def test_run_pydeseq2_rejects_insufficient_total_pseudobulk_samples(
     adata.obs["sample"] = "s1"  # only two pseudobulk samples: s1_A, s1_B
     ctx = DummyCtx(adata)
 
-    monkeypatch.setattr(differential_mod, "require", lambda *_a, **_k: None)
+    _patch_pydeseq2_modules(monkeypatch)
     monkeypatch.setattr(
         differential_mod,
         "get_raw_data_source",
@@ -407,7 +446,7 @@ async def test_run_pydeseq2_rejects_condition_with_single_sample(
     adata.obs["sample"] = ["s1", "s1", "s2", "s3"]
     ctx = DummyCtx(adata)
 
-    monkeypatch.setattr(differential_mod, "require", lambda *_a, **_k: None)
+    _patch_pydeseq2_modules(monkeypatch)
     monkeypatch.setattr(
         differential_mod,
         "get_raw_data_source",
@@ -677,7 +716,7 @@ async def test_run_pydeseq2_rejects_single_unique_group_when_group1_not_provided
     adata.obs["cluster"] = ["A"] * adata.n_obs
     ctx = DummyCtx(adata)
 
-    monkeypatch.setattr(differential_mod, "require", lambda *_a, **_k: None)
+    _patch_pydeseq2_modules(monkeypatch)
     monkeypatch.setattr(
         differential_mod,
         "get_raw_data_source",
@@ -709,7 +748,6 @@ async def test_run_pydeseq2_group1_vs_rest_path(
     )
     _install_fake_pydeseq2(monkeypatch, results_df, captured)
 
-    monkeypatch.setattr(differential_mod, "require", lambda *_a, **_k: None)
     monkeypatch.setattr(
         differential_mod,
         "get_raw_data_source",
@@ -767,7 +805,7 @@ async def test_run_pydeseq2_wraps_runtime_failure_as_processing_error(
     monkeypatch.setitem(__import__("sys").modules, "pydeseq2.dds", m_dds)
     monkeypatch.setitem(__import__("sys").modules, "pydeseq2.ds", m_ds)
 
-    monkeypatch.setattr(differential_mod, "require", lambda *_a, **_k: None)
+    _patch_pydeseq2_modules(monkeypatch, m_dds, m_ds)
     monkeypatch.setattr(
         differential_mod,
         "get_raw_data_source",
@@ -800,7 +838,6 @@ async def test_run_pydeseq2_raises_when_no_top_genes_after_dropna(
     )
     _install_fake_pydeseq2(monkeypatch, results_df, captured)
 
-    monkeypatch.setattr(differential_mod, "require", lambda *_a, **_k: None)
     monkeypatch.setattr(
         differential_mod,
         "get_raw_data_source",

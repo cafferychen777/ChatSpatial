@@ -11,6 +11,7 @@ import pytest
 
 from chatspatial.models.data import SpatialVariableGenesParameters
 from chatspatial.tools import spatial_genes as sg
+from chatspatial.utils.dependency_manager import REnvironment
 from chatspatial.utils.exceptions import (
     DataError,
     DataNotFoundError,
@@ -26,6 +27,15 @@ def _required_module(name: str, *_args, **_kwargs):
         "naivede": "NaiveDE",
     }.get(name, name)
     return sys.modules.get(module_name, object())
+
+
+@pytest.fixture(autouse=True)
+def _resolve_fake_dependency_submodules(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        sg,
+        "require_module",
+        lambda _name, module_name, *_args, **_kwargs: sys.modules[module_name],
+    )
 
 
 class DummyCtx:
@@ -81,10 +91,23 @@ def _install_fake_rpy2(monkeypatch: pytest.MonkeyPatch) -> None:
         __import__("sys").modules, "rpy2.rinterface_lib", fake_rinterface_lib
     )
 
+    environment = REnvironment(
+        robjects=fake_ro,
+        pandas2ri=SimpleNamespace(converter=object()),
+        numpy2ri=SimpleNamespace(converter=object()),
+        packages=fake_packages,
+        conversion=fake_conversion,
+        openrlib=fake_rinterface_lib.openrlib,
+        anndata2ri=None,
+    )
+    monkeypatch.setattr(
+        sg,
+        "validate_r_environment",
+        lambda *_args, **_kwargs: environment,
+    )
 
-def _install_fake_rpy2_runtime(
-    monkeypatch: pytest.MonkeyPatch, spark_factory
-) -> None:
+
+def _install_fake_rpy2_runtime(monkeypatch: pytest.MonkeyPatch, spark_factory) -> None:
     class _Lock:
         def __enter__(self):
             return self
@@ -158,6 +181,22 @@ def _install_fake_rpy2_runtime(
         __import__("sys").modules, "rpy2.rinterface_lib", fake_rinterface_lib
     )
 
+    environment = REnvironment(
+        robjects=fake_ro,
+        pandas2ri=SimpleNamespace(converter=object()),
+        numpy2ri=SimpleNamespace(converter=object()),
+        packages=fake_packages,
+        conversion=fake_conversion,
+        openrlib=fake_rinterface_lib.openrlib,
+        anndata2ri=None,
+        loaded_packages={"SPARK": spark_factory()},
+    )
+    monkeypatch.setattr(
+        sg,
+        "validate_r_environment",
+        lambda *_args, **_kwargs: environment,
+    )
+
 
 @pytest.mark.asyncio
 async def test_spatialde_applies_compatibility_patch_before_import(
@@ -207,7 +246,9 @@ async def test_spatialde_success_stores_var_outputs_and_metadata(
 
     monkeypatch.setitem(__import__("sys").modules, "NaiveDE", fake_naivede)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE", fake_spatialde)
-    monkeypatch.setitem(__import__("sys").modules, "SpatialDE.util", fake_spatialde_util)
+    monkeypatch.setitem(
+        __import__("sys").modules, "SpatialDE.util", fake_spatialde_util
+    )
 
     monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
@@ -403,8 +444,6 @@ async def test_sparkx_raises_when_no_hvgs_found(minimal_spatial_adata, monkeypat
 async def test_sparkx_missing_r_package_raises_dependency_error(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import sys
-
     adata = minimal_spatial_adata.copy()
     _install_fake_rpy2(monkeypatch)
     monkeypatch.setattr(sg, "require", _required_module)
@@ -418,18 +457,21 @@ async def test_sparkx_missing_r_package_raises_dependency_error(
         ),
     )
 
-    fake_packages = sys.modules["rpy2.robjects.packages"]
+    monkeypatch.setattr(
+        sg,
+        "validate_r_environment",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            DependencyError("R package 'SPARK' not installed")
+        ),
+    )
 
-    def _raise_importr(_name):
-        raise RuntimeError("package not found")
-
-    fake_packages.importr = _raise_importr
-
-    with pytest.raises(DependencyError, match="SPARK not installed in R"):
+    with pytest.raises(DependencyError, match="R package 'SPARK' not installed"):
         await sg._identify_spatial_genes_sparkx(
             "d2",
             adata,
-            SpatialVariableGenesParameters(method="sparkx", spatial_key="spatial", test_only_hvg=False),
+            SpatialVariableGenesParameters(
+                method="sparkx", spatial_key="spatial", test_only_hvg=False
+            ),
             DummyCtx(),
         )
 
@@ -462,7 +504,9 @@ async def test_spatialde_warns_for_large_gene_set_runtime(
 
     monkeypatch.setitem(__import__("sys").modules, "NaiveDE", fake_naivede)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE", fake_spatialde)
-    monkeypatch.setitem(__import__("sys").modules, "SpatialDE.util", fake_spatialde_util)
+    monkeypatch.setitem(
+        __import__("sys").modules, "SpatialDE.util", fake_spatialde_util
+    )
 
     monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
@@ -533,7 +577,9 @@ async def test_spatialde_prefers_hvgs_and_passes_pi0_to_qvalue(
 
     monkeypatch.setitem(__import__("sys").modules, "NaiveDE", fake_naivede)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE", fake_spatialde)
-    monkeypatch.setitem(__import__("sys").modules, "SpatialDE.util", fake_spatialde_util)
+    monkeypatch.setitem(
+        __import__("sys").modules, "SpatialDE.util", fake_spatialde_util
+    )
 
     monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
@@ -581,7 +627,9 @@ async def test_spatialde_falls_back_to_expression_when_hvgs_insufficient(
 ):
     adata = minimal_spatial_adata[:, :5].copy()
     adata.var["highly_variable"] = [True, False, False, False, False]
-    adata.X = np.tile(np.asarray([[10, 9, 8, 1, 0]], dtype=np.float32), (adata.n_obs, 1))
+    adata.X = np.tile(
+        np.asarray([[10, 9, 8, 1, 0]], dtype=np.float32), (adata.n_obs, 1)
+    )
     captured: dict[str, object] = {}
 
     fake_naivede = ModuleType("NaiveDE")
@@ -606,7 +654,9 @@ async def test_spatialde_falls_back_to_expression_when_hvgs_insufficient(
 
     monkeypatch.setitem(__import__("sys").modules, "NaiveDE", fake_naivede)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE", fake_spatialde)
-    monkeypatch.setitem(__import__("sys").modules, "SpatialDE.util", fake_spatialde_util)
+    monkeypatch.setitem(
+        __import__("sys").modules, "SpatialDE.util", fake_spatialde_util
+    )
     monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
         "chatspatial.utils.compat.ensure_spatialde_compat",
@@ -677,7 +727,9 @@ async def test_spatialde_selects_by_expression_without_hvg_column(
 
     monkeypatch.setitem(__import__("sys").modules, "NaiveDE", fake_naivede)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE", fake_spatialde)
-    monkeypatch.setitem(__import__("sys").modules, "SpatialDE.util", fake_spatialde_util)
+    monkeypatch.setitem(
+        __import__("sys").modules, "SpatialDE.util", fake_spatialde_util
+    )
     monkeypatch.setattr(sg, "require", _required_module)
     monkeypatch.setattr(
         "chatspatial.utils.compat.ensure_spatialde_compat",
@@ -949,7 +1001,11 @@ async def test_sparkx_hvg_no_overlap_raises_data_error(
     ("res_mtest", "is_dataframe", "error_match"),
     [
         (None, True, "returned None for res_mtest"),
-        ({"combinedPval": [0.01], "adjustedPval": [0.02]}, False, "output format error"),
+        (
+            {"combinedPval": [0.01], "adjustedPval": [0.02]},
+            False,
+            "output format error",
+        ),
         ({"adjustedPval": [0.02]}, True, "missing 'combinedPval'"),
         ({"combinedPval": [0.01]}, True, "missing 'adjustedPval'"),
     ],

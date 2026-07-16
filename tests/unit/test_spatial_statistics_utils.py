@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
@@ -15,7 +16,9 @@ from chatspatial.tools.spatial_statistics import (
     _extract_result_summary,
 )
 from chatspatial.utils.exceptions import (
+    DataCompatibilityError,
     DataNotFoundError,
+    DependencyError,
     ParameterError,
     ProcessingError,
 )
@@ -33,6 +36,28 @@ class DummyCtx:
 
     async def info(self, _msg: str):
         return None
+
+
+def _required_dependency(name: str, *_args, **_kwargs):
+    return __import__("sys").modules.get(name) or importlib.import_module(name)
+
+
+def _patch_required_modules(
+    monkeypatch: pytest.MonkeyPatch,
+    modules: dict[str, object],
+) -> None:
+    def _require_module(
+        _dependency_name: str,
+        module_name: str,
+        *_args,
+        **_kwargs,
+    ):
+        try:
+            return modules[module_name]
+        except KeyError as exc:
+            raise AssertionError(f"Unexpected module request: {module_name}") from exc
+
+    monkeypatch.setattr(ss, "require_module", _require_module)
 
 
 def test_build_results_keys_neighborhood_uses_cluster_dynamic_uns_key():
@@ -442,20 +467,12 @@ def test_analyze_join_count_preserves_parameter_error_for_non_binary_clusters(
     adata = minimal_spatial_adata.copy()
     adata.obs["cluster3"] = pd.Categorical(["a"] * 20 + ["b"] * 20 + ["c"] * 20)
 
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(ss, "require_spatial_coords", lambda a: a.obsm["spatial"])
-
-    fake_esda_join_counts = ModuleType("esda.join_counts")
-    fake_esda_join_counts.Join_Counts = object
-    fake_libpysal_weights = ModuleType("libpysal.weights")
-    fake_libpysal_weights.KNN = SimpleNamespace(
-        from_array=lambda *_args, **_kwargs: object()
-    )
-    monkeypatch.setitem(
-        __import__("sys").modules, "esda.join_counts", fake_esda_join_counts
-    )
-    monkeypatch.setitem(
-        __import__("sys").modules, "libpysal.weights", fake_libpysal_weights
+    monkeypatch.setattr(
+        ss,
+        "require_module",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Dependencies should not load before category validation")
+        ),
     )
 
     with pytest.raises(ParameterError, match="requires binary data"):
@@ -625,7 +642,6 @@ def test_analyze_getis_ord_fdr_branch_adds_corrected_pvalues(
 ):
     adata = minimal_spatial_adata.copy()
 
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         ss,
         "select_genes_for_analysis",
@@ -646,13 +662,17 @@ def test_analyze_getis_ord_fdr_branch_adds_corrected_pvalues(
         def __init__(self):
             self.transform = None
 
-    fake_pysal_lib = ModuleType("pysal.lib")
-    fake_pysal_lib.weights = SimpleNamespace(
-        KNN=SimpleNamespace(from_array=lambda *_args, **_kwargs: _KNNObj())
+    fake_libpysal_weights = ModuleType("libpysal.weights")
+    fake_libpysal_weights.KNN = SimpleNamespace(
+        from_array=lambda *_args, **_kwargs: _KNNObj()
     )
-
-    monkeypatch.setitem(__import__("sys").modules, "esda.getisord", fake_esda_getisord)
-    monkeypatch.setitem(__import__("sys").modules, "pysal.lib", fake_pysal_lib)
+    _patch_required_modules(
+        monkeypatch,
+        {
+            "esda.getisord": fake_esda_getisord,
+            "libpysal.weights": fake_libpysal_weights,
+        },
+    )
 
     params = SpatialStatisticsParameters(
         analysis_type="getis_ord",
@@ -676,8 +696,6 @@ def test_analyze_bivariate_moran_computes_and_persists_results(
     from scipy.sparse import csr_matrix
 
     adata = minimal_spatial_adata.copy()
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
-
     n = adata.n_obs
     dense_w = np.ones((n, n), dtype=float)
     np.fill_diagonal(dense_w, 0.0)
@@ -688,9 +706,7 @@ def test_analyze_bivariate_moran_computes_and_persists_results(
             sparse=csr_matrix(dense_w), transform=None
         )
     )
-    monkeypatch.setitem(
-        __import__("sys").modules, "libpysal.weights", fake_libpysal_weights
-    )
+    _patch_required_modules(monkeypatch, {"libpysal.weights": fake_libpysal_weights})
 
     params = SpatialStatisticsParameters(
         analysis_type="bivariate_moran",
@@ -722,7 +738,7 @@ def test_analyze_network_properties_disconnected_component_branch(
         conn[i + 1, i] = 1.0
     adata.obsp["spatial_connectivities"] = csr_matrix(conn)
 
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ss, "require", _required_dependency)
 
     out = ss._analyze_network_properties(
         adata,
@@ -749,8 +765,6 @@ def test_analyze_spatial_centrality_handles_missing_node_keys(
     adata.obs["group"] = pd.Categorical(["a"] * 30 + ["b"] * 30)
     adata.obsp["spatial_connectivities"] = eye(adata.n_obs, format="csr")
 
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
-
     fake_nx = ModuleType("networkx")
     fake_nx.from_scipy_sparse_array = lambda _arr: object()
     fake_nx.degree_centrality = lambda _g: {0: 1.0}  # missing all other nodes
@@ -758,6 +772,7 @@ def test_analyze_spatial_centrality_handles_missing_node_keys(
     fake_nx.betweenness_centrality = lambda _g: {0: 0.2}
 
     monkeypatch.setitem(__import__("sys").modules, "networkx", fake_nx)
+    monkeypatch.setattr(ss, "require", _required_dependency)
 
     with pytest.warns(UserWarning, match="Centrality computation incomplete"):
         out = ss._analyze_spatial_centrality(
@@ -1070,7 +1085,6 @@ def test_analyze_getis_ord_bonferroni_branch_adds_corrected_columns(
 ):
     adata = minimal_spatial_adata.copy()
 
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         ss,
         "select_genes_for_analysis",
@@ -1091,13 +1105,17 @@ def test_analyze_getis_ord_bonferroni_branch_adds_corrected_columns(
         def __init__(self):
             self.transform = None
 
-    fake_pysal_lib = ModuleType("pysal.lib")
-    fake_pysal_lib.weights = SimpleNamespace(
-        KNN=SimpleNamespace(from_array=lambda *_args, **_kwargs: _KNNObj())
+    fake_libpysal_weights = ModuleType("libpysal.weights")
+    fake_libpysal_weights.KNN = SimpleNamespace(
+        from_array=lambda *_args, **_kwargs: _KNNObj()
     )
-
-    monkeypatch.setitem(__import__("sys").modules, "esda.getisord", fake_esda_getisord)
-    monkeypatch.setitem(__import__("sys").modules, "pysal.lib", fake_pysal_lib)
+    _patch_required_modules(
+        monkeypatch,
+        {
+            "esda.getisord": fake_esda_getisord,
+            "libpysal.weights": fake_libpysal_weights,
+        },
+    )
 
     params = SpatialStatisticsParameters(
         analysis_type="getis_ord",
@@ -1120,7 +1138,6 @@ def test_analyze_getis_ord_wraps_runtime_errors(
 ):
     adata = minimal_spatial_adata.copy()
 
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         ss, "select_genes_for_analysis", lambda *_args, **_kwargs: ["gene_0"]
     )
@@ -1131,14 +1148,17 @@ def test_analyze_getis_ord_wraps_runtime_errors(
 
     fake_esda_getisord = ModuleType("esda.getisord")
     fake_esda_getisord.G_Local = _BrokenGLocal
-    fake_pysal_lib = ModuleType("pysal.lib")
-    fake_pysal_lib.weights = SimpleNamespace(
-        KNN=SimpleNamespace(
-            from_array=lambda *_args, **_kwargs: SimpleNamespace(transform=None)
-        )
+    fake_libpysal_weights = ModuleType("libpysal.weights")
+    fake_libpysal_weights.KNN = SimpleNamespace(
+        from_array=lambda *_args, **_kwargs: SimpleNamespace(transform=None)
     )
-    monkeypatch.setitem(__import__("sys").modules, "esda.getisord", fake_esda_getisord)
-    monkeypatch.setitem(__import__("sys").modules, "pysal.lib", fake_pysal_lib)
+    _patch_required_modules(
+        monkeypatch,
+        {
+            "esda.getisord": fake_esda_getisord,
+            "libpysal.weights": fake_libpysal_weights,
+        },
+    )
 
     with pytest.raises(ProcessingError, match="Getis-Ord analysis failed"):
         ss._analyze_getis_ord(
@@ -1203,8 +1223,6 @@ def test_analyze_bivariate_moran_requires_gene_pairs_and_handles_zero_variance(
     adata = minimal_spatial_adata.copy()
     adata.X[:, 0] = 1.0
     adata.X[:, 1] = 1.0
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
-
     with pytest.raises(ParameterError, match="requires gene_pairs"):
         ss._analyze_bivariate_moran(
             adata,
@@ -1223,9 +1241,7 @@ def test_analyze_bivariate_moran_requires_gene_pairs_and_handles_zero_variance(
             sparse=csr_matrix(dense_w), transform=None
         )
     )
-    monkeypatch.setitem(
-        __import__("sys").modules, "libpysal.weights", fake_libpysal_weights
-    )
+    _patch_required_modules(monkeypatch, {"libpysal.weights": fake_libpysal_weights})
 
     out = ss._analyze_bivariate_moran(
         adata,
@@ -1243,7 +1259,10 @@ def test_analyze_bivariate_moran_wraps_internal_errors(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
+    _patch_required_modules(
+        monkeypatch,
+        {"libpysal.weights": ModuleType("libpysal.weights")},
+    )
     monkeypatch.setattr(
         ss,
         "require_spatial_coords",
@@ -1264,13 +1283,92 @@ def test_analyze_bivariate_moran_wraps_internal_errors(
         )
 
 
+@pytest.mark.parametrize(
+    "analysis_type",
+    [
+        "getis_ord",
+        "bivariate_moran",
+        "join_count",
+        "local_join_count",
+        "network_properties",
+        "spatial_centrality",
+    ],
+)
+def test_spatial_helpers_preserve_coordinate_domain_errors(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, analysis_type
+):
+    adata = minimal_spatial_adata.copy()
+    adata.obs["binary"] = pd.Categorical(["A"] * 30 + ["B"] * 30)
+    adata.obs["celltype"] = pd.Categorical(["A"] * 20 + ["B"] * 40)
+    adata.obs["group"] = pd.Categorical(["A"] * 30 + ["B"] * 30)
+    adata.obsp.pop("spatial_connectivities", None)
+
+    monkeypatch.setattr(
+        ss, "require_module", lambda *_args, **_kwargs: SimpleNamespace()
+    )
+    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: SimpleNamespace())
+    monkeypatch.setattr(
+        ss,
+        "select_genes_for_analysis",
+        lambda *_args, **_kwargs: ["gene_0"],
+    )
+    monkeypatch.setattr(
+        ss,
+        "require_spatial_coords",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            DataCompatibilityError("coordinates are invalid")
+        ),
+    )
+
+    cases = {
+        "getis_ord": (
+            ss._analyze_getis_ord,
+            SpatialStatisticsParameters(analysis_type="getis_ord", genes=["gene_0"]),
+        ),
+        "bivariate_moran": (
+            ss._analyze_bivariate_moran,
+            SpatialStatisticsParameters(
+                analysis_type="bivariate_moran",
+                gene_pairs=[("gene_0", "gene_1")],
+            ),
+        ),
+        "join_count": (
+            ss._analyze_join_count,
+            SpatialStatisticsParameters(
+                analysis_type="join_count", cluster_key="binary"
+            ),
+        ),
+        "local_join_count": (
+            ss._analyze_local_join_count,
+            SpatialStatisticsParameters(
+                analysis_type="local_join_count", cluster_key="celltype"
+            ),
+        ),
+        "network_properties": (
+            ss._analyze_network_properties,
+            SpatialStatisticsParameters(
+                analysis_type="network_properties", cluster_key="group"
+            ),
+        ),
+        "spatial_centrality": (
+            ss._analyze_spatial_centrality,
+            SpatialStatisticsParameters(
+                analysis_type="spatial_centrality", cluster_key="group"
+            ),
+        ),
+    }
+    analysis, params = cases[analysis_type]
+
+    with pytest.raises(DataCompatibilityError, match="coordinates are invalid"):
+        analysis(adata, params, DummyCtx(adata))
+
+
 def test_analyze_join_count_success_and_wraps_runtime_error(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["binary"] = pd.Categorical(["x"] * 30 + ["y"] * 30)
 
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(ss, "require_spatial_coords", lambda a: a.obsm["spatial"])
 
     class _FakeJoinCounts:
@@ -1288,11 +1386,12 @@ def test_analyze_join_count_success_and_wraps_runtime_error(
     fake_libpysal_weights.KNN = SimpleNamespace(
         from_array=lambda *_args, **_kwargs: object()
     )
-    monkeypatch.setitem(
-        __import__("sys").modules, "esda.join_counts", fake_esda_join_counts
-    )
-    monkeypatch.setitem(
-        __import__("sys").modules, "libpysal.weights", fake_libpysal_weights
+    _patch_required_modules(
+        monkeypatch,
+        {
+            "esda.join_counts": fake_esda_join_counts,
+            "libpysal.weights": fake_libpysal_weights,
+        },
     )
 
     jc_params = SpatialStatisticsParameters(
@@ -1316,7 +1415,6 @@ def test_analyze_local_join_count_success_and_failure_paths(
     adata = minimal_spatial_adata.copy()
     adata.obs["celltype"] = pd.Categorical(["A"] * 20 + ["B"] * 20 + ["C"] * 20)
 
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(ss, "require_spatial_coords", lambda a: a.obsm["spatial"])
 
     class _FakeLJC:
@@ -1336,11 +1434,12 @@ def test_analyze_local_join_count_success_and_failure_paths(
     fake_libpysal_weights.KNN = SimpleNamespace(
         from_array=lambda *_args, **_kwargs: object()
     )
-    monkeypatch.setitem(
-        __import__("sys").modules, "esda.join_counts_local", fake_esda_ljc
-    )
-    monkeypatch.setitem(
-        __import__("sys").modules, "libpysal.weights", fake_libpysal_weights
+    _patch_required_modules(
+        monkeypatch,
+        {
+            "esda.join_counts_local": fake_esda_ljc,
+            "libpysal.weights": fake_libpysal_weights,
+        },
     )
 
     ljc_params = SpatialStatisticsParameters(
@@ -1373,7 +1472,7 @@ def test_analyze_network_properties_connected_fallback_and_avg_clustering_guard(
     adata = minimal_spatial_adata.copy()
     adata.obsp.pop("spatial_connectivities", None)
 
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: nx)
     monkeypatch.setattr(
         nx,
         "average_clustering",
@@ -1405,14 +1504,12 @@ def test_analyze_spatial_centrality_fallback_kneighbors_graph_path(
     adata.obsp.pop("spatial_connectivities", None)
     n_nodes = adata.n_obs
 
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
-
     fake_nx = ModuleType("networkx")
     fake_nx.from_scipy_sparse_array = lambda _arr: object()
     fake_nx.degree_centrality = lambda _g: {i: 0.1 for i in range(n_nodes)}
     fake_nx.closeness_centrality = lambda _g: {i: 0.2 for i in range(n_nodes)}
     fake_nx.betweenness_centrality = lambda _g: {i: 0.3 for i in range(n_nodes)}
-    monkeypatch.setitem(__import__("sys").modules, "networkx", fake_nx)
+    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: fake_nx)
 
     fake_sklearn_neighbors = ModuleType("sklearn.neighbors")
     fake_sklearn_neighbors.kneighbors_graph = lambda *_args, **_kwargs: eye(
@@ -1447,7 +1544,6 @@ def test_analyze_local_moran_success_with_fdr_and_persists_obs_uns(
     adata = minimal_spatial_adata.copy()
     adata.obsp["spatial_connectivities"] = csr_matrix(np.eye(adata.n_obs))
 
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         ss, "select_genes_for_analysis", lambda *_args, **_kwargs: ["gene_0"]
     )
@@ -1470,22 +1566,20 @@ def test_analyze_local_moran_success_with_fdr_and_persists_obs_uns(
     fake_libpysal_weights = ModuleType("libpysal.weights")
     fake_libpysal_weights.W = _FakePySALWeights
 
-    fake_statsmodels_multitest = ModuleType("statsmodels.stats.multitest")
-    fake_statsmodels_multitest.multipletests = lambda p_values, alpha, method: (
-        np.asarray(p_values) < alpha,
-        np.asarray(p_values) * 0.5,
-        alpha,
-        alpha,
+    _patch_required_modules(
+        monkeypatch,
+        {
+            "esda.moran": fake_esda_moran,
+            "libpysal.weights": fake_libpysal_weights,
+        },
     )
-
-    monkeypatch.setitem(__import__("sys").modules, "esda.moran", fake_esda_moran)
-    monkeypatch.setitem(
-        __import__("sys").modules, "libpysal.weights", fake_libpysal_weights
-    )
-    monkeypatch.setitem(
-        __import__("sys").modules,
-        "statsmodels.stats.multitest",
-        fake_statsmodels_multitest,
+    monkeypatch.setattr(
+        ss,
+        "adjust_pvalues",
+        lambda p_values, **_kwargs: (
+            np.asarray(p_values) < 0.05,
+            np.asarray(p_values) * 0.5,
+        ),
     )
 
     out = ss._analyze_local_moran(
@@ -1516,7 +1610,6 @@ def test_analyze_local_moran_dense_connectivity_and_no_fdr_branch(
     adata = minimal_spatial_adata.copy()
     adata.obsp["spatial_connectivities"] = np.eye(adata.n_obs, dtype=float)
 
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         ss, "select_genes_for_analysis", lambda *_args, **_kwargs: ["gene_0"]
     )
@@ -1538,9 +1631,12 @@ def test_analyze_local_moran_dense_connectivity_and_no_fdr_branch(
     fake_esda_moran.Moran_Local = _FakeMoranLocal
     fake_libpysal_weights = ModuleType("libpysal.weights")
     fake_libpysal_weights.W = _FakePySALWeights
-    monkeypatch.setitem(__import__("sys").modules, "esda.moran", fake_esda_moran)
-    monkeypatch.setitem(
-        __import__("sys").modules, "libpysal.weights", fake_libpysal_weights
+    _patch_required_modules(
+        monkeypatch,
+        {
+            "esda.moran": fake_esda_moran,
+            "libpysal.weights": fake_libpysal_weights,
+        },
     )
 
     out = ss._analyze_local_moran(
@@ -1561,6 +1657,57 @@ def test_analyze_local_moran_dense_connectivity_and_no_fdr_branch(
     assert "gene_0_lisa_cluster" in adata.obs.columns
 
 
+def test_analyze_local_moran_preserves_fdr_dependency_error(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    from scipy.sparse import csr_matrix
+
+    adata = minimal_spatial_adata.copy()
+    adata.obsp["spatial_connectivities"] = csr_matrix(np.eye(adata.n_obs))
+
+    class _FakePySALWeights:
+        def __init__(self, _neighbors, _weights):
+            pass
+
+    class _FakeMoranLocal:
+        def __init__(self, expr, _weights, permutations):
+            del permutations
+            n = len(expr)
+            self.Is = np.zeros(n)
+            self.p_sim = np.full(n, 0.1)
+            self.q = np.ones(n, dtype=int)
+
+    fake_moran = ModuleType("esda.moran")
+    fake_moran.Moran_Local = _FakeMoranLocal
+    fake_weights = ModuleType("libpysal.weights")
+    fake_weights.W = _FakePySALWeights
+
+    def _require_module(_dependency, module_name, *_args, **_kwargs):
+        if module_name == "esda.moran":
+            return fake_moran
+        if module_name == "libpysal.weights":
+            return fake_weights
+        raise AssertionError(f"Unexpected module request: {module_name}")
+
+    def _raise_dependency_error(*_args, **_kwargs):
+        raise DependencyError("statsmodels submodule is broken")
+
+    monkeypatch.setattr(ss, "require_module", _require_module)
+    monkeypatch.setattr(ss, "adjust_pvalues", _raise_dependency_error)
+
+    with pytest.raises(DependencyError, match="statsmodels submodule is broken"):
+        ss._analyze_local_moran(
+            adata,
+            SpatialStatisticsParameters(
+                analysis_type="local_moran",
+                genes=["gene_0"],
+                local_moran_permutations=99,
+                local_moran_fdr_correction=True,
+            ),
+            DummyCtx(adata),
+        )
+
+
 def test_analyze_local_moran_wraps_runtime_errors(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
@@ -1569,7 +1716,6 @@ def test_analyze_local_moran_wraps_runtime_errors(
     adata = minimal_spatial_adata.copy()
     adata.obsp["spatial_connectivities"] = csr_matrix(np.eye(adata.n_obs))
 
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         ss, "select_genes_for_analysis", lambda *_args, **_kwargs: ["gene_0"]
     )
@@ -1587,9 +1733,12 @@ def test_analyze_local_moran_wraps_runtime_errors(
     fake_esda_moran.Moran_Local = _BrokenMoranLocal
     fake_libpysal_weights = ModuleType("libpysal.weights")
     fake_libpysal_weights.W = _FakePySALWeights
-    monkeypatch.setitem(__import__("sys").modules, "esda.moran", fake_esda_moran)
-    monkeypatch.setitem(
-        __import__("sys").modules, "libpysal.weights", fake_libpysal_weights
+    _patch_required_modules(
+        monkeypatch,
+        {
+            "esda.moran": fake_esda_moran,
+            "libpysal.weights": fake_libpysal_weights,
+        },
     )
 
     with pytest.raises(
@@ -1597,7 +1746,11 @@ def test_analyze_local_moran_wraps_runtime_errors(
     ):
         ss._analyze_local_moran(
             adata,
-            SpatialStatisticsParameters(analysis_type="local_moran", genes=["gene_0"]),
+            SpatialStatisticsParameters(
+                analysis_type="local_moran",
+                genes=["gene_0"],
+                local_moran_fdr_correction=False,
+            ),
             DummyCtx(adata),
         )
 
@@ -1606,13 +1759,11 @@ def test_analyze_network_properties_wraps_internal_errors(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
-
     fake_nx = ModuleType("networkx")
     fake_nx.from_scipy_sparse_array = lambda *_args, **_kwargs: (_ for _ in ()).throw(
         RuntimeError("graph build failed")
     )
-    monkeypatch.setitem(__import__("sys").modules, "networkx", fake_nx)
+    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: fake_nx)
 
     with pytest.raises(
         ProcessingError, match="Network properties analysis failed: graph build failed"
@@ -1633,8 +1784,6 @@ def test_analyze_spatial_centrality_wraps_internal_errors(
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["group"] = pd.Categorical(["a"] * 30 + ["b"] * 30)
-    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: None)
-
     fake_nx = ModuleType("networkx")
     fake_nx.from_scipy_sparse_array = lambda *_args, **_kwargs: object()
     fake_nx.degree_centrality = lambda *_args, **_kwargs: (_ for _ in ()).throw(
@@ -1642,7 +1791,7 @@ def test_analyze_spatial_centrality_wraps_internal_errors(
     )
     fake_nx.closeness_centrality = lambda *_args, **_kwargs: {}
     fake_nx.betweenness_centrality = lambda *_args, **_kwargs: {}
-    monkeypatch.setitem(__import__("sys").modules, "networkx", fake_nx)
+    monkeypatch.setattr(ss, "require", lambda *_args, **_kwargs: fake_nx)
 
     with pytest.raises(
         ProcessingError, match="Spatial centrality analysis failed: centrality failed"

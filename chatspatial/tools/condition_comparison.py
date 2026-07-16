@@ -27,8 +27,13 @@ from ..utils.adata_utils import (
     shallow_copy_adata,
     store_analysis_metadata,
 )
-from ..utils.dependency_manager import require
-from ..utils.exceptions import DataError, ParameterError, ProcessingError
+from ..utils.dependency_manager import require_module
+from ..utils.exceptions import (
+    DataError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 from ..utils.mcp_utils import suppress_output
 from ..utils.results_export import export_analysis_result
 
@@ -74,9 +79,6 @@ async def compare_conditions(
             cell_type_key="cell_type"
         )
     """
-    # Check pydeseq2 availability early (required for pseudobulk analysis)
-    require("pydeseq2", ctx, feature="Condition comparison with DESeq2")
-
     # Get data
     adata = await ctx.get_adata(data_id)
 
@@ -360,8 +362,18 @@ def _run_deseq2(
         Tuple of (top_upregulated, top_downregulated, n_significant,
         results_df, n_upregulated, n_downregulated)
     """
-    from pydeseq2.dds import DeseqDataSet
-    from pydeseq2.ds import DeseqStats
+    dds = require_module(
+        "pydeseq2",
+        "pydeseq2.dds",
+        feature="Condition comparison with DESeq2",
+    )
+    ds = require_module(
+        "pydeseq2",
+        "pydeseq2.ds",
+        feature="Condition comparison with DESeq2",
+    )
+    DeseqDataSet = dds.DeseqDataSet
+    DeseqStats = ds.DeseqStats
 
     with suppress_output():
         # Create DESeq2 dataset
@@ -417,7 +429,14 @@ def _run_deseq2(
     n_upregulated = len(upregulated)
     n_downregulated = len(downregulated)
 
-    return top_up, top_down, int(n_significant), results_df, n_upregulated, n_downregulated
+    return (
+        top_up,
+        top_down,
+        int(n_significant),
+        results_df,
+        n_upregulated,
+        n_downregulated,
+    )
 
 
 async def _run_global_comparison(
@@ -480,6 +499,8 @@ async def _run_global_comparison(
             padj_threshold=params.padj_threshold,
             log2fc_threshold=params.log2fc_threshold,
         )
+    except DependencyError:
+        raise
     except Exception as e:
         raise ProcessingError(f"DESeq2 analysis failed: {e}") from e
 
@@ -631,6 +652,8 @@ async def _run_stratified_comparison(
                 f"({len(top_up)} up, {len(top_down)} down)"
             )
 
+        except DependencyError:
+            raise
         except Exception as e:
             await ctx.warning(f"Analysis failed for {ct}: {e}")
             continue

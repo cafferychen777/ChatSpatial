@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 import squidpy as sq
 
-from ..utils.dependency_manager import require
+from ..utils.dependency_manager import require, require_module
 
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
@@ -57,6 +57,7 @@ from ..utils.exceptions import (
     ProcessingError,
 )
 from ..utils.results_export import export_analysis_result
+from ..utils.statistics import adjust_pvalues
 
 # ============================================================================
 # ANALYSIS REGISTRY TYPES
@@ -432,7 +433,9 @@ def _summarize_centrality_scores(scores: Any) -> dict[str, Any]:
     else:
         primary_metric = numeric_scores.columns[0]
 
-    primary_scores = numeric_scores[primary_metric].dropna().sort_values(ascending=False)
+    primary_scores = (
+        numeric_scores[primary_metric].dropna().sort_values(ascending=False)
+    )
     top_features = [str(label) for label in primary_scores.index[:10]]
 
     summary_metrics: dict[str, float] = {
@@ -441,9 +444,10 @@ def _summarize_centrality_scores(scores: Any) -> dict[str, Any]:
             float(primary_scores.iloc[0]) if len(primary_scores) else 0.0
         ),
     }
-    metrics = [primary_metric] + [
-        metric for metric in numeric_scores.columns if metric != primary_metric
-    ][:2]
+    metrics = [
+        primary_metric,
+        *[metric for metric in numeric_scores.columns if metric != primary_metric][:2],
+    ]
     for metric in metrics:
         metric_values = numeric_scores[metric].dropna()
         if metric_values.empty:
@@ -477,7 +481,9 @@ def _summarize_bivariate_moran_pairs(
         "notable_abs_i_threshold": float(threshold),
         "max_bivariate_i": float(max(values)) if values else 0.0,
         "min_bivariate_i": float(min(values)) if values else 0.0,
-        "max_abs_bivariate_i": float(max((abs(value) for value in values), default=0.0)),
+        "max_abs_bivariate_i": float(
+            max((abs(value) for value in values), default=0.0)
+        ),
     }
 
     return {
@@ -586,7 +592,9 @@ def _extract_result_summary(
             )
         else:
             total_hot = sum(r.get("n_hot_spots", 0) for r in per_gene_results.values())
-            total_cold = sum(r.get("n_cold_spots", 0) for r in per_gene_results.values())
+            total_cold = sum(
+                r.get("n_cold_spots", 0) for r in per_gene_results.values()
+            )
         summary["n_significant"] = total_hot + total_cold
         summary["summary_metrics"] = {
             "total_hotspots": total_hot,
@@ -631,9 +639,7 @@ def _extract_result_summary(
         # Binary join count - always 2 categories
         summary["n_features_analyzed"] = 2
         alpha_value = result.get("alpha", 0.05)
-        alpha = (
-            float(alpha_value) if isinstance(alpha_value, (int, float)) else 0.05
-        )
+        alpha = float(alpha_value) if isinstance(alpha_value, (int, float)) else 0.05
         p_value = result.get("p_value")
         finite_p_value = (
             float(p_value)
@@ -771,18 +777,13 @@ def _analyze_morans_i(
         results_df = adata.uns[moran_key]
 
         # Apply FDR correction for multiple testing across genes
-        from statsmodels.stats.multitest import multipletests
-
         raw_pvals = results_df["pval_norm"].values
-        nan_mask = np.isnan(raw_pvals)
-        if nan_mask.all():
-            fdr_pvals = np.full_like(raw_pvals, np.nan)
-        elif nan_mask.any():
-            fdr_pvals = np.full_like(raw_pvals, np.nan)
-            valid = ~nan_mask
-            _, fdr_pvals[valid], _, _ = multipletests(raw_pvals[valid], method="fdr_bh")
-        else:
-            _, fdr_pvals, _, _ = multipletests(raw_pvals, method="fdr_bh")
+        _, fdr_pvals = adjust_pvalues(
+            raw_pvals,
+            method="fdr_bh",
+            ctx=ctx,
+            feature="Moran's I gene-level p-value correction",
+        )
         results_df["pval_norm_fdr"] = fdr_pvals
         adata.uns[moran_key] = results_df
 
@@ -844,21 +845,14 @@ def _analyze_gearys_c(
     if geary_key in adata.uns:
         results_df = adata.uns[geary_key]
         if isinstance(results_df, pd.DataFrame):
-            from statsmodels.stats.multitest import multipletests
-
             if "pval_norm" in results_df.columns:
                 raw_pvals = results_df["pval_norm"].values
-                nan_mask = np.isnan(raw_pvals)
-                if nan_mask.all():
-                    fdr_pvals = np.full_like(raw_pvals, np.nan)
-                elif nan_mask.any():
-                    fdr_pvals = np.full_like(raw_pvals, np.nan)
-                    valid = ~nan_mask
-                    _, fdr_pvals[valid], _, _ = multipletests(
-                        raw_pvals[valid], method="fdr_bh"
-                    )
-                else:
-                    _, fdr_pvals, _, _ = multipletests(raw_pvals, method="fdr_bh")
+                _, fdr_pvals = adjust_pvalues(
+                    raw_pvals,
+                    method="fdr_bh",
+                    ctx=ctx,
+                    feature="Geary's C gene-level p-value correction",
+                )
                 results_df["pval_norm_fdr"] = fdr_pvals
                 adata.uns[geary_key] = results_df
 
@@ -867,7 +861,9 @@ def _analyze_gearys_c(
                     results_df["pval_norm_fdr"] < 0.05
                 ].index.tolist()
             elif "pval_norm" in results_df.columns:
-                significant_genes = results_df[results_df["pval_norm"] < 0.05].index.tolist()
+                significant_genes = results_df[
+                    results_df["pval_norm"] < 0.05
+                ].index.tolist()
             else:
                 significant_genes = []
 
@@ -878,10 +874,12 @@ def _analyze_gearys_c(
             return {
                 "n_genes_analyzed": len(genes),
                 "n_significant": len(significant_genes),
-                "top_positive_autocorrelation": results_df.nsmallest(n_top, "C")
-                .index.tolist(),
-                "top_weak_autocorrelation": results_df.nlargest(n_top, "C")
-                .index.tolist(),
+                "top_positive_autocorrelation": results_df.nsmallest(
+                    n_top, "C"
+                ).index.tolist(),
+                "top_weak_autocorrelation": results_df.nlargest(
+                    n_top, "C"
+                ).index.tolist(),
                 "mean_gearys_c": float(results_df["C"].mean()),
                 "min_gearys_c": float(results_df["C"].min()),
                 "max_gearys_c": float(results_df["C"].max()),
@@ -1023,6 +1021,8 @@ def _analyze_ripleys_k(
             "analysis_key": analysis_key,
             "n_clusters": n_clusters,
         }
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"Ripley's K analysis failed: {e}") from e
 
@@ -1061,14 +1061,13 @@ def _analyze_getis_ord(
 
     getis_ord_results = {}
 
-    require("esda")
-    require("libpysal")
-    from esda.getisord import G_Local
-    from pysal.lib import weights
+    getisord = require_module("esda", "esda.getisord", feature="Getis-Ord Gi* analysis")
+    weights = require_module(
+        "libpysal", "libpysal.weights", feature="Getis-Ord Gi* analysis"
+    )
     from scipy.stats import norm
 
     try:
-
         # Calculate Z-score threshold from alpha level (two-tailed test)
         z_threshold = norm.ppf(1 - params.getis_ord_alpha / 2)
 
@@ -1088,7 +1087,7 @@ def _analyze_getis_ord(
             # OPTIMIZATION: Direct indexing from pre-extracted dense matrix (fast!)
             y = y_all_genes[:, i].astype(np.float64)
 
-            local_g = G_Local(y, w, transform="R", star=True)
+            local_g = getisord.G_Local(y, w, transform="R", star=True)
 
             # Collect results (don't assign to obs yet - causes fragmentation)
             all_z_scores[gene] = local_g.Zs
@@ -1137,18 +1136,15 @@ def _analyze_getis_ord(
                     )
 
             elif params.getis_ord_correction == "fdr_bh":
-                from statsmodels.stats.multitest import multipletests
-
                 for gene in genes:
                     p_values = np.asarray(all_pvalues[gene], dtype=float)
-                    valid = np.isfinite(p_values)
-                    p_corrected = np.full_like(p_values, np.nan)
-                    if valid.any():
-                        _, p_corrected[valid], _, _ = multipletests(
-                            p_values[valid],
-                            alpha=params.getis_ord_alpha,
-                            method="fdr_bh",
-                        )
+                    _, p_corrected = adjust_pvalues(
+                        p_values,
+                        alpha=params.getis_ord_alpha,
+                        method="fdr_bh",
+                        ctx=ctx,
+                        feature="Getis-Ord spot-level p-value correction",
+                    )
                     obs_updates[f"{gene}_getis_ord_p_corrected"] = p_corrected
 
                     sig_mask = p_corrected < params.getis_ord_alpha
@@ -1171,6 +1167,8 @@ def _analyze_getis_ord(
         for col in new_cols_df.columns:
             adata.obs[col] = new_cols_df[col]
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"Getis-Ord analysis failed: {e}") from e
 
@@ -1251,14 +1249,13 @@ def _analyze_bivariate_moran(
 
     results = {}
 
-    # Use centralized dependency manager for consistent error handling
-    require("libpysal")
-    from libpysal.weights import KNN
+    weights = require_module(
+        "libpysal", "libpysal.weights", feature="Bivariate Moran's I analysis"
+    )
 
     try:
-
         coords = require_spatial_coords(adata)
-        w = KNN.from_array(coords, k=params.n_neighbors)
+        w = weights.KNN.from_array(coords, k=params.n_neighbors)
         w.transform = "R"
 
         # OPTIMIZATION: Extract all unique genes involved in pairs (batch extraction)
@@ -1309,6 +1306,8 @@ def _analyze_bivariate_moran(
 
                 results[f"{gene1}_vs_{gene2}"] = float(moran_i)
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"Bivariate Moran's I failed: {e}") from e
 
@@ -1369,33 +1368,33 @@ def _analyze_join_count(
         _analyze_local_join_count: For multi-category data (>2 categories).
     """
     cluster_key = params.cluster_key
-    # Check for required dependencies
-    require("esda")
-    require("libpysal")
+
+    # Validate binary data before loading optional spatial-statistics packages.
+    observed = adata.obs[cluster_key].cat.remove_unused_categories()
+    n_categories = len(observed.cat.categories)
+    if n_categories != 2:
+        raise ParameterError(
+            f"Join Count requires binary data (exactly 2 categories). "
+            f"'{cluster_key}' has {n_categories} categories. "
+            f"Use 'local_join_count' for multi-category data."
+        )
+
+    join_counts = require_module(
+        "esda", "esda.join_counts", feature="Join Count analysis"
+    )
+    weights = require_module(
+        "libpysal", "libpysal.weights", feature="Join Count analysis"
+    )
 
     try:
-        from esda.join_counts import Join_Counts
-        from libpysal.weights import KNN
-
         coords = require_spatial_coords(adata)
-        w = KNN.from_array(coords, k=params.n_neighbors)
-
-        # Validate binary data (Join_Counts requires exactly 2 categories)
-        # Use observed categories only — unused categories in the dtype don't count
-        observed = adata.obs[cluster_key].cat.remove_unused_categories()
-        n_categories = len(observed.cat.categories)
-        if n_categories != 2:
-            raise ParameterError(
-                f"Join Count requires binary data (exactly 2 categories). "
-                f"'{cluster_key}' has {n_categories} categories. "
-                f"Use 'local_join_count' for multi-category data."
-            )
+        w = weights.KNN.from_array(coords, k=params.n_neighbors)
 
         # Get categorical data (now guaranteed to be 0/1)
         y = adata.obs[cluster_key].cat.codes.values
 
         # Compute join counts
-        jc = Join_Counts(y, w)
+        jc = join_counts.Join_Counts(y, w)
 
         return {
             "bb": float(jc.bb),  # Black-Black joins
@@ -1405,7 +1404,7 @@ def _analyze_join_count(
             "p_value": float(jc.p_sim) if hasattr(jc, "p_sim") else None,
         }
 
-    except ParameterError:
+    except ChatSpatialError:
         raise
     except Exception as e:
         raise ProcessingError(f"Join Count analysis failed: {e}") from e
@@ -1483,19 +1482,21 @@ def _analyze_local_join_count(
                 print(f"{cat}: {stats['n_hotspots']} significant hotspots")
     """
     cluster_key = params.cluster_key
-    # Check for required dependencies (esda >= 2.4.0 required for Join_Counts_Local)
-    require("esda")
-    require("libpysal")
+    join_counts_local = require_module(
+        "esda",
+        "esda.join_counts_local",
+        feature="Local Join Count analysis",
+    )
+    weights = require_module(
+        "libpysal", "libpysal.weights", feature="Local Join Count analysis"
+    )
 
     try:
-        from esda.join_counts_local import Join_Counts_Local
-        from libpysal.weights import KNN
-
         coords = require_spatial_coords(adata)
 
         # Create PySAL W object directly from coordinates using KNN
         # This ensures compatibility with Join_Counts_Local
-        w = KNN.from_array(coords, k=params.n_neighbors)
+        w = weights.KNN.from_array(coords, k=params.n_neighbors)
 
         # Get unique categories, excluding NaN/None
         categories = adata.obs[cluster_key].dropna().unique()
@@ -1510,7 +1511,7 @@ def _analyze_local_join_count(
             y = (adata.obs[cluster_key] == category).astype(int).values
 
             # Compute Local Join Count statistics
-            ljc = Join_Counts_Local(connectivity=w).fit(y)
+            ljc = join_counts_local.Join_Counts_Local(connectivity=w).fit(y)
 
             # Collect results (don't assign to obs yet - avoids fragmentation)
             obs_updates[f"ljc_{category}"] = ljc.LJC
@@ -1559,6 +1560,8 @@ def _analyze_local_join_count(
             ),
         }
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"Local Join Count analysis failed: {e}") from e
 
@@ -1569,12 +1572,9 @@ def _analyze_network_properties(
     ctx: "ToolContext",
 ) -> dict[str, Any]:
     """Analyze network properties of spatial graph."""
-    # Check for required dependencies
-    require("networkx")
+    nx = require("networkx", feature="spatial network properties analysis")
 
     try:
-        import networkx as nx
-
         # Get or create spatial connectivity
         if "spatial_connectivities" in adata.obsp:
             conn_matrix = adata.obsp["spatial_connectivities"]
@@ -1628,6 +1628,8 @@ def _analyze_network_properties(
 
         return properties
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"Network properties analysis failed: {e}") from e
 
@@ -1639,12 +1641,9 @@ def _analyze_spatial_centrality(
 ) -> dict[str, Any]:
     """Compute various centrality measures for spatial network."""
     cluster_key = params.cluster_key
-    # Check for required dependencies
-    require("networkx")
+    nx = require("networkx", feature="spatial centrality analysis")
 
     try:
-        import networkx as nx
-
         # Get connectivity matrix
         if "spatial_connectivities" in adata.obsp:
             conn_matrix = adata.obsp["spatial_connectivities"]
@@ -1729,6 +1728,8 @@ def _analyze_spatial_centrality(
         adata.uns["spatial_centrality"] = result
         return result
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"Spatial centrality analysis failed: {e}") from e
 
@@ -1771,11 +1772,10 @@ def _analyze_local_moran(
             - HL (High-Low): High outliers - high values surrounded by low values
             - LH (Low-High): Low outliers - low values surrounded by high values
     """
-    # Import PySAL components for proper LISA analysis
-    require("esda")
-    require("libpysal")
-    from esda.moran import Moran_Local
-    from libpysal.weights import W as PySALWeights
+    moran = require_module("esda", "esda.moran", feature="Local Moran's I analysis")
+    weights = require_module(
+        "libpysal", "libpysal.weights", feature="Local Moran's I analysis"
+    )
 
     try:
         # Note: spatial neighbors already ensured by analyze_spatial_statistics()
@@ -1814,13 +1814,12 @@ def _analyze_local_moran(
             neighbors_dict[i] = indices[start:end].tolist()
             weights_dict[i] = data[start:end].tolist()
 
-        w = PySALWeights(neighbors_dict, weights_dict)
+        w = weights.W(neighbors_dict, weights_dict)
 
         # Get analysis parameters
         permutations = params.local_moran_permutations
         alpha = params.local_moran_alpha
         use_fdr = params.local_moran_fdr_correction
-
         # Memory-efficient streaming: extract one gene at a time
         # This reduces memory from O(n_spots × n_genes) to O(n_spots)
         # Critical for large datasets (Visium HD: 50K+ spots × 500 genes = 200MB+)
@@ -1836,7 +1835,7 @@ def _analyze_local_moran(
             expr = expr.astype(np.float64, copy=False)
 
             # Run PySAL Local Moran's I with permutation testing
-            lisa = Moran_Local(expr, w, permutations=permutations)
+            lisa = moran.Moran_Local(expr, w, permutations=permutations)
 
             # Store local I values in adata.obs
             adata.obs[f"{gene}_local_morans"] = lisa.Is
@@ -1846,19 +1845,15 @@ def _analyze_local_moran(
 
             # Apply FDR correction if requested
             if use_fdr and permutations > 0:
-                # Check statsmodels availability for FDR correction
-                require("statsmodels")
-                from statsmodels.stats.multitest import multipletests
-
-                # Filter NaN p-values before FDR correction
-                valid_mask = ~np.isnan(p_values)
-                p_corrected = np.full_like(p_values, np.nan)
-                if valid_mask.any():
-                    _, p_corrected[valid_mask], _, _ = multipletests(
-                        p_values[valid_mask], alpha=alpha, method="fdr_bh"
-                    )
+                _, p_corrected = adjust_pvalues(
+                    p_values,
+                    alpha=alpha,
+                    method="fdr_bh",
+                    ctx=ctx,
+                    feature="Local Moran's I spot-level p-value correction",
+                )
                 significant = np.where(
-                    valid_mask, p_corrected < alpha, False
+                    np.isfinite(p_values), p_corrected < alpha, False
                 )
             else:
                 significant = p_values < alpha
@@ -1935,6 +1930,8 @@ def _analyze_local_moran(
             ),
         }
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"Local Moran's I analysis failed: {e}") from e
 

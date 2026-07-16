@@ -29,8 +29,9 @@ from ..utils.adata_utils import (
 )
 from ..utils.compat import ensure_cellrank_compat
 from ..utils.compute import ensure_diffmap, ensure_neighbors, ensure_pca
-from ..utils.dependency_manager import require
+from ..utils.dependency_manager import require, require_module
 from ..utils.exceptions import (
+    ChatSpatialError,
     DataCompatibilityError,
     DataError,
     DataNotFoundError,
@@ -82,9 +83,6 @@ def prepare_gam_model_for_visualization(
         DataNotFoundError: If fate probabilities or genes not found.
         DataError: If fate probabilities lack proper Lineage names.
     """
-    require("cellrank")
-    from cellrank.models import GAM
-
     # Validate required data
     validate_obs_column(adata, time_key, "Time")
 
@@ -113,7 +111,12 @@ def prepare_gam_model_for_visualization(
             f"Available genes: {list(adata.var_names[:10])}..."
         )
 
-    model = GAM(adata)
+    cellrank_models = require_module(
+        "cellrank",
+        "cellrank.models",
+        feature="CellRank gene trend visualization",
+    )
+    model = cellrank_models.GAM(adata)
     return model, lineage_names
 
 
@@ -149,7 +152,7 @@ def infer_spatial_trajectory_cellrank(
     cleanup_compat = ensure_cellrank_compat()
 
     try:
-        import cellrank as cr
+        cr = require("cellrank", feature="CellRank trajectory inference")
         from scipy.sparse import csr_matrix
         from scipy.spatial.distance import pdist, squareform
 
@@ -215,6 +218,8 @@ def infer_spatial_trajectory_cellrank(
         # Compute macrostates
         try:
             g.compute_macrostates(n_states=n_states)
+        except ChatSpatialError:
+            raise
         except Exception as e:
             raise ProcessingError(
                 f"CellRank macrostate computation failed: {e}. "
@@ -434,6 +439,8 @@ def infer_pseudotime_palantir(
     root_cells: Optional[list[str]] = None,
     n_diffusion_components: int = 10,
     num_waypoints: int = 500,
+    ctx: Optional["ToolContext"] = None,
+    palantir_module: Any | None = None,
 ) -> "ad.AnnData":
     """Infer cellular trajectories and pseudotime using Palantir.
 
@@ -453,9 +460,15 @@ def infer_pseudotime_palantir(
     Raises:
         ParameterError: If specified root cell not found in data.
     """
-    import palantir
+    if root_cells and root_cells[0] not in adata.obs_names:
+        raise ParameterError(f"Root cell '{root_cells[0]}' not found in data")
 
     ensure_pca(adata)
+    palantir = (
+        palantir_module
+        if palantir_module is not None
+        else require("palantir", ctx, feature="Palantir trajectory inference")
+    )
 
     pca_df = pd.DataFrame(adata.obsm["X_pca"], index=adata.obs_names)
     dm_res = palantir.utils.run_diffusion_maps(
@@ -468,8 +481,6 @@ def infer_pseudotime_palantir(
     )
 
     if root_cells is not None and len(root_cells) > 0:
-        if root_cells[0] not in ms_data.index:
-            raise ParameterError(f"Root cell '{root_cells[0]}' not found in data")
         start_cell = root_cells[0]
     else:
         # Sign-invariant: pick cell with largest absolute value in first DC
@@ -631,9 +642,6 @@ async def analyze_trajectory(
                 "CellRank requires velocity data. Run velocity analysis first or use palantir/dpt."
             )
 
-        require("cellrank")
-        import cellrank as cr  # noqa: F401
-
         try:
             with suppress_output():
                 adata = infer_spatial_trajectory_cellrank(
@@ -662,6 +670,8 @@ async def analyze_trajectory(
                 adata.obsm[f"fate_probabilities_{cellrank_suffix}"] = adata.obsm[
                     "fate_probabilities"
                 ]
+        except ChatSpatialError:
+            raise
         except Exception as e:
             raise ProcessingError(f"CellRank trajectory inference failed: {e}") from e
 
@@ -673,12 +683,13 @@ async def analyze_trajectory(
                     root_cells=params.root_cells,
                     n_diffusion_components=params.palantir_n_diffusion_components,
                     num_waypoints=params.palantir_n_waypoints,
+                    ctx=ctx,
                 )
 
             pseudotime_key = "palantir_pseudotime"
             method_used = "palantir"
 
-        except ParameterError:
+        except ChatSpatialError:
             raise
         except Exception as e:
             raise ProcessingError(f"Palantir trajectory inference failed: {e}") from e
@@ -689,7 +700,7 @@ async def analyze_trajectory(
                 adata = compute_dpt_trajectory(adata, root_cells=params.root_cells)
             pseudotime_key = "dpt_pseudotime"
             method_used = "dpt"
-        except ParameterError:
+        except ChatSpatialError:
             raise
         except Exception as e:
             raise ProcessingError(f"DPT analysis failed: {e}") from e

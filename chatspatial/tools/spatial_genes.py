@@ -33,11 +33,15 @@ from ..utils.adata_utils import (  # noqa: E402
     to_dense,
 )
 from ..utils.compute import top_n_desc_indices  # noqa: E402
-from ..utils.dependency_manager import require  # noqa: E402
+from ..utils.dependency_manager import (  # noqa: E402
+    require,
+    require_module,
+    validate_r_environment,
+)
 from ..utils.exceptions import (  # noqa: E402
+    ChatSpatialError,
     DataError,
     DataNotFoundError,
-    DependencyError,
     ParameterError,
     ProcessingError,
 )
@@ -46,7 +50,6 @@ from ..utils.mcp_utils import suppress_output  # noqa: E402
 # =============================================================================
 # Shared Utilities for Spatial Variable Gene Detection
 # =============================================================================
-
 
 
 # Gene name deduplication is handled by make_unique_names from adata_utils
@@ -216,10 +219,14 @@ async def _identify_spatial_genes_spatialde(
     ensure_spatialde_compat()
 
     # SpatialDE must be imported after applying its SciPy compatibility patch.
-    spatialde = require("spatialde")
-    naivede = require("naivede")
-
-    from SpatialDE.util import qvalue
+    spatialde = require("spatialde", ctx, feature="SpatialDE spatial gene analysis")
+    naivede = require("naivede", ctx, feature="SpatialDE spatial gene analysis")
+    spatialde_util = require_module(
+        "spatialde",
+        "SpatialDE.util",
+        ctx,
+        feature="SpatialDE spatial gene analysis",
+    )
 
     # Prepare spatial coordinates
     coords = pd.DataFrame(
@@ -291,7 +298,7 @@ async def _identify_spatial_genes_spatialde(
     if n_genes > 5000:
         estimated_time = int(n_genes / 14000 * 10)  # Based on 14k genes = 10 min
         await ctx.warning(
-            f"WARNING:Running SpatialDE on {n_genes} genes × {n_spots} spots may take {estimated_time}-{estimated_time*2} minutes.\n"
+            f"WARNING:Running SpatialDE on {n_genes} genes × {n_spots} spots may take {estimated_time}-{estimated_time * 2} minutes.\n"
             f"   • Official benchmark: ~10 min for 14,000 genes\n"
             f"   • Tip: Use n_top_genes=1000-3000 to test fewer genes\n"
             f"   • Or use method='flashs'/'sparkx' for faster analysis (typically 1-5 min)"
@@ -321,9 +328,7 @@ async def _identify_spatial_genes_spatialde(
             "SpatialDE requires at least 3 spots with non-zero expression."
         )
     if counts.shape[1] == 0:
-        raise DataError(
-            "No genes remain after filtering. Cannot run SpatialDE."
-        )
+        raise DataError("No genes remain after filtering. Cannot run SpatialDE.")
 
     # Apply official SpatialDE preprocessing workflow
     # Step 1: Variance stabilization
@@ -340,10 +345,12 @@ async def _identify_spatial_genes_spatialde(
     # Multiple testing correction using Storey q-value method
     if params.spatialde_pi0 is not None:
         # User-specified pi0 value
-        results["qval"] = qvalue(results["pval"].values, pi0=params.spatialde_pi0)
+        results["qval"] = spatialde_util.qvalue(
+            results["pval"].values, pi0=params.spatialde_pi0
+        )
     else:
         # Adaptive pi0 estimation (SpatialDE default, recommended)
-        results["qval"] = qvalue(results["pval"].values)
+        results["qval"] = spatialde_util.qvalue(results["pval"].values)
 
     # Sort by q-value
     results = results.sort_values("qval")
@@ -635,13 +642,6 @@ async def _identify_spatial_genes_sparkx(
         - SPARK-X paper: Sun et al. (2021) Genome Biology
         - HVG+SVG best practice: PMC11537352 (2024)
     """
-    # Use centralized dependency manager for consistent error handling
-    require("rpy2", feature="SPARK-X spatial gene analysis")
-    from rpy2 import robjects as ro
-    from rpy2.rinterface_lib import openrlib  # For thread safety
-    from rpy2.robjects import conversion, default_converter
-    from rpy2.robjects.packages import importr
-
     # Prepare spatial coordinates - SPARK needs data.frame format
     coords_array = adata.obsm[params.spatial_key][:, :2].astype(float)
     n_spots, n_genes = adata.shape
@@ -756,7 +756,7 @@ async def _identify_spatial_genes_sparkx(
     if n_genes == 0:
         raise DataError(
             "No genes passed the expression filter for SPARK-X. "
-            f"Try lowering min_pct (current: {percentage*100:.0f}%) "
+            f"Try lowering min_pct (current: {percentage * 100:.0f}%) "
             f"or min_total_counts (current: {min_total_counts})."
         )
 
@@ -766,115 +766,116 @@ async def _identify_spatial_genes_sparkx(
     # Create spot names
     spot_names = [str(name) for name in adata.obs_names]
 
-    # Wrap ALL R operations in thread lock and localconverter for proper contextvars handling
-    # This prevents "Conversion rules missing" errors in multithreaded/async environments
-    with openrlib.rlock:  # Thread safety lock
-        with conversion.localconverter(default_converter):  # Conversion context
-            # Import SPARK package inside context (FIX for contextvars issue)
+    r_env = validate_r_environment(
+        ctx,
+        required_packages=["SPARK"],
+        package_install_commands={"SPARK": "install.packages('SPARK')"},
+    )
+    ro = r_env.robjects
+    spark = r_env.package("SPARK")
+
+    with r_env.conversion_context():
+        # Convert to R format (already in context)
+        # Count matrix: genes × spots
+        r_counts = ro.r.matrix(
+            ro.IntVector(counts_transposed.flatten()),
+            nrow=n_genes,
+            ncol=n_spots,
+            byrow=True,
+        )
+        r_counts.rownames = ro.StrVector(gene_names)
+        r_counts.colnames = ro.StrVector(spot_names)
+
+        # Coordinates as data.frame (SPARK requirement)
+        coords_df = pd.DataFrame(coords_array, columns=["x", "y"], index=spot_names)
+        r_coords = ro.r["data.frame"](
+            x=ro.FloatVector(coords_df["x"]),
+            y=ro.FloatVector(coords_df["y"]),
+            row_names=ro.StrVector(coords_df.index),
+        )
+
+        try:
+            # Execute SPARK-X analysis inside context (FIX for contextvars issue)
+            # Keep suppress_output for MCP communication compatibility
+            with suppress_output():
+                results = spark.sparkx(
+                    count_in=r_counts,
+                    locus_in=r_coords,
+                    X_in=ro.NULL,  # No additional covariates (could be extended in future)
+                    numCores=params.sparkx_n_cores,
+                    option=params.sparkx_option,
+                    verbose=params.sparkx_verbose,
+                )
+
+            # Extract p-values from results (inside context for proper conversion)
+            # SPARK-X returns res_mtest as a data.frame with columns:
+            # - combinedPval: combined p-values across spatial kernels
+            # - adjustedPval: BY-adjusted p-values (Benjamini-Yekutieli FDR correction)
+            # Reference: SPARK R package documentation
             try:
-                spark = importr("SPARK")
+                pvals = results.rx2("res_mtest")
+                if pvals is None:
+                    raise ProcessingError(
+                        "SPARK-X returned None for res_mtest. "
+                        "This may indicate the analysis failed silently."
+                    )
+
+                # Verify expected data.frame format
+                is_dataframe = ro.r["is.data.frame"](pvals)[0]
+                if not is_dataframe:
+                    raise ProcessingError(
+                        "SPARK-X output format error. Requires SPARK >= 1.1.0."
+                    )
+
+                # Extract combinedPval (raw p-values combined across kernels)
+                combined_pvals = ro.r["$"](pvals, "combinedPval")
+                if combined_pvals is None:
+                    raise ProcessingError(
+                        "SPARK-X res_mtest missing 'combinedPval' column. "
+                        "This is required for spatial gene identification."
+                    )
+                pval_list = [float(p) for p in combined_pvals]
+
+                # Extract adjustedPval (BY-corrected p-values from SPARK-X)
+                adjusted_pvals = ro.r["$"](pvals, "adjustedPval")
+                if adjusted_pvals is None:
+                    raise ProcessingError(
+                        "SPARK-X res_mtest missing 'adjustedPval' column. "
+                        "This column contains BY-corrected p-values for multiple testing."
+                    )
+                adjusted_pval_list = [float(p) for p in adjusted_pvals]
+
+                # Create results dataframe
+                results_df = pd.DataFrame(
+                    {
+                        "gene": gene_names[: len(pval_list)],
+                        "pvalue": pval_list,
+                        "adjusted_pvalue": adjusted_pval_list,  # BY-corrected by SPARK-X
+                    }
+                )
+
+                # Warn if returned genes much fewer than input genes
+                if len(results_df) < n_genes * 0.5:
+                    await ctx.warning(
+                        f"SPARK-X returned results for only {len(results_df)}/{n_genes} genes. "
+                        f"This may indicate a problem with the R environment, SPARK package, or input data. "
+                        f"Consider checking R logs or trying SpatialDE as an alternative method."
+                    )
+
+            except ChatSpatialError:
+                raise
             except Exception as e:
-                raise DependencyError(
-                    f"SPARK not installed in R. Install with: install.packages('SPARK'). Error: {e}"
+                # P-value extraction failed - provide clear error message
+                raise ProcessingError(
+                    f"SPARK-X p-value extraction failed: {e}\n\n"
+                    f"Expected SPARK-X output format:\n"
+                    f"SPARK-X output invalid. Requires SPARK >= 1.1.0."
                 ) from e
 
-            # Convert to R format (already in context)
-            # Count matrix: genes × spots
-            r_counts = ro.r.matrix(
-                ro.IntVector(counts_transposed.flatten()),
-                nrow=n_genes,
-                ncol=n_spots,
-                byrow=True,
-            )
-            r_counts.rownames = ro.StrVector(gene_names)
-            r_counts.colnames = ro.StrVector(spot_names)
-
-            # Coordinates as data.frame (SPARK requirement)
-            coords_df = pd.DataFrame(coords_array, columns=["x", "y"], index=spot_names)
-            r_coords = ro.r["data.frame"](
-                x=ro.FloatVector(coords_df["x"]),
-                y=ro.FloatVector(coords_df["y"]),
-                row_names=ro.StrVector(coords_df.index),
-            )
-
-            try:
-                # Execute SPARK-X analysis inside context (FIX for contextvars issue)
-                # Keep suppress_output for MCP communication compatibility
-                with suppress_output():
-                    results = spark.sparkx(
-                        count_in=r_counts,
-                        locus_in=r_coords,
-                        X_in=ro.NULL,  # No additional covariates (could be extended in future)
-                        numCores=params.sparkx_n_cores,
-                        option=params.sparkx_option,
-                        verbose=params.sparkx_verbose,
-                    )
-
-                # Extract p-values from results (inside context for proper conversion)
-                # SPARK-X returns res_mtest as a data.frame with columns:
-                # - combinedPval: combined p-values across spatial kernels
-                # - adjustedPval: BY-adjusted p-values (Benjamini-Yekutieli FDR correction)
-                # Reference: SPARK R package documentation
-                try:
-                    pvals = results.rx2("res_mtest")
-                    if pvals is None:
-                        raise ProcessingError(
-                            "SPARK-X returned None for res_mtest. "
-                            "This may indicate the analysis failed silently."
-                        )
-
-                    # Verify expected data.frame format
-                    is_dataframe = ro.r["is.data.frame"](pvals)[0]
-                    if not is_dataframe:
-                        raise ProcessingError(
-                            "SPARK-X output format error. Requires SPARK >= 1.1.0."
-                        )
-
-                    # Extract combinedPval (raw p-values combined across kernels)
-                    combined_pvals = ro.r["$"](pvals, "combinedPval")
-                    if combined_pvals is None:
-                        raise ProcessingError(
-                            "SPARK-X res_mtest missing 'combinedPval' column. "
-                            "This is required for spatial gene identification."
-                        )
-                    pval_list = [float(p) for p in combined_pvals]
-
-                    # Extract adjustedPval (BY-corrected p-values from SPARK-X)
-                    adjusted_pvals = ro.r["$"](pvals, "adjustedPval")
-                    if adjusted_pvals is None:
-                        raise ProcessingError(
-                            "SPARK-X res_mtest missing 'adjustedPval' column. "
-                            "This column contains BY-corrected p-values for multiple testing."
-                        )
-                    adjusted_pval_list = [float(p) for p in adjusted_pvals]
-
-                    # Create results dataframe
-                    results_df = pd.DataFrame(
-                        {
-                            "gene": gene_names[: len(pval_list)],
-                            "pvalue": pval_list,
-                            "adjusted_pvalue": adjusted_pval_list,  # BY-corrected by SPARK-X
-                        }
-                    )
-
-                    # Warn if returned genes much fewer than input genes
-                    if len(results_df) < n_genes * 0.5:
-                        await ctx.warning(
-                            f"SPARK-X returned results for only {len(results_df)}/{n_genes} genes. "
-                            f"This may indicate a problem with the R environment, SPARK package, or input data. "
-                            f"Consider checking R logs or trying SpatialDE as an alternative method."
-                        )
-
-                except Exception as e:
-                    # P-value extraction failed - provide clear error message
-                    raise ProcessingError(
-                        f"SPARK-X p-value extraction failed: {e}\n\n"
-                        f"Expected SPARK-X output format:\n"
-                        f"SPARK-X output invalid. Requires SPARK >= 1.1.0."
-                    ) from e
-
-            except Exception as e:
-                raise ProcessingError(f"SPARK-X analysis failed: {e}") from e
+        except ChatSpatialError:
+            raise
+        except Exception as e:
+            raise ProcessingError(f"SPARK-X analysis failed: {e}") from e
 
     # Sort by adjusted p-value
     results_df = results_df.sort_values("adjusted_pvalue")
@@ -929,7 +930,7 @@ async def _identify_spatial_genes_sparkx(
         # Warn if >30% are housekeeping genes
         if housekeeping_ratio > 0.3:
             await ctx.warning(
-                f"WARNING:Housekeeping gene dominance detected: {n_housekeeping}/{n_top} ({housekeeping_ratio*100:.1f}%) of top genes are housekeeping genes.\n"
+                f"WARNING:Housekeeping gene dominance detected: {n_housekeeping}/{n_top} ({housekeeping_ratio * 100:.1f}%) of top genes are housekeeping genes.\n"
                 f"   • Housekeeping genes found: {', '.join(housekeeping_genes[:10])}{'...' if len(housekeeping_genes) > 10 else ''}\n"
                 f"   • These genes may not represent true spatial patterns\n"
                 f"   • Recommendations:\n"

@@ -8,14 +8,12 @@ This module provides both standard and spatially-aware enrichment analysis metho
 
 import logging
 from collections.abc import Iterable
-from functools import lru_cache
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 # Core dependencies (REQUIRED - in pyproject.toml dependencies)
 import numpy as np
 import pandas as pd
 from scipy import stats
-from statsmodels.stats.multitest import multipletests
 
 from ..models.analysis import EnrichmentResult
 from ..utils.adata_utils import get_raw_data_source, store_analysis_metadata, to_dense
@@ -28,29 +26,22 @@ from ..utils.exceptions import (
     ProcessingError,
 )
 from ..utils.results_export import export_analysis_result
+from ..utils.statistics import adjust_pvalues
 
 if TYPE_CHECKING:
     import anndata as ad
-    import gseapy as gp
 
     from ..models.data import EnrichmentParameters
     from ..spatial_mcp_adapter import ToolContext
 
 
-try:
-    import gseapy as gp  # optional dependency, in [full]
-except ImportError:
-    gp = None  # deferred until first use
-
-
-def _get_gseapy():
+def _get_gseapy(ctx: Optional["ToolContext"] = None) -> Any:
     """Return gseapy module, raising a clear error if not installed."""
-    if gp is None:
-        return require(
-            "gseapy",
-            feature="gene set enrichment analysis",
-        )
-    return gp
+    return require(
+        "gseapy",
+        ctx,
+        feature="gene set enrichment analysis",
+    )
 
 
 # Subramanian et al. 2005 PNAS: "We recommend an FDR cutoff of 25%"
@@ -218,25 +209,26 @@ def _enrichr_database_for_organism(organism: str) -> str:
     )
 
 
-@lru_cache(maxsize=None)
-def _get_enrichr_library_names(organism: str) -> tuple[str, ...]:
-    return tuple(_get_gseapy().get_library_name(organism=organism))
-
-
 def _is_gseapy_bytes_decode_error(error: TypeError) -> bool:
     return "bytes-like object" in str(error)
 
 
-def _download_enrichr_library(library_name: str, organism: str) -> dict[str, list[str]]:
+def _download_enrichr_library(
+    library_name: str,
+    organism: str,
+    gp: Any | None = None,
+) -> dict[str, list[str]]:
     """Download an Enrichr library without relying on gseapy's line decoding."""
     import requests
 
-    if library_name not in _get_enrichr_library_names(organism):
+    gp = gp if gp is not None else _get_gseapy()
+    library_names = tuple(gp.get_library_name(organism=organism))
+    if library_name not in library_names:
         raise ValueError(
             f"Library {library_name!r} was not found for organism {organism!r}"
         )
 
-    parser = getattr(_get_gseapy(), "parser", None)
+    parser = getattr(gp, "parser", None)
     url_root = getattr(parser, "ENRICHR_URL", "http://maayanlab.cloud")
     url = f"{url_root}/{_enrichr_database_for_organism(organism)}/geneSetLibrary"
 
@@ -268,30 +260,38 @@ def _download_enrichr_library(library_name: str, organism: str) -> dict[str, lis
     return gene_sets
 
 
-def _load_enrichr_library(library_name: str, organism: str) -> dict[str, list[str]]:
+def _load_enrichr_library(
+    library_name: str,
+    organism: str,
+    gp: Any | None = None,
+) -> dict[str, list[str]]:
+    gp = gp if gp is not None else _get_gseapy()
     try:
         return _normalize_gene_set_library(
-            _get_gseapy().get_library(library_name, organism=organism)
+            gp.get_library(library_name, organism=organism)
         )
     except TypeError as e:
         if not _is_gseapy_bytes_decode_error(e):
             raise
         return _normalize_gene_set_library(
-            _download_enrichr_library(library_name, organism)
+            _download_enrichr_library(library_name, organism, gp)
         )
 
 
 def _load_library_first_available(
-    database_key: str, organism: str
+    database_key: str,
+    organism: str,
+    gp: Any | None = None,
 ) -> dict[str, list[str]]:
     """Load the first available library from deterministic candidates."""
     if database_key not in GENESET_LIBRARY_CANDIDATES:
         raise ParameterError(f"Unknown database key: {database_key}")
 
+    gp = gp if gp is not None else _get_gseapy()
     last_error: Exception | None = None
     for library_name in GENESET_LIBRARY_CANDIDATES[database_key]:
         try:
-            return _load_enrichr_library(library_name, organism)
+            return _load_enrichr_library(library_name, organism, gp)
         except ChatSpatialError:
             raise
         except Exception as e:  # pragma: no cover - exercised via caller-level wrapping
@@ -712,8 +712,6 @@ def perform_gsea(
     Returns:
         EnrichmentResult with enrichment scores and statistics.
     """
-    # gseapy imported at module level (required dependency)
-
     ranking_method = method.strip().lower()
 
     # Prepare ranking
@@ -797,6 +795,8 @@ def perform_gsea(
             # Defensive fallback (should be unreachable due validation above)
             ranking = _compute_cv_ranking(X, var_names)
 
+    gp = _get_gseapy(ctx)
+
     # Run GSEA preranked
     try:
         # Convert ranking dict to DataFrame for gseapy
@@ -804,7 +804,7 @@ def perform_gsea(
         ranking_df.index.name = "gene"
         ranking_df = ranking_df.sort_values("score", ascending=False)
 
-        res = _get_gseapy().prerank(
+        res = gp.prerank(
             rnk=ranking_df,  # Pass DataFrame instead of dict
             gene_sets=gene_sets,
             processes=1,
@@ -1086,7 +1086,12 @@ def perform_ora(
     if pvalues and adjust_method != "none":
         stats_method = _method_map.get(adjust_method, "fdr_bh")
         pval_array = np.array(list(pvalues.values()))
-        _, adjusted_pvals, _, _ = multipletests(pval_array, method=stats_method)
+        _, adjusted_pvals = adjust_pvalues(
+            pval_array,
+            method=stats_method,
+            ctx=ctx,
+            feature="over-representation analysis p-value correction",
+        )
         adjusted_pvalues = dict(zip(pvalues.keys(), adjusted_pvals, strict=True))
     else:
         # No correction: adjusted = raw
@@ -1199,12 +1204,12 @@ def perform_ssgsea(
     Returns:
         EnrichmentResult with per-sample enrichment scores.
     """
-    # gseapy imported at module level (required dependency)
-
     # Memory-efficient batch processing for large datasets
     # Threshold: process in batches if > 1000 samples to avoid OOM
     BATCH_SIZE = 500
     n_samples = adata.n_obs
+
+    gp = _get_gseapy(ctx)
 
     # Run ssGSEA (with batch processing for large datasets)
     try:
@@ -1213,7 +1218,7 @@ def perform_ssgsea(
             expr_df = pd.DataFrame(
                 to_dense(adata.X).T, index=adata.var_names, columns=adata.obs_names
             )
-            res = _get_gseapy().ssgsea(
+            res = gp.ssgsea(
                 data=expr_df,
                 gene_sets=gene_sets,
                 min_size=min_size,
@@ -1240,7 +1245,7 @@ def perform_ssgsea(
                     columns=adata.obs_names[batch_indices],
                 )
 
-                batch_res = _get_gseapy().ssgsea(
+                batch_res = gp.ssgsea(
                     data=batch_df,
                     gene_sets=gene_sets,
                     min_size=min_size,
@@ -1434,8 +1439,6 @@ def perform_enrichr(
     Returns:
         EnrichmentResult containing enrichment results.
     """
-    # gseapy imported at module level (required dependency)
-
     # Default gene set libraries - use separate variable for list
     gene_sets_list: list[str]
     if gene_sets is None:
@@ -1448,9 +1451,11 @@ def perform_enrichr(
         enrichr_library = map_gene_set_database_to_enrichr_library(gene_sets, organism)
         gene_sets_list = [enrichr_library]
 
+    gp = _get_gseapy(ctx)
+
     # Run Enrichr
     try:
-        enr = _get_gseapy().enrichr(
+        enr = gp.enrichr(
             gene_list=gene_list,
             gene_sets=gene_sets_list,
             organism=organism.capitalize(),
@@ -1814,6 +1819,7 @@ def load_msigdb_gene_sets(
     subcollection: Optional[str] = None,
     min_size: int = 10,
     max_size: int = 500,
+    ctx: Optional["ToolContext"] = None,
 ) -> dict[str, list[str]]:
     """Load gene sets from MSigDB using gseapy.
 
@@ -1832,47 +1838,59 @@ def load_msigdb_gene_sets(
     Returns:
         Dictionary of gene sets.
     """
-    # gseapy imported at module level (required dependency)
     try:
+        gp = _get_gseapy(ctx)
         organism = _get_organism_name(species)
         gene_sets_dict = {}
 
         if collection == "H":
             # Hallmark gene sets
-            gene_sets_dict = _load_library_first_available("MSigDB_Hallmark", organism)
+            gene_sets_dict = _load_library_first_available(
+                "MSigDB_Hallmark", organism, gp
+            )
 
         elif collection == "C2" and subcollection == "CP:KEGG":
             # KEGG pathways
             if species.lower() == "human":
-                gene_sets_dict = _load_enrichr_library("KEGG_2021_Human", organism)
+                gene_sets_dict = _load_enrichr_library(
+                    "KEGG_2021_Human", organism, gp
+                )
             else:
-                gene_sets_dict = _load_enrichr_library("KEGG_2019_Mouse", organism)
+                gene_sets_dict = _load_enrichr_library(
+                    "KEGG_2019_Mouse", organism, gp
+                )
 
         elif collection == "C2" and subcollection == "CP:REACTOME":
             # Reactome pathways
             gene_sets_dict = _load_library_first_available(
-                "Reactome_Pathways", organism
+                "Reactome_Pathways", organism, gp
             )
 
         elif collection == "C5":
             # GO gene sets
             if subcollection == "GO:BP" or subcollection is None:
                 gene_sets_dict.update(
-                    _load_library_first_available("GO_Biological_Process", organism)
+                    _load_library_first_available(
+                        "GO_Biological_Process", organism, gp
+                    )
                 )
             if subcollection == "GO:MF" or subcollection is None:
                 gene_sets_dict.update(
-                    _load_library_first_available("GO_Molecular_Function", organism)
+                    _load_library_first_available(
+                        "GO_Molecular_Function", organism, gp
+                    )
                 )
             if subcollection == "GO:CC" or subcollection is None:
                 gene_sets_dict.update(
-                    _load_library_first_available("GO_Cellular_Component", organism)
+                    _load_library_first_available(
+                        "GO_Cellular_Component", organism, gp
+                    )
                 )
 
         elif collection == "C8":
             # Cell type signatures
             gene_sets_dict = _load_library_first_available(
-                "Cell_Type_Markers", organism
+                "Cell_Type_Markers", organism, gp
             )
 
         # Filter by size
@@ -1890,6 +1908,7 @@ def load_go_gene_sets(
     aspect: str = "BP",
     min_size: int = 10,
     max_size: int = 500,
+    ctx: Optional["ToolContext"] = None,
 ) -> dict[str, list[str]]:
     """Load GO terms using gseapy.
 
@@ -1906,11 +1925,11 @@ def load_go_gene_sets(
     if aspect not in GO_ASPECT_TO_DATABASE_KEY:
         raise ParameterError(f"Invalid GO aspect: {aspect}")
 
-    # gseapy imported at module level (required dependency)
     try:
+        gp = _get_gseapy(ctx)
         organism = _get_organism_name(species)
         database_key = GO_ASPECT_TO_DATABASE_KEY[aspect]
-        gene_sets = _load_library_first_available(database_key, organism)
+        gene_sets = _load_library_first_available(database_key, organism, gp)
 
         # Filter by size
         filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
@@ -1923,7 +1942,10 @@ def load_go_gene_sets(
 
 
 def load_kegg_gene_sets(
-    species: str, min_size: int = 10, max_size: int = 500
+    species: str,
+    min_size: int = 10,
+    max_size: int = 500,
+    ctx: Optional["ToolContext"] = None,
 ) -> dict[str, list[str]]:
     """Load KEGG pathways using gseapy.
 
@@ -1935,20 +1957,21 @@ def load_kegg_gene_sets(
     Returns:
         Dictionary of KEGG pathway gene sets.
     """
-    # gseapy imported at module level (required dependency)
     try:
         organism = _get_organism_name(species)
 
         species_lower = species.lower()
-        if species_lower == "human":
-            gene_sets = _load_enrichr_library("KEGG_2021_Human", organism)
-        elif species_lower == "mouse":
-            gene_sets = _load_enrichr_library("KEGG_2019_Mouse", organism)
-        else:
+        if species_lower not in {"human", "mouse"}:
             raise ParameterError(
                 f"KEGG_Pathways is only available for 'human' and 'mouse', "
                 f"not '{species}'. Use GO or Reactome databases instead."
             )
+
+        gp = _get_gseapy(ctx)
+        if species_lower == "human":
+            gene_sets = _load_enrichr_library("KEGG_2021_Human", organism, gp)
+        else:
+            gene_sets = _load_enrichr_library("KEGG_2019_Mouse", organism, gp)
 
         # Filter by size
         filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
@@ -1961,7 +1984,10 @@ def load_kegg_gene_sets(
 
 
 def load_reactome_gene_sets(
-    species: str, min_size: int = 10, max_size: int = 500
+    species: str,
+    min_size: int = 10,
+    max_size: int = 500,
+    ctx: Optional["ToolContext"] = None,
 ) -> dict[str, list[str]]:
     """Load Reactome pathways using gseapy.
 
@@ -1973,10 +1999,10 @@ def load_reactome_gene_sets(
     Returns:
         Dictionary of Reactome pathway gene sets.
     """
-    # gseapy imported at module level (required dependency)
     try:
+        gp = _get_gseapy(ctx)
         organism = _get_organism_name(species)
-        gene_sets = _load_library_first_available("Reactome_Pathways", organism)
+        gene_sets = _load_library_first_available("Reactome_Pathways", organism, gp)
 
         # Filter by size (use shared utility for consistency)
         filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
@@ -1989,7 +2015,10 @@ def load_reactome_gene_sets(
 
 
 def load_cell_marker_gene_sets(
-    species: str, min_size: int = 5, max_size: int = 200
+    species: str,
+    min_size: int = 5,
+    max_size: int = 200,
+    ctx: Optional["ToolContext"] = None,
 ) -> dict[str, list[str]]:
     """Load cell type marker gene sets using gseapy.
 
@@ -2001,10 +2030,12 @@ def load_cell_marker_gene_sets(
     Returns:
         Dictionary of cell type marker gene sets.
     """
-    # gseapy imported at module level (required dependency)
     try:
+        gp = _get_gseapy(ctx)
         organism = _get_organism_name(species)
-        gene_sets = _load_enrichr_library("CellMarker_Augmented_2021", organism)
+        gene_sets = _load_enrichr_library(
+            "CellMarker_Augmented_2021", organism, gp
+        )
 
         # Filter by size
         filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)
@@ -2037,26 +2068,29 @@ def load_gene_sets(
     Returns:
         Dictionary of gene sets.
     """
+
     # Direct function calls - no class overhead
     database_map = {
         "GO_Biological_Process": lambda: load_go_gene_sets(
-            species, "BP", min_genes, max_genes
+            species, "BP", min_genes, max_genes, ctx
         ),
         "GO_Molecular_Function": lambda: load_go_gene_sets(
-            species, "MF", min_genes, max_genes
+            species, "MF", min_genes, max_genes, ctx
         ),
         "GO_Cellular_Component": lambda: load_go_gene_sets(
-            species, "CC", min_genes, max_genes
+            species, "CC", min_genes, max_genes, ctx
         ),
-        "KEGG_Pathways": lambda: load_kegg_gene_sets(species, min_genes, max_genes),
+        "KEGG_Pathways": lambda: load_kegg_gene_sets(
+            species, min_genes, max_genes, ctx
+        ),
         "Reactome_Pathways": lambda: load_reactome_gene_sets(
-            species, min_genes, max_genes
+            species, min_genes, max_genes, ctx
         ),
         "MSigDB_Hallmark": lambda: load_msigdb_gene_sets(
-            species, "H", None, min_genes, max_genes
+            species, "H", None, min_genes, max_genes, ctx
         ),
         "Cell_Type_Markers": lambda: load_cell_marker_gene_sets(
-            species, min_genes, max_genes
+            species, min_genes, max_genes, ctx
         ),
     }
 

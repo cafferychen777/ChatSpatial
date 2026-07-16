@@ -9,10 +9,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-# Keep tests lightweight: use tiny stub when gseapy is not installed locally.
-if "gseapy" not in sys.modules:
-    sys.modules["gseapy"] = SimpleNamespace()
-
 from chatspatial.tools import enrichment as enrichment_module
 from chatspatial.tools.enrichment import (
     _compute_variance_ranking,
@@ -32,6 +28,16 @@ from chatspatial.tools.enrichment import (
     perform_ssgsea,
 )
 from chatspatial.utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
+
+
+def _patch_gseapy(monkeypatch: pytest.MonkeyPatch, **methods):
+    backend = SimpleNamespace(**methods)
+    monkeypatch.setattr(
+        enrichment_module,
+        "_get_gseapy",
+        lambda *_args, **_kwargs: backend,
+    )
+    return backend
 
 
 class _LogCtx:
@@ -164,7 +170,7 @@ def test_perform_gsea_covers_ranking_strategy_branches(
         captured["rnk"] = kwargs["rnk"]
         return _Res()
 
-    monkeypatch.setattr(enrichment_module.gp, "prerank", _fake_prerank, raising=False)
+    _patch_gseapy(monkeypatch, prerank=_fake_prerank)
 
     out = perform_gsea(
         adata=adata,
@@ -235,9 +241,7 @@ def test_perform_gsea_uses_variance_ranking_mode(
         def __init__(self):
             self.res2d = _gsea_res_df()
 
-    monkeypatch.setattr(
-        enrichment_module.gp, "prerank", lambda **_kwargs: _Res(), raising=False
-    )
+    _patch_gseapy(monkeypatch, prerank=lambda **_kwargs: _Res())
 
     out = perform_gsea(
         adata=adata,
@@ -267,11 +271,11 @@ def test_perform_gsea_propagates_prerank_failures(
     adata.var["rank_metric"] = np.linspace(1.0, 0.0, adata.n_vars)
     _patch_metadata_noop(monkeypatch)
 
-    monkeypatch.setattr(
-        enrichment_module.gp,
-        "prerank",
-        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("prerank failed")),
-        raising=False,
+    _patch_gseapy(
+        monkeypatch,
+        prerank=lambda **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("prerank failed")
+        ),
     )
     with pytest.raises(RuntimeError, match="prerank failed"):
         perform_gsea(
@@ -453,11 +457,14 @@ def test_perform_ssgsea_large_batch_processing_path(
                 for name in sample_names
             }
 
+    backend = SimpleNamespace(
+        ssgsea=lambda **kwargs: _BatchRes(list(kwargs["data"].columns))
+    )
+    resolved_contexts: list[object] = []
     monkeypatch.setattr(
-        enrichment_module.gp,
-        "ssgsea",
-        lambda **kwargs: _BatchRes(list(kwargs["data"].columns)),
-        raising=False,
+        enrichment_module,
+        "_get_gseapy",
+        lambda ctx=None: resolved_contexts.append(ctx) or backend,
     )
 
     out = perform_ssgsea(
@@ -469,14 +476,15 @@ def test_perform_ssgsea_large_batch_processing_path(
     assert out.method == "ssgsea"
     assert "ssgsea_GS_A" in adata.obs.columns
     assert "ssgsea_GS_B" in adata.obs.columns
+    assert resolved_contexts == [None]
 
 
 def test_perform_enrichr_propagates_service_failures(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        enrichment_module.gp,
-        "enrichr",
-        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("service unavailable")),
-        raising=False,
+    _patch_gseapy(
+        monkeypatch,
+        enrichr=lambda **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("service unavailable")
+        ),
     )
     with pytest.raises(RuntimeError, match="service unavailable"):
         perform_enrichr(gene_list=["G1", "G2"], gene_sets="KEGG_Pathways", organism="human")
@@ -558,7 +566,7 @@ def test_load_msigdb_additional_collections_and_species_paths(
         calls.append(name)
         return {"ok": ["A", "B", "C"]}
 
-    monkeypatch.setattr(enrichment_module.gp, "get_library", _fake_get_library, raising=False)
+    _patch_gseapy(monkeypatch, get_library=_fake_get_library)
 
     out_kegg_mouse = load_msigdb_gene_sets(
         species="mouse",
@@ -613,11 +621,9 @@ def test_load_msigdb_additional_collections_and_species_paths(
 def test_loader_functions_wrap_external_failures_in_processing_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        enrichment_module.gp,
-        "get_library",
-        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
-        raising=False,
+    _patch_gseapy(
+        monkeypatch,
+        get_library=lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
     )
     with pytest.raises(ProcessingError, match="Failed to load MSigDB gene sets"):
         load_msigdb_gene_sets("human")

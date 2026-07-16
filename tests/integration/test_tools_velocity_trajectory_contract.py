@@ -38,9 +38,16 @@ async def test_analyze_rna_velocity_scvelo_branch_returns_expected_contract(
     adata.layers["unspliced"] = adata.X.copy()
     ctx = DummyCtx(adata)
 
-    monkeypatch.setattr(vel_module, "require", lambda *args, **kwargs: None)
+    fake_scv = object()
+    monkeypatch.setattr(
+        vel_module,
+        "require",
+        lambda *args, **kwargs: fake_scv,
+    )
     monkeypatch.setattr(vel_module, "validate_adata", lambda *args, **kwargs: None)
-    def _fake_compute(adata, mode, params):
+
+    def _fake_compute(adata, mode, params, *, scv):
+        assert scv is fake_scv
         # Simulate scv.tl.velocity_graph() output (sparse transition matrix)
         import scipy.sparse
 
@@ -108,7 +115,9 @@ async def test_analyze_trajectory_palantir_and_dpt_dispatch_contract(
     adata = minimal_spatial_adata.copy()
     ctx = DummyCtx(adata)
 
-    def fake_palantir(adata, root_cells, n_diffusion_components, num_waypoints):
+    def fake_palantir(
+        adata, root_cells, n_diffusion_components, num_waypoints, **_kwargs
+    ):
         adata.obs["palantir_pseudotime"] = 0.1
         adata.obsm["palantir_branch_probs"] = np.ones((adata.n_obs, 1), dtype=float)
         return adata

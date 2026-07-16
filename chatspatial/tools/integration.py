@@ -524,7 +524,7 @@ def integrate_multiple_samples(
     elif method == "scanorama":
         # Use Scanorama for batch correction
         # BEST PRACTICE: Use scanpy.external wrapper for better integration with scanpy workflow
-        require("scanorama", feature="Scanorama integration")
+        scanorama = require("scanorama", feature="Scanorama integration")
         try:
             import scanpy.external as sce
 
@@ -538,8 +538,6 @@ def integrate_multiple_samples(
                 sc.pp.neighbors(combined, use_rep="X_scanorama")
             else:
                 # Fallback to raw scanorama (same algorithm, different interface)
-                import scanorama
-
                 # Separate data by batch, tracking original row indices
                 datasets = []
                 genes_list = []

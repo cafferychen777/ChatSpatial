@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-import sys
 from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 import pytest
 from scipy import sparse
-
-# Keep tests lightweight: if gseapy is unavailable in local env, inject a tiny stub.
-if "gseapy" not in sys.modules:
-    sys.modules["gseapy"] = SimpleNamespace()
 
 from chatspatial.models.analysis import EnrichmentResult
 from chatspatial.models.data import EnrichmentParameters
@@ -29,6 +24,16 @@ from chatspatial.tools.enrichment import (
     map_gene_set_database_to_enrichr_library,
 )
 from chatspatial.utils.exceptions import DependencyError, ParameterError, ProcessingError
+
+
+def _patch_gseapy(monkeypatch: pytest.MonkeyPatch, **methods):
+    backend = SimpleNamespace(**methods)
+    monkeypatch.setattr(
+        enrichment_module,
+        "_get_gseapy",
+        lambda *_args, **_kwargs: backend,
+    )
+    return backend
 
 
 class DummyCtx:
@@ -551,7 +556,7 @@ def test_perform_enrichr_maps_library_and_filters_significant(monkeypatch: pytes
         captured.update(kwargs)
         return _EnrResult()
 
-    monkeypatch.setattr(enrichment_module.gp, "enrichr", _fake_enrichr, raising=False)
+    _patch_gseapy(monkeypatch, enrichr=_fake_enrichr)
 
     out = enrichment_module.perform_enrichr(
         gene_list=["GENE1", "GENE2"],
@@ -586,12 +591,7 @@ def test_perform_enrichr_stores_results_for_visualization(
                 }
             )
 
-    monkeypatch.setattr(
-        enrichment_module.gp,
-        "enrichr",
-        lambda **_kwargs: _EnrResult(),
-        raising=False,
-    )
+    _patch_gseapy(monkeypatch, enrichr=lambda **_kwargs: _EnrResult())
 
     out = enrichment_module.perform_enrichr(
         gene_list=["GENE1", "GENE2"],
@@ -633,12 +633,7 @@ def test_perform_gsea_stores_latest_result_key(
             }
         )
 
-    monkeypatch.setattr(
-        enrichment_module.gp,
-        "prerank",
-        lambda **_kwargs: _PreRankResult(),
-        raising=False,
-    )
+    _patch_gseapy(monkeypatch, prerank=lambda **_kwargs: _PreRankResult())
 
     enrichment_module.perform_gsea(
         adata=minimal_spatial_adata,
@@ -748,7 +743,7 @@ def test_perform_enrichr_uses_default_libraries_and_handles_missing_optional_col
         captured.update(kwargs)
         return _EnrResult()
 
-    monkeypatch.setattr(enrichment_module.gp, "enrichr", _fake_enrichr, raising=False)
+    _patch_gseapy(monkeypatch, enrichr=_fake_enrichr)
 
     out = enrichment_module.perform_enrichr(
         gene_list=["G1", "G2"],
@@ -802,15 +797,13 @@ async def test_analyze_enrichment_dispatches_to_ssgsea(
 
 
 def test_load_msigdb_hallmark_filters_by_size(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(
-        enrichment_module.gp,
-        "get_library",
-        lambda name, organism: {
+    _patch_gseapy(
+        monkeypatch,
+        get_library=lambda name, organism: {
             "small": ["A"],
             "ok": ["A", "B", "C"],
             "large": [str(i) for i in range(10)],
         },
-        raising=False,
     )
 
     out = enrichment_module.load_msigdb_gene_sets(
@@ -825,18 +818,16 @@ def test_load_msigdb_hallmark_filters_by_size(monkeypatch: pytest.MonkeyPatch):
 def test_load_library_falls_back_when_gseapy_leaves_lines_as_bytes(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setattr(
-        enrichment_module.gp,
-        "get_library",
-        lambda *_a, **_k: (_ for _ in ()).throw(
+    _patch_gseapy(
+        monkeypatch,
+        get_library=lambda *_a, **_k: (_ for _ in ()).throw(
             TypeError("a bytes-like object is required, not 'str'")
         ),
-        raising=False,
     )
     monkeypatch.setattr(
         enrichment_module,
         "_download_enrichr_library",
-        lambda name, organism: {b"PathA": [b"Gene1", "Gene2"]},
+        lambda *_args: {b"PathA": [b"Gene1", "Gene2"]},
     )
 
     out = enrichment_module._load_library_first_available(
@@ -854,7 +845,7 @@ def test_load_go_gene_sets_calls_gseapy_with_expected_library(monkeypatch: pytes
         captured["organism"] = organism
         return {"go_ok": ["A", "B", "C"]}
 
-    monkeypatch.setattr(enrichment_module.gp, "get_library", _fake_get_library, raising=False)
+    _patch_gseapy(monkeypatch, get_library=_fake_get_library)
 
     out = enrichment_module.load_go_gene_sets("mouse", aspect="BP", min_size=2, max_size=10)
 
@@ -870,7 +861,7 @@ def test_load_kegg_gene_sets_uses_species_specific_library(monkeypatch: pytest.M
         calls.append((name, organism))
         return {"k": ["A", "B", "C"]}
 
-    monkeypatch.setattr(enrichment_module.gp, "get_library", _fake_get_library, raising=False)
+    _patch_gseapy(monkeypatch, get_library=_fake_get_library)
 
     out_h = enrichment_module.load_kegg_gene_sets("human", min_size=2, max_size=10)
     out_m = enrichment_module.load_kegg_gene_sets("mouse", min_size=2, max_size=10)
@@ -891,7 +882,7 @@ def test_load_reactome_and_cell_marker_gene_sets(monkeypatch: pytest.MonkeyPatch
             "small": ["A"],
         }
 
-    monkeypatch.setattr(enrichment_module.gp, "get_library", _fake_get_library, raising=False)
+    _patch_gseapy(monkeypatch, get_library=_fake_get_library)
 
     reactome = enrichment_module.load_reactome_gene_sets("human", min_size=2, max_size=10)
     cellm = enrichment_module.load_cell_marker_gene_sets("mouse", min_size=2, max_size=10)
@@ -922,7 +913,7 @@ def test_perform_gsea_with_ranking_key_persists_results(monkeypatch: pytest.Monk
 
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(enrichment_module.gp, "prerank", lambda **kwargs: _Res(), raising=False)
+    _patch_gseapy(monkeypatch, prerank=lambda **kwargs: _Res())
     monkeypatch.setattr(
         enrichment_module,
         "store_analysis_metadata",
@@ -976,12 +967,7 @@ def test_perform_ssgsea_success_populates_obs_and_uns(monkeypatch: pytest.Monkey
 
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(
-        enrichment_module.gp,
-        "ssgsea",
-        lambda **kwargs: _Res(adata.obs_names),
-        raising=False,
-    )
+    _patch_gseapy(monkeypatch, ssgsea=lambda **kwargs: _Res(adata.obs_names))
     monkeypatch.setattr(
         enrichment_module,
         "store_analysis_metadata",
@@ -1020,12 +1006,7 @@ def test_perform_ssgsea_invalid_result_format_raises_processing_error(
         def __init__(self):
             self.results = "bad-format"
 
-    monkeypatch.setattr(
-        enrichment_module.gp,
-        "ssgsea",
-        lambda **kwargs: _BadRes(),
-        raising=False,
-    )
+    _patch_gseapy(monkeypatch, ssgsea=lambda **kwargs: _BadRes())
 
     with pytest.raises(ProcessingError, match="ssGSEA results format not recognized"):
         enrichment_module.perform_ssgsea(
@@ -1071,12 +1052,7 @@ def test_perform_gsea_without_database_uses_method_only_key(
             )
 
     captured: dict[str, object] = {}
-    monkeypatch.setattr(
-        enrichment_module.gp,
-        "prerank",
-        lambda **kwargs: _Res(),
-        raising=False,
-    )
+    _patch_gseapy(monkeypatch, prerank=lambda **kwargs: _Res())
     monkeypatch.setattr(
         enrichment_module,
         "store_analysis_metadata",
@@ -1192,9 +1168,7 @@ def test_perform_enrichr_passes_pvalue_cutoff_through(
         captured.update(kwargs)
         return _EnrResult()
 
-    monkeypatch.setattr(
-        enrichment_module.gp, "enrichr", _fake_enrichr, raising=False
-    )
+    _patch_gseapy(monkeypatch, enrichr=_fake_enrichr)
 
     # Use a stricter cutoff of 0.01
     out = enrichment_module.perform_enrichr(

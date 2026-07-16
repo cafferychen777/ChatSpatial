@@ -25,7 +25,7 @@ from ..utils.adata_utils import (
     store_analysis_metadata,
 )
 from ..utils.compute import ensure_neighbors, ensure_pca
-from ..utils.dependency_manager import require
+from ..utils.dependency_manager import require, require_module
 from ..utils.device_utils import resolve_device_async
 from ..utils.exceptions import (
     ChatSpatialError,
@@ -208,9 +208,11 @@ async def identify_spatial_domains(
                 adata_subset, params, ctx
             )
         elif params.method in ["leiden", "louvain"]:
-            domain_labels, embeddings_key, statistics = (
-                await _identify_domains_clustering(adata_subset, params, ctx)
-            )
+            (
+                domain_labels,
+                embeddings_key,
+                statistics,
+            ) = await _identify_domains_clustering(adata_subset, params, ctx)
         elif params.method == "stagate":
             domain_labels, embeddings_key, statistics = await _identify_domains_stagate(
                 adata_subset, params, ctx
@@ -325,7 +327,18 @@ async def _identify_domains_spagcn(
     and optionally histology image features. The final domains are obtained by
     clustering these learned embeddings. This method requires the `SpaGCN` package.
     """
+    # SpaGCN must be imported after restoring SciPy's removed sparse-matrix API.
+    from ..utils.compat import ensure_spagcn_compat
+
+    ensure_spagcn_compat()
     spg = require("SpaGCN", ctx, feature="SpaGCN spatial domain identification")
+    spagcn_ez = require_module(
+        "SpaGCN",
+        "SpaGCN.ez_mode",
+        ctx,
+        feature="SpaGCN spatial domain identification",
+    )
+    detect_spatial_domains_ez_mode = spagcn_ez.detect_spatial_domains_ez_mode
 
     # Apply SpaGCN-specific gene filtering (algorithm requirement)
     try:
@@ -418,14 +431,6 @@ async def _identify_domains_spagcn(
             x_pixel = [int(x * scale_factor) for x in x_array]
             y_pixel = [int(y * scale_factor) for y in y_array]
 
-        # Apply scipy compatibility patch for SpaGCN (scipy >= 1.13 removed csr_matrix.A)
-        from ..utils.compat import ensure_spagcn_compat
-
-        ensure_spagcn_compat()
-
-        # Import and call SpaGCN function
-        from SpaGCN.ez_mode import detect_spatial_domains_ez_mode
-
         # Call SpaGCN with error handling and timeout protection
         try:
             # Validate input data before calling SpaGCN
@@ -478,6 +483,8 @@ async def _identify_domains_spagcn(
                         "3) Preprocessing with fewer genes/spots, or 4) Adjusting parameters (s, b, p)."
                     )
                     raise ProcessingError(error_msg) from e
+        except ChatSpatialError:
+            raise
         except Exception as spagcn_error:
             raise ProcessingError(
                 f"SpaGCN detect_spatial_domains_ez_mode failed: {str(spagcn_error)}"
@@ -496,6 +503,8 @@ async def _identify_domains_spagcn(
 
         return domain_labels, None, statistics
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"SpaGCN execution failed: {e}") from e
 
@@ -516,9 +525,7 @@ async def _identify_domains_clustering(
     try:
         # Get parameters from params, use defaults if not provided
         n_neighbors = (
-            params.cluster_n_neighbors
-            if params.cluster_n_neighbors is not None
-            else 15
+            params.cluster_n_neighbors if params.cluster_n_neighbors is not None else 15
         )
         spatial_weight = (
             params.cluster_spatial_weight
@@ -533,7 +540,6 @@ async def _identify_domains_clustering(
         # Add spatial information to the neighborhood graph
         detected_spatial_key = get_spatial_key(adata)
         if detected_spatial_key is not None:
-
             try:
                 sq = require("squidpy", ctx, feature="spatial neighborhood graph")
 
@@ -554,6 +560,8 @@ async def _identify_domains_clustering(
                     )
                     adata.obsp["connectivities"] = combined_conn
 
+            except ChatSpatialError:
+                raise
             except Exception as spatial_error:
                 raise ProcessingError(
                     f"Spatial graph construction failed: {spatial_error}"
@@ -595,6 +603,8 @@ async def _identify_domains_clustering(
 
         return domain_labels, "X_pca", statistics
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"{params.method} clustering failed: {e}") from e
 
@@ -680,6 +690,8 @@ def _refine_spatial_domains(
 
         return pd.Series(refined_labels, index=labels.index)
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         # Raise error instead of silently failing
         raise ProcessingError(f"Failed to refine spatial domains: {e}") from e
@@ -700,7 +712,7 @@ async def _identify_domains_stagate(
     """
     import asyncio
 
-    import torch
+    torch = require("torch", ctx, feature="STAGATE spatial domain identification")
 
     # Check PyTorch version compatibility with torch_sparse/torch_geometric
     # torch_sparse wheels are only available up to PyTorch 2.8.0
@@ -729,9 +741,7 @@ async def _identify_domains_stagate(
         # Calculate spatial graph
         # STAGATE_pyG uses smaller default radius (50 instead of 150)
         rad_cutoff = (
-            params.stagate_rad_cutoff
-            if params.stagate_rad_cutoff is not None
-            else 50
+            params.stagate_rad_cutoff if params.stagate_rad_cutoff is not None else 50
         )
         with suppress_output():
             STAGATE_pyG.Cal_Spatial_Net(adata_stagate, rad_cutoff=rad_cutoff)
@@ -754,9 +764,7 @@ async def _identify_domains_stagate(
 
         loop = asyncio.get_running_loop()
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            timeout_seconds = (
-                params.timeout if params.timeout is not None else 600
-            )
+            timeout_seconds = params.timeout if params.timeout is not None else 600
 
             def _train_stagate():
                 with suppress_output():
@@ -777,9 +785,7 @@ async def _identify_domains_stagate(
         from ..utils.compute import gmm_clustering
 
         random_seed = (
-            params.stagate_random_seed
-            if params.stagate_random_seed is not None
-            else 42
+            params.stagate_random_seed if params.stagate_random_seed is not None else 42
         )
         embedding_data = adata_stagate.obsm[embeddings_key]
 
@@ -814,6 +820,8 @@ async def _identify_domains_stagate(
         raise ProcessingError(
             f"STAGATE training timeout after {params.timeout if params.timeout is not None else 600} seconds"
         ) from e
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"STAGATE execution failed: {e}") from e
 
@@ -831,12 +839,18 @@ async def _identify_domains_graphst(
     relationships. The learned embeddings are then clustered to define spatial
     domains. This method requires the `GraphST` package.
     """
-    require("GraphST", ctx, feature="GraphST spatial domain identification")
     import asyncio
     import concurrent.futures
 
-    import torch
-    from GraphST.GraphST import GraphST
+    torch = require("torch", ctx, feature="GraphST spatial domain identification")
+
+    graphst_module = require_module(
+        "GraphST",
+        "GraphST.GraphST",
+        ctx,
+        feature="GraphST spatial domain identification",
+    )
+    GraphST = graphst_module.GraphST
 
     try:
         # MEMORY OPTIMIZATION: adata is already a working copy (adata_subset from caller)
@@ -882,6 +896,16 @@ async def _identify_domains_graphst(
         # Get embeddings key
         embeddings_key = "emb"  # GraphST stores embeddings in adata.obsm['emb']
 
+        refine_label = None
+        if params.graphst_refinement:
+            graphst_utils = require_module(
+                "GraphST",
+                "GraphST.utils",
+                ctx,
+                feature="GraphST spatial domain refinement",
+            )
+            refine_label = graphst_utils.refine_label
+
         # Perform clustering on GraphST embeddings
         # OPTIMIZATION: Use binary search instead of GraphST's linear search (290 iterations)
         # GraphST's default search_res uses increment=0.01 from 3.0 to 0.1, which is very slow
@@ -909,8 +933,7 @@ async def _identify_domains_graphst(
 
                     # Apply refinement if requested
                     if params.graphst_refinement:
-                        from GraphST.utils import refine_label
-
+                        assert refine_label is not None
                         new_type = refine_label(
                             adata_graphst,
                             radius=params.graphst_radius,
@@ -961,8 +984,7 @@ async def _identify_domains_graphst(
 
                     # Apply refinement if requested
                     if params.graphst_refinement:
-                        from GraphST.utils import refine_label
-
+                        assert refine_label is not None
                         new_type = refine_label(
                             adata_graphst,
                             radius=params.graphst_radius,
@@ -998,6 +1020,8 @@ async def _identify_domains_graphst(
         raise ProcessingError(
             f"GraphST training timeout after {params.timeout if params.timeout is not None else 600} seconds"
         ) from e
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"GraphST execution failed: {e}") from e
 
@@ -1017,12 +1041,23 @@ async def _identify_domains_banksy(
     construction, making it more interpretable and reproducible. This method
     requires the `pybanksy` package.
     """
-    require("banksy", ctx, feature="BANKSY spatial domain identification")
     import asyncio
     import concurrent.futures
 
-    from banksy.embed_banksy import generate_banksy_matrix
-    from banksy.initialize_banksy import initialize_banksy
+    banksy_embed = require_module(
+        "banksy",
+        "banksy.embed_banksy",
+        ctx,
+        feature="BANKSY spatial domain identification",
+    )
+    banksy_initialize = require_module(
+        "banksy",
+        "banksy.initialize_banksy",
+        ctx,
+        feature="BANKSY spatial domain identification",
+    )
+    generate_banksy_matrix = banksy_embed.generate_banksy_matrix
+    initialize_banksy = banksy_initialize.initialize_banksy
 
     try:
         # MEMORY OPTIMIZATION: adata is already a working copy (adata_subset from caller)
@@ -1137,5 +1172,7 @@ async def _identify_domains_banksy(
         raise ProcessingError(
             f"BANKSY timeout after {params.timeout if params.timeout is not None else 600} seconds"
         ) from e
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"BANKSY execution failed: {e}") from e

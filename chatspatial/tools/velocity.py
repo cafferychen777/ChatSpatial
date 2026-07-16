@@ -27,7 +27,7 @@ from ..utils.adata_utils import (
     store_velovi_essential_data,
     validate_adata,
 )
-from ..utils.dependency_manager import require
+from ..utils.dependency_manager import require, require_module
 from ..utils.device_utils import get_accelerator
 from ..utils.exceptions import (
     ChatSpatialError,
@@ -87,11 +87,17 @@ def _copy_matrix_data(data: Any) -> Any:
 
 
 def _compute_velocity_moments(
-    adata: "ad.AnnData", *, n_pcs: int, n_neighbors: int
+    adata: "ad.AnnData",
+    *,
+    n_pcs: int,
+    n_neighbors: int,
+    scv: Any | None = None,
 ) -> None:
     """Compute an explicit Scanpy neighbor graph and scVelo moments."""
     import scanpy as sc
-    import scvelo as scv
+
+    if scv is None:
+        scv = require("scvelo", feature="scVelo moment computation")
 
     sc.pp.neighbors(adata, n_pcs=n_pcs, n_neighbors=n_neighbors)
     # Passing None makes scVelo consume the graph above instead of invoking its
@@ -239,6 +245,8 @@ def preprocess_for_velocity(
     n_pcs: int = 30,
     n_neighbors: int = 30,
     params: Optional[RNAVelocityParameters] = None,
+    *,
+    scv: Any | None = None,
 ) -> "ad.AnnData":
     """Prepare AnnData for RNA velocity analysis using scVelo pipeline.
 
@@ -259,23 +267,21 @@ def preprocess_for_velocity(
     Returns:
         Preprocessed AnnData with velocity-ready layers and moments.
     """
-    import scvelo as scv
-
     # If params object is provided, use its values
     if params is not None:
-        from ..models.data import RNAVelocityParameters
-
-        if isinstance(params, RNAVelocityParameters):
-            min_shared_counts = params.min_shared_counts
-            n_top_genes = params.n_top_genes
-            n_pcs = params.n_pcs
-            n_neighbors = params.n_neighbors
+        min_shared_counts = params.min_shared_counts
+        n_top_genes = params.n_top_genes
+        n_pcs = params.n_pcs
+        n_neighbors = params.n_neighbors
 
     # Validate velocity data
     try:
         validate_adata(adata, {}, check_velocity=True)
     except DataNotFoundError as e:
         raise DataError(f"Invalid velocity data: {e}") from e
+
+    if scv is None:
+        scv = require("scvelo", feature="scVelo preprocessing")
 
     # Standard preprocessing with configurable parameters
     # enforce=True ensures scvelo recomputes everything even if data was pre-normalized
@@ -286,7 +292,12 @@ def preprocess_for_velocity(
         n_top_genes=n_top_genes,
         enforce=True,
     )
-    _compute_velocity_moments(adata, n_pcs=n_pcs, n_neighbors=n_neighbors)
+    _compute_velocity_moments(
+        adata,
+        n_pcs=n_pcs,
+        n_neighbors=n_neighbors,
+        scv=scv,
+    )
 
     return adata
 
@@ -295,6 +306,8 @@ def compute_rna_velocity(
     adata: "ad.AnnData",
     mode: str = "stochastic",
     params: Optional[RNAVelocityParameters] = None,
+    *,
+    scv: Any | None = None,
 ) -> "ad.AnnData":
     """Compute RNA velocity to infer cellular differentiation direction.
 
@@ -314,18 +327,24 @@ def compute_rna_velocity(
     Returns:
         AnnData updated with velocity vectors and graph.
     """
-    import scvelo as scv
-
     # Use params for mode if provided
     if params is not None:
-        from ..models.data import RNAVelocityParameters
+        mode = params.scvelo_mode
 
-        if isinstance(params, RNAVelocityParameters):
-            mode = params.scvelo_mode
+    valid_modes = {"deterministic", "stochastic", "dynamical"}
+    if mode not in valid_modes:
+        raise ParameterError(
+            f"Unsupported scVelo mode '{mode}'. Expected one of: "
+            f"{', '.join(sorted(valid_modes))}."
+        )
 
-    # Check if preprocessing is needed
+    if scv is None:
+        scv = require("scvelo", feature="scVelo RNA velocity analysis")
+
+    # Check if preprocessing is needed. Pass the resolved module so one caller
+    # owns the dependency for the complete scVelo workflow.
     if "Ms" not in adata.layers or "Mu" not in adata.layers:
-        adata = preprocess_for_velocity(adata, params=params)
+        adata = preprocess_for_velocity(adata, params=params, scv=scv)
 
     # Compute velocity based on mode
     if mode == "dynamical":
@@ -346,6 +365,8 @@ async def _prepare_velovi_data(
     adata: "ad.AnnData",
     ctx: Optional["ToolContext"],
     params: Optional["RNAVelocityParameters"] = None,
+    *,
+    scv: Any | None = None,
 ) -> "ad.AnnData":
     """Prepare data for VELOVI according to official standards.
 
@@ -358,10 +379,12 @@ async def _prepare_velovi_data(
         Preprocessed AnnData copy ready for VELOVI.
     """
     import anndata as ad
-    import scvelo as scv
 
     if "spliced" not in adata.layers or "unspliced" not in adata.layers:
         raise DataNotFoundError("Missing required 'spliced' and 'unspliced' layers")
+
+    if scv is None:
+        scv = require("scvelo", ctx, feature="VELOVI preprocessing")
 
     # Build a minimal working AnnData to avoid copying unrelated layers/obsm/uns.
     spliced = _copy_matrix_data(adata.layers["spliced"])
@@ -410,7 +433,10 @@ async def _prepare_velovi_data(
     # Compute moments
     try:
         _compute_velocity_moments(
-            adata_velovi, n_pcs=n_pcs, n_neighbors=n_neighbors
+            adata_velovi,
+            n_pcs=n_pcs,
+            n_neighbors=n_neighbors,
+            scv=scv,
         )
     except Exception as e:
         raise ProcessingError(
@@ -491,12 +517,24 @@ async def analyze_velocity_with_velovi(
         Dictionary with VELOVI results and metadata.
     """
     try:
-        require("scvelo", feature="VELOVI preprocessing")
-        require("scvi", feature="VELOVI velocity analysis")
-        from scvi.external import VELOVI
+        if "spliced" not in adata.layers or "unspliced" not in adata.layers:
+            raise DataNotFoundError(
+                "Missing required 'spliced' and 'unspliced' layers"
+            )
+
+        scv = require("scvelo", ctx, feature="VELOVI preprocessing")
+        scvi_external = require_module(
+            "scvi",
+            "scvi.external",
+            ctx,
+            feature="VELOVI velocity analysis",
+        )
+        VELOVI = scvi_external.VELOVI
 
         # Data preprocessing (forward params so user's preprocessing settings apply)
-        adata_prepared = await _prepare_velovi_data(adata, ctx, params=params)
+        adata_prepared = await _prepare_velovi_data(
+            adata, ctx, params=params, scv=scv
+        )
         _validate_velovi_workspace_axis(adata, adata_prepared)
 
         # Data validation
@@ -653,14 +691,19 @@ async def analyze_rna_velocity(
     velocity_computed = False
     # Dispatch based on method
     if params.method == "scvelo":
-        require("scvelo", feature="scVelo RNA velocity analysis")
+        scv = require("scvelo", ctx, feature="scVelo RNA velocity analysis")
         with suppress_output():
             try:
                 adata = compute_rna_velocity(
-                    adata, mode=params.scvelo_mode, params=params
+                    adata,
+                    mode=params.scvelo_mode,
+                    params=params,
+                    scv=scv,
                 )
                 velocity_computed = True
                 adata.uns["velocity_method"] = f"scvelo_{params.scvelo_mode}"
+            except ChatSpatialError:
+                raise
             except Exception as e:
                 raise ProcessingError(
                     f"scVelo RNA velocity analysis failed: {e}"

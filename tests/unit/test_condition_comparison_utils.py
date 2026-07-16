@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from types import ModuleType
 
 import numpy as np
@@ -20,7 +19,12 @@ from chatspatial.tools.condition_comparison import (
     _validate_sample_condition_mapping,
     compare_conditions,
 )
-from chatspatial.utils.exceptions import DataError, ParameterError, ProcessingError
+from chatspatial.utils.exceptions import (
+    DataError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 
 
 class DummyCtx:
@@ -37,6 +41,22 @@ class DummyCtx:
 
     async def warning(self, msg: str):
         self.warn_logs.append(msg)
+
+
+def _patch_pydeseq2_modules(
+    monkeypatch: pytest.MonkeyPatch,
+    dds_module: object,
+    ds_module: object,
+) -> None:
+    modules = {
+        "pydeseq2.dds": dds_module,
+        "pydeseq2.ds": ds_module,
+    }
+    monkeypatch.setattr(
+        cc_module,
+        "require_module",
+        lambda _dependency, module_name, *_args, **_kwargs: modules[module_name],
+    )
 
 
 def test_create_pseudobulk_aggregates_per_sample(minimal_spatial_adata):
@@ -149,8 +169,7 @@ def test_run_deseq2_filters_thresholds_and_nan(
     dds_mod.DeseqDataSet = FakeDeseqDataSet
     ds_mod = ModuleType("pydeseq2.ds")
     ds_mod.DeseqStats = FakeDeseqStats
-    monkeypatch.setitem(sys.modules, "pydeseq2.dds", dds_mod)
-    monkeypatch.setitem(sys.modules, "pydeseq2.ds", ds_mod)
+    _patch_pydeseq2_modules(monkeypatch, dds_mod, ds_mod)
 
     top_up, top_down, n_significant, results_df, n_up, n_down = _run_deseq2(
         counts_df,
@@ -171,6 +190,23 @@ def test_run_deseq2_filters_thresholds_and_nan(
     assert len(results_df) == 3
     assert top_up[0].gene == "gene_up"
     assert top_down[0].gene == "gene_down"
+
+
+def test_run_deseq2_preserves_managed_submodule_error(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def _missing_submodule(*_args, **_kwargs):
+        raise DependencyError("pydeseq2.dds is unavailable")
+
+    monkeypatch.setattr(cc_module, "require_module", _missing_submodule)
+
+    with pytest.raises(DependencyError, match="pydeseq2.dds is unavailable"):
+        _run_deseq2(
+            pd.DataFrame([[1]], index=["s1"], columns=["g1"]),
+            pd.DataFrame({"condition": ["treated"]}, index=["s1"]),
+            condition1="treated",
+            condition2="control",
+        )
 
 
 @pytest.mark.asyncio
@@ -240,6 +276,49 @@ async def test_run_global_comparison_wraps_deseq2_errors(monkeypatch):
     )
 
     with pytest.raises(ProcessingError, match="DESeq2 analysis failed"):
+        await _run_global_comparison(
+            adata,
+            np.array([[1], [2], [3], [4]]),
+            pd.Index(["g1"]),
+            ctx,
+            params,
+        )
+
+
+@pytest.mark.asyncio
+async def test_run_global_comparison_preserves_dependency_errors(monkeypatch):
+    adata = type("A", (), {"obs": pd.DataFrame()})()
+    ctx = DummyCtx()
+    params = ConditionComparisonParameters(
+        condition_key="condition",
+        condition1="treated",
+        condition2="control",
+        sample_key="sample",
+        min_cells_per_sample=1,
+    )
+    counts_df = pd.DataFrame(
+        [[1], [2], [3], [4]],
+        index=["s1", "s2", "s3", "s4"],
+        columns=["g1"],
+    )
+    metadata_df = pd.DataFrame(
+        {"condition": ["treated", "treated", "control", "control"]},
+        index=counts_df.index,
+    )
+    monkeypatch.setattr(
+        cc_module,
+        "_create_pseudobulk",
+        lambda *_args, **_kwargs: (counts_df, metadata_df, {}),
+    )
+    monkeypatch.setattr(
+        cc_module,
+        "_run_deseq2",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            DependencyError("pydeseq2.dds is unavailable")
+        ),
+    )
+
+    with pytest.raises(DependencyError, match="pydeseq2.dds is unavailable"):
         await _run_global_comparison(
             adata,
             np.array([[1], [2], [3], [4]]),
@@ -424,6 +503,57 @@ async def test_run_stratified_comparison_continues_after_cell_type_failure(monke
 
 
 @pytest.mark.asyncio
+async def test_run_stratified_comparison_preserves_dependency_errors(monkeypatch):
+    obs = pd.DataFrame(
+        {
+            "condition": ["treated"] * 4 + ["control"] * 4,
+            "sample": ["s1"] * 2 + ["s2"] * 2 + ["s3"] * 2 + ["s4"] * 2,
+            "cell_type": ["T"] * 8,
+        }
+    )
+    adata = type("A", (), {"obs": obs})()
+    ctx = DummyCtx()
+    params = ConditionComparisonParameters(
+        condition_key="condition",
+        condition1="treated",
+        condition2="control",
+        sample_key="sample",
+        cell_type_key="cell_type",
+        min_cells_per_sample=1,
+    )
+    counts_df = pd.DataFrame(
+        [[1], [2], [3], [4]],
+        index=["s1", "s2", "s3", "s4"],
+        columns=["g1"],
+    )
+    metadata_df = pd.DataFrame(
+        {"condition": ["treated", "treated", "control", "control"]},
+        index=counts_df.index,
+    )
+    monkeypatch.setattr(
+        cc_module,
+        "_create_pseudobulk",
+        lambda *_args, **_kwargs: (counts_df, metadata_df, {}),
+    )
+    monkeypatch.setattr(
+        cc_module,
+        "_run_deseq2",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            DependencyError("pydeseq2.ds is unavailable")
+        ),
+    )
+
+    with pytest.raises(DependencyError, match="pydeseq2.ds is unavailable"):
+        await _run_stratified_comparison(
+            adata,
+            np.ones((8, 1), dtype=np.int64),
+            pd.Index(["g1"]),
+            ctx,
+            params,
+        )
+
+
+@pytest.mark.asyncio
 async def test_compare_conditions_missing_condition2_raises_parameter_error(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
@@ -431,7 +561,13 @@ async def test_compare_conditions_missing_condition2_raises_parameter_error(
     adata.obs["condition"] = ["treated"] * 30 + ["control"] * 30
     adata.obs["sample"] = ["s1"] * 15 + ["s2"] * 15 + ["s3"] * 15 + ["s4"] * 15
     ctx = DummyCtx(adata)
-    monkeypatch.setattr(cc_module, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        cc_module,
+        "require_module",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("dependency should load only after input validation")
+        ),
+    )
 
     params = ConditionComparisonParameters(
         condition_key="condition",
@@ -456,8 +592,6 @@ async def test_compare_conditions_min_samples_guard_for_condition2(
         def __init__(self, X, var_names):
             self.X = X
             self.var_names = var_names
-
-    monkeypatch.setattr(cc_module, "require", lambda *_args, **_kwargs: None)
 
     def _raw_source(_adata, *, prefer_complete_genes, require_integer_counts):
         assert prefer_complete_genes is True
@@ -490,8 +624,6 @@ async def test_compare_conditions_min_samples_guard_for_condition1(
         def __init__(self, X, var_names):
             self.X = X
             self.var_names = var_names
-
-    monkeypatch.setattr(cc_module, "require", lambda *_args, **_kwargs: None)
 
     def _raw_source(_adata, *, prefer_complete_genes, require_integer_counts):
         assert prefer_complete_genes is True

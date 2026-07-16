@@ -11,7 +11,44 @@ from chatspatial.tools import spatial_domains as sd
 from chatspatial.tools import spatial_genes as sg
 from chatspatial.tools.spatial_domains import _refine_spatial_domains
 from chatspatial.tools.spatial_genes import _calculate_sparse_gene_stats
-from chatspatial.utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
+from chatspatial.utils.exceptions import (
+    DataError,
+    DataNotFoundError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
+
+
+@pytest.fixture(autouse=True)
+def _resolve_fake_spatial_domain_submodules(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        sd,
+        "require_module",
+        lambda _name, module_name, *_args, **_kwargs: __import__("sys").modules[
+            module_name
+        ],
+    )
+
+
+def _required_dependency(name: str, *_args, **_kwargs):
+    return __import__("sys").modules.get(name, object())
+
+
+def _patch_stagate_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+    torch_module: object,
+    stagate_module: object,
+) -> None:
+    dependencies = {"torch": torch_module, "STAGATE_pyG": stagate_module}
+
+    def _require(name: str, *_args, **_kwargs):
+        try:
+            return dependencies[name]
+        except KeyError as exc:
+            raise AssertionError(f"Unexpected dependency request: {name}") from exc
+
+    monkeypatch.setattr(sd, "require", _require)
 
 
 class DummyCtx:
@@ -129,7 +166,11 @@ async def test_identify_spatial_domains_refinement_failure_does_not_abort(
         return labels, None, {"silhouette": 0.4}
 
     monkeypatch.setattr(sd, "_identify_domains_clustering", _fake_clustering)
-    monkeypatch.setattr(sd, "_refine_spatial_domains", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("refine boom")))
+    monkeypatch.setattr(
+        sd,
+        "_refine_spatial_domains",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("refine boom")),
+    )
     monkeypatch.setattr(sd, "store_analysis_metadata", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(sd, "export_analysis_result", lambda *_args, **_kwargs: [])
 
@@ -241,7 +282,9 @@ async def test_identify_spatial_genes_rejects_unknown_method_via_runtime_guard(
 
 
 @pytest.mark.asyncio
-async def test_identify_spatial_genes_requires_spatial_coordinates(minimal_spatial_adata):
+async def test_identify_spatial_genes_requires_spatial_coordinates(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     del adata.obsm["spatial"]
     ctx = DummyCtx(adata)
@@ -284,7 +327,11 @@ async def test_identify_domains_clustering_louvain_falls_back_to_leiden(
                 a.obsp["spatial_connectivities"] = np.eye(a.n_obs, dtype=float)
 
     monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSq)
-    monkeypatch.setattr(sd.sc.tl, "louvain", lambda *_a, **_k: (_ for _ in ()).throw(ImportError("missing louvain")))
+    monkeypatch.setattr(
+        sd.sc.tl,
+        "louvain",
+        lambda *_a, **_k: (_ for _ in ()).throw(ImportError("missing louvain")),
+    )
 
     def _fake_leiden(a, resolution=1.0, key_added="spatial_leiden"):
         del resolution
@@ -330,13 +377,38 @@ async def test_identify_domains_clustering_spatial_graph_failure_is_wrapped(
         )
 
 
-def test_refine_spatial_domains_single_spot_raises_processing_error(
+@pytest.mark.asyncio
+async def test_identify_domains_clustering_preserves_dependency_errors(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    monkeypatch.setattr(sd, "ensure_pca", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sd, "ensure_neighbors", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        sd,
+        "require",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            DependencyError("squidpy is unavailable")
+        ),
+    )
+
+    with pytest.raises(DependencyError, match="squidpy is unavailable"):
+        await sd._identify_domains_clustering(
+            adata,
+            SpatialDomainParameters(method="leiden"),
+            DummyCtx(adata),
+        )
+
+
+def test_refine_spatial_domains_single_spot_preserves_coordinate_error(
     minimal_spatial_adata,
 ):
     adata = minimal_spatial_adata[:1].copy()
     adata.obs["domain"] = ["A"]
 
-    with pytest.raises(ProcessingError, match="All spatial coordinates are identical"):
+    with pytest.raises(
+        DataError, match="All spatial coordinates are identical"
+    ):
         _refine_spatial_domains(adata, "domain", threshold=0.5)
 
 
@@ -395,6 +467,33 @@ async def test_identify_spatial_domains_uses_raw_when_current_has_negatives(
 
 
 @pytest.mark.asyncio
+async def test_spagcn_applies_compatibility_patch_before_import(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    events: list[str] = []
+
+    monkeypatch.setattr(
+        "chatspatial.utils.compat.ensure_spagcn_compat",
+        lambda: events.append("compat"),
+    )
+
+    def _stop_after_import(name: str, *_args, **_kwargs):
+        events.append(name)
+        raise DependencyError("stop after import order check")
+
+    monkeypatch.setattr(sd, "require", _stop_after_import)
+
+    with pytest.raises(DependencyError, match="import order check"):
+        await sd._identify_domains_spagcn(
+            minimal_spatial_adata.copy(),
+            SpatialDomainParameters(method="spagcn"),
+            DummyCtx(minimal_spatial_adata),
+        )
+
+    assert events == ["compat", "SpaGCN"]
+
+
+@pytest.mark.asyncio
 async def test_identify_domains_spagcn_success_with_dummy_histology_fallback(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
@@ -411,7 +510,9 @@ async def test_identify_domains_spagcn_success_with_dummy_histology_fallback(
             del _adata
 
     monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSpg)
-    monkeypatch.setattr("chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None
+    )
 
     import sys
     import types
@@ -454,7 +555,9 @@ async def test_identify_domains_spagcn_timeout_is_wrapped(
             del _adata
 
     monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSpg)
-    monkeypatch.setattr("chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None
+    )
 
     import sys
     import types
@@ -497,8 +600,14 @@ async def test_identify_domains_spagcn_rejects_mismatched_coordinate_length(
             del _adata
 
     monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSpg)
-    monkeypatch.setattr("chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None)
-    monkeypatch.setattr(sd, "require_spatial_coords", lambda _adata: np.asarray(_adata.obsm["spatial"])[:-1])
+    monkeypatch.setattr(
+        "chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(
+        sd,
+        "require_spatial_coords",
+        lambda _adata: np.asarray(_adata.obsm["spatial"])[:-1],
+    )
 
     import sys
     import types
@@ -510,7 +619,7 @@ async def test_identify_domains_spagcn_rejects_mismatched_coordinate_length(
     sys.modules["SpaGCN"] = pkg
     sys.modules["SpaGCN.ez_mode"] = ez_mod
 
-    with pytest.raises(ProcessingError, match="doesn't match data"):
+    with pytest.raises(DataError, match="doesn't match data"):
         await sd._identify_domains_spagcn(
             adata,
             SpatialDomainParameters(method="spagcn"),
@@ -522,14 +631,13 @@ async def test_identify_domains_spagcn_rejects_mismatched_coordinate_length(
 async def test_identify_domains_stagate_rejects_unsupported_torch_version(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import sys
     import types
 
     adata = minimal_spatial_adata.copy()
     torch_mod = types.ModuleType("torch")
     torch_mod.__version__ = "2.9.0"
     torch_mod.device = lambda x: x
-    sys.modules["torch"] = torch_mod
+    _patch_stagate_dependencies(monkeypatch, torch_mod, object())
 
     with pytest.raises(ProcessingError, match="requires PyTorch <= 2.8.0"):
         await sd._identify_domains_stagate(
@@ -568,7 +676,7 @@ async def test_identify_domains_stagate_success_returns_embeddings_and_stats(
             a.obsm["STAGATE"] = np.ones((a.n_obs, 4), dtype=float)
             return a
 
-    monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSTAGATE)
+    _patch_stagate_dependencies(monkeypatch, torch_mod, _FakeSTAGATE)
     monkeypatch.setattr(
         "chatspatial.utils.compute.gmm_clustering",
         lambda data, n_clusters, **_kwargs: np.arange(data.shape[0]) % n_clusters,
@@ -629,7 +737,7 @@ async def test_identify_domains_stagate_stats_failure_logs_debug_and_continues(
             a.obsm["STAGATE"] = np.ones((a.n_obs, 2), dtype=float)
             return a
 
-    monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSTAGATE)
+    _patch_stagate_dependencies(monkeypatch, torch_mod, _FakeSTAGATE)
     monkeypatch.setattr(
         "chatspatial.utils.compute.gmm_clustering",
         lambda data, n_clusters, **_kwargs: np.arange(data.shape[0]) % n_clusters,
@@ -678,7 +786,7 @@ async def test_identify_domains_stagate_timeout_is_wrapped(
             del a, device
             return None
 
-    monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSTAGATE)
+    _patch_stagate_dependencies(monkeypatch, torch_mod, _FakeSTAGATE)
 
     async def _fake_resolve_device(prefer_gpu: bool, ctx):
         del prefer_gpu, ctx
@@ -731,7 +839,7 @@ async def test_identify_domains_graphst_mclust_path_success(
     sys.modules["GraphST"] = graphst_pkg
     sys.modules["GraphST.GraphST"] = graphst_sub
 
-    monkeypatch.setattr(sd, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(sd, "require", _required_dependency)
     monkeypatch.setattr(
         "chatspatial.utils.compute.gmm_clustering",
         lambda data, n_clusters, **_kwargs: np.arange(data.shape[0]) % n_clusters,
@@ -798,7 +906,7 @@ async def test_identify_domains_graphst_timeout_is_wrapped(
     sys.modules["GraphST"] = graphst_pkg
     sys.modules["GraphST.GraphST"] = graphst_sub
 
-    monkeypatch.setattr(sd, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(sd, "require", _required_dependency)
 
     async def _fake_resolve_device(prefer_gpu: bool, ctx):
         del prefer_gpu, ctx
@@ -839,7 +947,7 @@ async def test_identify_domains_banksy_success_path(
     sys.modules["banksy.initialize_banksy"] = init_mod
     sys.modules["banksy.embed_banksy"] = embed_mod
 
-    monkeypatch.setattr(sd, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(sd, "require", _required_dependency)
     monkeypatch.setattr(
         sd.sc.pp,
         "pca",
@@ -887,7 +995,7 @@ async def test_identify_domains_banksy_timeout_is_wrapped(
     sys.modules["banksy.initialize_banksy"] = init_mod
     sys.modules["banksy.embed_banksy"] = embed_mod
 
-    monkeypatch.setattr(sd, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(sd, "require", _required_dependency)
 
     async def _raise_timeout(_future, timeout=None):
         del _future, timeout
@@ -903,9 +1011,7 @@ async def test_identify_domains_banksy_timeout_is_wrapped(
         )
 
 
-def _install_fake_spagcn_modules(
-    monkeypatch: pytest.MonkeyPatch, detect_fn
-) -> None:
+def _install_fake_spagcn_modules(monkeypatch: pytest.MonkeyPatch, detect_fn) -> None:
     import sys
     import types
 
@@ -1148,8 +1254,16 @@ async def test_identify_spatial_domains_cleans_sparse_nan_inf(
 @pytest.mark.parametrize(
     ("images", "scalefactors", "expected_scale"),
     [
-        ({"hires": np.ones((5, 5, 3), dtype=np.uint8)}, {"tissue_hires_scalef": 2.0}, 2.0),
-        ({"lowres": np.ones((5, 5, 3), dtype=np.uint8)}, {"tissue_lowres_scalef": 3.0}, 3.0),
+        (
+            {"hires": np.ones((5, 5, 3), dtype=np.uint8)},
+            {"tissue_hires_scalef": 2.0},
+            2.0,
+        ),
+        (
+            {"lowres": np.ones((5, 5, 3), dtype=np.uint8)},
+            {"tissue_lowres_scalef": 3.0},
+            3.0,
+        ),
         ({"hires": np.ones((5, 5, 3), dtype=np.uint8)}, {}, 1.0),
         ({"lowres": np.ones((5, 5, 3), dtype=np.uint8)}, {}, 1.0),
     ],
@@ -1181,7 +1295,9 @@ async def test_identify_domains_spagcn_histology_image_selection_and_scaling(
         return ["0"] * _adata.n_obs
 
     monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSpg)
-    monkeypatch.setattr("chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None
+    )
     _install_fake_spagcn_modules(monkeypatch, _detect_fn)
 
     labels, emb_key, stats = await sd._identify_domains_spagcn(
@@ -1215,7 +1331,9 @@ async def test_identify_domains_spagcn_prefilter_failure_warns_and_continues(
             del _adata
 
     monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSpg)
-    monkeypatch.setattr("chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None
+    )
     _install_fake_spagcn_modules(monkeypatch, lambda ad, *_a, **_k: ["0"] * ad.n_obs)
 
     labels, _, _ = await sd._identify_domains_spagcn(
@@ -1254,14 +1372,14 @@ async def test_identify_domains_clustering_leiden_without_spatial_sets_zero_spat
     assert stats["spatial_weight"] == 0.0
 
 
-def test_refine_spatial_domains_empty_dataset_raises_processing_error(
+def test_refine_spatial_domains_empty_dataset_preserves_data_error(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata[:0].copy()
     adata.obs["domain"] = []
     monkeypatch.setattr(sd, "require_spatial_coords", lambda _adata: np.empty((0, 2)))
 
-    with pytest.raises(ProcessingError, match="Dataset is empty"):
+    with pytest.raises(DataNotFoundError, match="Dataset is empty"):
         _refine_spatial_domains(adata, "domain", threshold=0.5)
 
 
@@ -1317,7 +1435,7 @@ async def test_identify_domains_stagate_generic_error_is_wrapped(
             del _adata, rad_cutoff
             raise RuntimeError("cal graph failed")
 
-    monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSTAGATE)
+    _patch_stagate_dependencies(monkeypatch, torch_mod, _FakeSTAGATE)
 
     with pytest.raises(ProcessingError, match="STAGATE execution failed"):
         await sd._identify_domains_stagate(
@@ -1364,7 +1482,7 @@ async def test_identify_domains_graphst_leiden_refinement_branch_and_radius_stat
     monkeypatch.setitem(sys.modules, "GraphST.GraphST", graphst_sub)
     monkeypatch.setitem(sys.modules, "GraphST.utils", graphst_utils)
 
-    monkeypatch.setattr(sd, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(sd, "require", _required_dependency)
     monkeypatch.setattr(sd.sc.pp, "neighbors", lambda *_a, **_k: None)
 
     calls = {"n": 0}
@@ -1421,7 +1539,7 @@ async def test_identify_domains_banksy_missing_spatial_coordinates_is_wrapped(
         initialize_fn=lambda *_a, **_k: {"ok": True},
         generate_fn=lambda *_a, **_k: (None, adata.copy()),
     )
-    monkeypatch.setattr(sd, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(sd, "require", _required_dependency)
 
     with pytest.raises(ProcessingError, match="No spatial coordinates found"):
         await sd._identify_domains_banksy(
@@ -1444,7 +1562,7 @@ async def test_identify_domains_banksy_uses_alternative_spatial_key(
         initialize_fn=lambda *_a, **_k: {"ok": True},
         generate_fn=lambda *_a, **_k: (None, banksy_matrix),
     )
-    monkeypatch.setattr(sd, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(sd, "require", _required_dependency)
     monkeypatch.setattr(
         sd.sc.pp,
         "pca",
@@ -1478,10 +1596,12 @@ async def test_identify_domains_banksy_generic_error_is_wrapped(
 
     _install_fake_banksy_modules(
         monkeypatch,
-        initialize_fn=lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("init boom")),
+        initialize_fn=lambda *_a, **_k: (_ for _ in ()).throw(
+            RuntimeError("init boom")
+        ),
         generate_fn=lambda *_a, **_k: (None, adata.copy()),
     )
-    monkeypatch.setattr(sd, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(sd, "require", _required_dependency)
 
     with pytest.raises(ProcessingError, match="BANKSY execution failed"):
         await sd._identify_domains_banksy(
@@ -1528,7 +1648,7 @@ async def test_identify_domains_graphst_mclust_refinement_branch(
     monkeypatch.setitem(sys.modules, "GraphST.GraphST", graphst_sub)
     monkeypatch.setitem(sys.modules, "GraphST.utils", graphst_utils)
 
-    monkeypatch.setattr(sd, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(sd, "require", _required_dependency)
     monkeypatch.setattr(
         "chatspatial.utils.compute.gmm_clustering",
         lambda data, n_clusters, **_kwargs: np.arange(data.shape[0]) % n_clusters,
@@ -1589,8 +1709,9 @@ async def test_identify_domains_graphst_leiden_early_stopping_branch(
     monkeypatch.setitem(sys.modules, "GraphST", graphst_pkg)
     monkeypatch.setitem(sys.modules, "GraphST.GraphST", graphst_sub)
 
-    monkeypatch.setattr(sd, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(sd, "require", _required_dependency)
     monkeypatch.setattr(sd.sc.pp, "neighbors", lambda *_a, **_k: None)
+
     def _fake_leiden(a, resolution=1.0, random_state=0):
         del resolution, random_state
         a.obs["leiden"] = [str(i % 2) for i in range(a.n_obs)]
@@ -1647,7 +1768,7 @@ async def test_identify_domains_graphst_generic_error_is_wrapped(
     monkeypatch.setitem(sys.modules, "GraphST", graphst_pkg)
     monkeypatch.setitem(sys.modules, "GraphST.GraphST", graphst_sub)
 
-    monkeypatch.setattr(sd, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(sd, "require", _required_dependency)
 
     async def _fake_resolve_device(prefer_gpu: bool, ctx):
         del prefer_gpu, ctx

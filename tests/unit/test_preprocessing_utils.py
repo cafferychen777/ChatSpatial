@@ -14,7 +14,13 @@ from anndata import AnnData
 from chatspatial.models.data import PreprocessingParameters
 from chatspatial.tools import preprocessing as preprocessing_mod
 from chatspatial.tools.preprocessing import _compute_safe_percent_top, preprocess_data
-from chatspatial.utils.exceptions import DataError, DependencyError, ParameterError, ProcessingError
+from chatspatial.utils.dependency_manager import REnvironment
+from chatspatial.utils.exceptions import (
+    DataError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 
 
 class DummyCtx:
@@ -55,6 +61,10 @@ def _make_adata(n_obs: int = 30, n_vars: int = 120) -> AnnData:
     return adata
 
 
+def _required_dependency(name: str, *_args, **_kwargs):
+    return sys.modules[name]
+
+
 def _install_lightweight_preprocess_mocks(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _noop_ensure_unique(_adata, _ctx, _label):
         return None
@@ -87,10 +97,14 @@ def _install_lightweight_preprocess_mocks(monkeypatch: pytest.MonkeyPatch) -> No
         del args, kwargs
         return None
 
-    monkeypatch.setattr(preprocessing_mod, "ensure_unique_var_names_async", _noop_ensure_unique)
+    monkeypatch.setattr(
+        preprocessing_mod, "ensure_unique_var_names_async", _noop_ensure_unique
+    )
     monkeypatch.setattr(preprocessing_mod, "standardize_adata", _identity_standardize)
     monkeypatch.setattr(preprocessing_mod, "sample_expression_values", _sample_values)
-    monkeypatch.setattr(preprocessing_mod.sc.pp, "calculate_qc_metrics", _calc_qc_metrics)
+    monkeypatch.setattr(
+        preprocessing_mod.sc.pp, "calculate_qc_metrics", _calc_qc_metrics
+    )
     monkeypatch.setattr(preprocessing_mod.sc.pp, "filter_genes", _no_op)
     monkeypatch.setattr(preprocessing_mod.sc.pp, "filter_cells", _no_op)
     monkeypatch.setattr(preprocessing_mod.sc.pp, "subsample", _no_op)
@@ -106,7 +120,7 @@ def _install_fake_rpy2_for_sct(
     pearson_residuals: np.ndarray,
     residual_variance: np.ndarray,
     kept_genes: list[str],
-) -> None:
+) -> REnvironment:
     class _Converter:
         def __add__(self, _other):
             return self
@@ -138,15 +152,40 @@ def _install_fake_rpy2_for_sct(
     numpy2ri_mod = ModuleType("rpy2.robjects.numpy2ri")
     numpy2ri_mod.converter = _Converter()
 
+    class _RLock:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    environment = REnvironment(
+        robjects=ro_mod,
+        pandas2ri=SimpleNamespace(converter=_Converter()),
+        numpy2ri=numpy2ri_mod,
+        packages=SimpleNamespace(importr=lambda _package: object()),
+        conversion=conversion_mod,
+        openrlib=SimpleNamespace(rlock=_RLock()),
+        anndata2ri=None,
+    )
+    monkeypatch.setattr(
+        preprocessing_mod,
+        "validate_r_environment",
+        lambda *_args, **_kwargs: environment,
+    )
+
     rpy2_mod = ModuleType("rpy2")
     monkeypatch.setitem(sys.modules, "rpy2", rpy2_mod)
     monkeypatch.setitem(sys.modules, "rpy2.robjects", ro_mod)
     monkeypatch.setitem(sys.modules, "rpy2.robjects.numpy2ri", numpy2ri_mod)
     monkeypatch.setitem(sys.modules, "rpy2.robjects.conversion", conversion_mod)
+    return environment
 
 
 @pytest.mark.asyncio
-async def test_preprocess_data_success_persists_core_artifacts(monkeypatch: pytest.MonkeyPatch):
+async def test_preprocess_data_success_persists_core_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+):
     _install_lightweight_preprocess_mocks(monkeypatch)
 
     adata = _make_adata(n_obs=24, n_vars=120)
@@ -230,7 +269,9 @@ async def test_preprocess_data_warns_when_hvgs_too_low(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio
-async def test_preprocess_data_rejects_none_normalization_for_raw_counts(monkeypatch: pytest.MonkeyPatch):
+async def test_preprocess_data_rejects_none_normalization_for_raw_counts(
+    monkeypatch: pytest.MonkeyPatch,
+):
     _install_lightweight_preprocess_mocks(monkeypatch)
 
     # _make_adata produces integer counts (Poisson draws) — check_is_integer_counts
@@ -248,7 +289,9 @@ async def test_preprocess_data_rejects_none_normalization_for_raw_counts(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_preprocess_data_rejects_none_normalization_low_depth_counts(monkeypatch: pytest.MonkeyPatch):
+async def test_preprocess_data_rejects_none_normalization_low_depth_counts(
+    monkeypatch: pytest.MonkeyPatch,
+):
     """Low-depth integer data (max < 100) is still detected as raw counts."""
     _install_lightweight_preprocess_mocks(monkeypatch)
 
@@ -288,27 +331,35 @@ async def test_preprocess_data_failed_validation_does_not_mutate_source(
 
 
 @pytest.mark.asyncio
-async def test_preprocess_data_unknown_normalization_raises(monkeypatch: pytest.MonkeyPatch):
+async def test_preprocess_data_unknown_normalization_raises(
+    monkeypatch: pytest.MonkeyPatch,
+):
     _install_lightweight_preprocess_mocks(monkeypatch)
 
     adata = _make_adata(n_obs=10, n_vars=120)
     ctx = DummyCtx(adata)
     # bypass Literal validation to test runtime defensive branch
-    params = PreprocessingParameters.model_construct(normalization="invalid", filter_mito_pct=None)
+    params = PreprocessingParameters.model_construct(
+        normalization="invalid", filter_mito_pct=None
+    )
 
     with pytest.raises(ParameterError, match="Unknown normalization method"):
         await preprocess_data("d4", ctx, params)
 
 
 @pytest.mark.asyncio
-async def test_preprocess_data_gene_subsample_requires_nonempty_hvgs(monkeypatch: pytest.MonkeyPatch):
+async def test_preprocess_data_gene_subsample_requires_nonempty_hvgs(
+    monkeypatch: pytest.MonkeyPatch,
+):
     _install_lightweight_preprocess_mocks(monkeypatch)
 
     def _all_false_hvg(adata, n_top_genes=2000):
         del n_top_genes
         adata.var["highly_variable"] = False
 
-    monkeypatch.setattr(preprocessing_mod.sc.pp, "highly_variable_genes", _all_false_hvg)
+    monkeypatch.setattr(
+        preprocessing_mod.sc.pp, "highly_variable_genes", _all_false_hvg
+    )
 
     adata = _make_adata(n_obs=16, n_vars=120)
     ctx = DummyCtx(adata)
@@ -339,9 +390,13 @@ async def test_preprocess_data_pearson_residuals_requires_scanpy_support(
 
     adata = _make_adata(n_obs=12, n_vars=120)
     ctx = DummyCtx(adata)
-    params = PreprocessingParameters(normalization="pearson_residuals", filter_mito_pct=None)
+    params = PreprocessingParameters(
+        normalization="pearson_residuals", filter_mito_pct=None
+    )
 
-    with pytest.raises(DependencyError, match="Pearson residuals normalization not available"):
+    with pytest.raises(
+        DependencyError, match="Pearson residuals normalization not available"
+    ):
         await preprocess_data("d6", ctx, params)
 
 
@@ -354,7 +409,9 @@ async def test_preprocess_data_pearson_residuals_rejects_non_integer_input(
     monkeypatch.setattr(
         preprocessing_mod.sc,
         "experimental",
-        SimpleNamespace(pp=SimpleNamespace(normalize_pearson_residuals=lambda _adata: None)),
+        SimpleNamespace(
+            pp=SimpleNamespace(normalize_pearson_residuals=lambda _adata: None)
+        ),
         raising=False,
     )
     monkeypatch.setattr(
@@ -365,7 +422,9 @@ async def test_preprocess_data_pearson_residuals_rejects_non_integer_input(
 
     adata = _make_adata(n_obs=12, n_vars=120)
     ctx = DummyCtx(adata)
-    params = PreprocessingParameters(normalization="pearson_residuals", filter_mito_pct=None)
+    params = PreprocessingParameters(
+        normalization="pearson_residuals", filter_mito_pct=None
+    )
 
     with pytest.raises(DataError, match="requires raw count data"):
         await preprocess_data("d7", ctx, params)
@@ -376,7 +435,7 @@ async def test_preprocess_data_scvi_success_writes_latent_and_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
-    monkeypatch.setattr(preprocessing_mod, "require", lambda *args, **kwargs: None)
+    monkeypatch.setattr(preprocessing_mod, "require", _required_dependency)
     monkeypatch.setattr(
         preprocessing_mod,
         "sample_expression_values",
@@ -432,7 +491,7 @@ async def test_preprocess_data_scvi_failure_is_wrapped_as_processing_error(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
-    monkeypatch.setattr(preprocessing_mod, "require", lambda *args, **kwargs: None)
+    monkeypatch.setattr(preprocessing_mod, "require", _required_dependency)
     monkeypatch.setattr(
         preprocessing_mod,
         "sample_expression_values",
@@ -485,18 +544,20 @@ async def test_preprocess_data_sct_missing_dependency_raises_dependency_error(
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
 
-    def _raise_dependency_error(_pkg, _ctx):
+    def _raise_dependency_error(*_args, **_kwargs):
         raise DependencyError("r package missing")
 
     monkeypatch.setattr(
-        preprocessing_mod, "validate_r_package", _raise_dependency_error
+        preprocessing_mod, "validate_r_environment", _raise_dependency_error
     )
 
     adata = _make_adata(n_obs=12, n_vars=120)
     ctx = DummyCtx(adata)
     params = PreprocessingParameters(normalization="sct", filter_mito_pct=None)
 
-    with pytest.raises(DependencyError, match="SCTransform requires R and the sctransform package"):
+    with pytest.raises(
+        DependencyError, match="SCTransform requires R and the sctransform package"
+    ):
         await preprocess_data("d10", ctx, params)
 
 
@@ -505,7 +566,13 @@ async def test_preprocess_data_sct_rejects_non_integer_input(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
-    monkeypatch.setattr(preprocessing_mod, "validate_r_package", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        preprocessing_mod,
+        "validate_r_environment",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("R should load only after count validation")
+        ),
+    )
     monkeypatch.setattr(
         preprocessing_mod,
         "sample_expression_values",
@@ -521,29 +588,26 @@ async def test_preprocess_data_sct_rejects_non_integer_input(
 
 
 @pytest.mark.asyncio
-async def test_preprocess_data_sct_import_failure_wrapped_as_processing_error(
+async def test_preprocess_data_sct_runtime_failure_wrapped_as_processing_error(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    import builtins
-
     _install_lightweight_preprocess_mocks(monkeypatch)
-    monkeypatch.setattr(preprocessing_mod, "validate_r_package", lambda *_a, **_k: None)
     monkeypatch.setattr(
         preprocessing_mod,
         "sample_expression_values",
         lambda _adata: np.array([0.0, 1.0, 2.0]),
     )
 
-    real_import = builtins.__import__
-
-    def _wrapped_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name.startswith("rpy2"):
-            raise ModuleNotFoundError("forced missing rpy2")
-        return real_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", _wrapped_import)
-
     adata = _make_adata(n_obs=12, n_vars=120)
+    environment = _install_fake_rpy2_for_sct(
+        monkeypatch,
+        pearson_residuals=np.ones((adata.n_vars, adata.n_obs)),
+        residual_variance=np.ones(adata.n_vars),
+        kept_genes=list(adata.var_names),
+    )
+    environment.robjects.r = lambda _code: (_ for _ in ()).throw(
+        RuntimeError("R execution failed")
+    )
     ctx = DummyCtx(adata)
     params = PreprocessingParameters(normalization="sct", filter_mito_pct=None)
 
@@ -552,7 +616,9 @@ async def test_preprocess_data_sct_import_failure_wrapped_as_processing_error(
 
 
 @pytest.mark.asyncio
-async def test_preprocess_data_standardize_failure_warns_and_continues(monkeypatch: pytest.MonkeyPatch):
+async def test_preprocess_data_standardize_failure_warns_and_continues(
+    monkeypatch: pytest.MonkeyPatch,
+):
     _install_lightweight_preprocess_mocks(monkeypatch)
 
     def _raise_standardize(_adata, copy=False):
@@ -698,7 +764,9 @@ async def test_preprocess_data_warns_when_mito_filter_has_no_pct_column(
 
 
 @pytest.mark.asyncio
-async def test_preprocess_data_subsample_spots_invokes_scanpy(monkeypatch: pytest.MonkeyPatch):
+async def test_preprocess_data_subsample_spots_invokes_scanpy(
+    monkeypatch: pytest.MonkeyPatch,
+):
     _install_lightweight_preprocess_mocks(monkeypatch)
     called: dict[str, object] = {}
 
@@ -797,7 +865,9 @@ async def test_preprocess_data_scrublet_detects_and_keeps_doublets(
 
 
 @pytest.mark.asyncio
-async def test_preprocess_data_scrublet_failure_records_warning(monkeypatch: pytest.MonkeyPatch):
+async def test_preprocess_data_scrublet_failure_records_warning(
+    monkeypatch: pytest.MonkeyPatch,
+):
     _install_lightweight_preprocess_mocks(monkeypatch)
     monkeypatch.setattr(
         preprocessing_mod.sc.pp,
@@ -810,7 +880,9 @@ async def test_preprocess_data_scrublet_failure_records_warning(monkeypatch: pyt
     result = await preprocess_data(
         "d23",
         ctx,
-        PreprocessingParameters(normalization="log", filter_mito_pct=None, use_scrublet=True),
+        PreprocessingParameters(
+            normalization="log", filter_mito_pct=None, use_scrublet=True
+        ),
     )
 
     assert result.qc_metrics["use_scrublet"] is False
@@ -828,7 +900,9 @@ async def test_preprocess_data_log_normalization_uses_explicit_target_sum(
     def _capture_normalize_total(_adata, target_sum=None):
         captured["target_sum"] = float(target_sum)
 
-    monkeypatch.setattr(preprocessing_mod.sc.pp, "normalize_total", _capture_normalize_total)
+    monkeypatch.setattr(
+        preprocessing_mod.sc.pp, "normalize_total", _capture_normalize_total
+    )
     adata = _make_adata(n_obs=12, n_vars=120)
     ctx = DummyCtx(adata)
 
@@ -850,7 +924,6 @@ async def test_preprocess_data_sct_success_subsets_genes_and_stores_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
-    monkeypatch.setattr(preprocessing_mod, "validate_r_package", lambda *_a, **_k: None)
     monkeypatch.setattr(
         preprocessing_mod,
         "sample_expression_values",
@@ -891,7 +964,6 @@ async def test_preprocess_data_sct_dimension_mismatch_raises_processing_error(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
-    monkeypatch.setattr(preprocessing_mod, "validate_r_package", lambda *_a, **_k: None)
     monkeypatch.setattr(
         preprocessing_mod,
         "sample_expression_values",
@@ -921,7 +993,11 @@ async def test_preprocess_data_sct_memory_error_has_actionable_message(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
-    monkeypatch.setattr(preprocessing_mod, "validate_r_package", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        preprocessing_mod,
+        "validate_r_environment",
+        lambda *_args, **_kwargs: object(),
+    )
     monkeypatch.setattr(
         preprocessing_mod,
         "sample_expression_values",
@@ -972,7 +1048,9 @@ async def test_preprocess_data_pearson_residuals_memory_error_has_guidance(
         await preprocess_data(
             "d28",
             ctx,
-            PreprocessingParameters(normalization="pearson_residuals", filter_mito_pct=None),
+            PreprocessingParameters(
+                normalization="pearson_residuals", filter_mito_pct=None
+            ),
         )
 
 
@@ -1008,14 +1086,18 @@ async def test_preprocess_data_pearson_residuals_runtime_error_is_wrapped(
         await preprocess_data(
             "d29",
             ctx,
-            PreprocessingParameters(normalization="pearson_residuals", filter_mito_pct=None),
+            PreprocessingParameters(
+                normalization="pearson_residuals", filter_mito_pct=None
+            ),
         )
 
 
 @pytest.mark.asyncio
-async def test_preprocess_data_scvi_rejects_negative_values(monkeypatch: pytest.MonkeyPatch):
+async def test_preprocess_data_scvi_rejects_negative_values(
+    monkeypatch: pytest.MonkeyPatch,
+):
     _install_lightweight_preprocess_mocks(monkeypatch)
-    monkeypatch.setattr(preprocessing_mod, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(preprocessing_mod, "require", _required_dependency)
     monkeypatch.setitem(
         sys.modules,
         "scvi",
@@ -1035,7 +1117,9 @@ async def test_preprocess_data_scvi_rejects_negative_values(monkeypatch: pytest.
 
 
 @pytest.mark.asyncio
-async def test_preprocess_data_scale_dense_cleans_nan_and_inf(monkeypatch: pytest.MonkeyPatch):
+async def test_preprocess_data_scale_dense_cleans_nan_and_inf(
+    monkeypatch: pytest.MonkeyPatch,
+):
     _install_lightweight_preprocess_mocks(monkeypatch)
 
     def _inject_dense_scale(adata, max_value=None):
@@ -1067,7 +1151,9 @@ async def test_preprocess_data_scale_dense_cleans_nan_and_inf(monkeypatch: pytes
 
 
 @pytest.mark.asyncio
-async def test_preprocess_data_scale_sparse_cleans_nan_and_inf(monkeypatch: pytest.MonkeyPatch):
+async def test_preprocess_data_scale_sparse_cleans_nan_and_inf(
+    monkeypatch: pytest.MonkeyPatch,
+):
     _install_lightweight_preprocess_mocks(monkeypatch)
 
     def _inject_sparse_scale(adata, max_value=None):
@@ -1125,7 +1211,7 @@ async def test_preprocess_data_sct_sparse_input_without_gene_filtering(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
-    
+
     def _sparse_safe_qc(adata, qc_vars=None, percent_top=None, inplace=True):
         del qc_vars, percent_top, inplace
         counts = adata.X.toarray() if sp.issparse(adata.X) else np.asarray(adata.X)
@@ -1137,8 +1223,9 @@ async def test_preprocess_data_sct_sparse_input_without_gene_filtering(
             total = np.clip(counts.sum(axis=1), 1e-9, None)
             adata.obs["pct_counts_mt"] = mt_counts / total * 100.0
 
-    monkeypatch.setattr(preprocessing_mod.sc.pp, "calculate_qc_metrics", _sparse_safe_qc)
-    monkeypatch.setattr(preprocessing_mod, "validate_r_package", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        preprocessing_mod.sc.pp, "calculate_qc_metrics", _sparse_safe_qc
+    )
     monkeypatch.setattr(
         preprocessing_mod,
         "sample_expression_values",
@@ -1178,7 +1265,6 @@ async def test_preprocess_data_sct_selects_expected_top_hvgs(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
-    monkeypatch.setattr(preprocessing_mod, "validate_r_package", lambda *_a, **_k: None)
     monkeypatch.setattr(
         preprocessing_mod,
         "sample_expression_values",
@@ -1220,7 +1306,7 @@ async def test_preprocess_data_scvi_normalized_expression_uses_values_attribute(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
-    monkeypatch.setattr(preprocessing_mod, "require", lambda *args, **kwargs: None)
+    monkeypatch.setattr(preprocessing_mod, "require", _required_dependency)
     monkeypatch.setattr(
         preprocessing_mod,
         "sample_expression_values",
@@ -1247,10 +1333,14 @@ async def test_preprocess_data_scvi_normalized_expression_uses_values_attribute(
         def get_normalized_expression(self, library_size=1e4):
             del library_size
             return SimpleNamespace(
-                values=np.full((self._adata.n_obs, self._adata.n_vars), 3.0, dtype=float)
+                values=np.full(
+                    (self._adata.n_obs, self._adata.n_vars), 3.0, dtype=float
+                )
             )
 
-    monkeypatch.setitem(sys.modules, "scvi", SimpleNamespace(model=SimpleNamespace(SCVI=_FakeSCVI)))
+    monkeypatch.setitem(
+        sys.modules, "scvi", SimpleNamespace(model=SimpleNamespace(SCVI=_FakeSCVI))
+    )
 
     adata = _make_adata(n_obs=12, n_vars=120)
     ctx = DummyCtx(adata)
@@ -1357,12 +1447,16 @@ async def test_preprocess_data_gene_subsample_requires_hvg_column_presence(
         if "highly_variable" in adata.var.columns:
             del adata.var["highly_variable"]
 
-    monkeypatch.setattr(preprocessing_mod.sc.pp, "highly_variable_genes", _drop_hvg_column)
+    monkeypatch.setattr(
+        preprocessing_mod.sc.pp, "highly_variable_genes", _drop_hvg_column
+    )
 
     adata = _make_adata(n_obs=16, n_vars=120)
     ctx = DummyCtx(adata)
 
-    with pytest.raises(ProcessingError, match="Gene subsampling failed: no HVGs identified"):
+    with pytest.raises(
+        ProcessingError, match="Gene subsampling failed: no HVGs identified"
+    ):
         await preprocess_data(
             "d38",
             ctx,

@@ -15,9 +15,23 @@ from chatspatial.utils.exceptions import (
     DataCompatibilityError,
     DataError,
     DataNotFoundError,
+    DependencyError,
     ParameterError,
     ProcessingError,
 )
+
+
+def _patch_trajectory_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+    dependency_name: str,
+    dependency: object,
+) -> None:
+    def _require(requested_name: str, *_args, **_kwargs):
+        if requested_name != dependency_name:
+            raise AssertionError(f"Unexpected dependency request: {requested_name}")
+        return dependency
+
+    monkeypatch.setattr(traj, "require", _require)
 
 
 def test_validate_velovi_data_contracts(minimal_spatial_adata):
@@ -53,9 +67,12 @@ def test_compute_velocity_moments_uses_explicit_scanpy_neighbors(
     fake_scvelo = ModuleType("scvelo")
     fake_scvelo.pp = SimpleNamespace(moments=_moments)
     monkeypatch.setitem(__import__("sys").modules, "scanpy", fake_scanpy)
-    monkeypatch.setitem(__import__("sys").modules, "scvelo", fake_scvelo)
-
-    vel._compute_velocity_moments(adata, n_pcs=11, n_neighbors=7)
+    vel._compute_velocity_moments(
+        adata,
+        n_pcs=11,
+        n_neighbors=7,
+        scv=fake_scvelo,
+    )
 
     assert calls == [
         ("neighbors", {"n_pcs": 11, "n_neighbors": 7}),
@@ -67,13 +84,6 @@ def test_preprocess_for_velocity_maps_validation_error(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    fake_scv = ModuleType("scvelo")
-    fake_scv.pp = SimpleNamespace(
-        filter_and_normalize=lambda *_args, **_kwargs: None,
-        moments=lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setitem(__import__("sys").modules, "scvelo", fake_scv)
-
     def _raise_validate(*_args, **_kwargs):
         raise DataNotFoundError("velocity layers missing")
 
@@ -97,9 +107,7 @@ def test_compute_rna_velocity_dynamical_calls_expected_steps(
         latent_time=lambda *_args, **_kwargs: called.append("latent_time"),
         velocity_graph=lambda *_args, **_kwargs: called.append("graph"),
     )
-    monkeypatch.setitem(__import__("sys").modules, "scvelo", fake_scv)
-
-    out = vel.compute_rna_velocity(adata, mode="dynamical")
+    out = vel.compute_rna_velocity(adata, mode="dynamical", scv=fake_scv)
     assert out is adata
     assert called == ["recover", "velocity:dynamical", "latent_time", "graph"]
 
@@ -108,21 +116,38 @@ def test_compute_rna_velocity_preprocess_fallback(minimal_spatial_adata, monkeyp
     adata = minimal_spatial_adata.copy()
     called: dict[str, bool] = {}
 
-    monkeypatch.setattr(
-        vel,
-        "preprocess_for_velocity",
-        lambda _adata, params=None: called.setdefault("preprocess", True) and _adata,
-    )
-
     fake_scv = ModuleType("scvelo")
     fake_scv.tl = SimpleNamespace(
         velocity=lambda *_args, **_kwargs: None,
         velocity_graph=lambda *_args, **_kwargs: None,
     )
-    monkeypatch.setitem(__import__("sys").modules, "scvelo", fake_scv)
 
-    vel.compute_rna_velocity(adata, mode="stochastic")
+    def _fake_preprocess(_adata, params=None, *, scv=None):
+        del params
+        called["preprocess"] = True
+        called["shared_dependency"] = scv is fake_scv
+        return _adata
+
+    monkeypatch.setattr(vel, "preprocess_for_velocity", _fake_preprocess)
+
+    vel.compute_rna_velocity(adata, mode="stochastic", scv=fake_scv)
     assert called["preprocess"] is True
+    assert called["shared_dependency"] is True
+
+
+def test_compute_rna_velocity_validates_mode_before_dependency_resolution(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(
+        vel,
+        "require",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("dependency resolution must follow mode validation")
+        ),
+    )
+
+    with pytest.raises(ParameterError, match="Unsupported scVelo mode"):
+        vel.compute_rna_velocity(minimal_spatial_adata.copy(), mode="invalid")
 
 
 def test_velocity_metadata_contains_only_selected_method_parameters():
@@ -168,13 +193,14 @@ def test_prepare_gam_model_for_visualization_errors_and_success(
         var_names=["gene_0", "gene_1"],
     )
 
-    monkeypatch.setattr(traj, "require", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(traj, "validate_obs_column", lambda *_args, **_kwargs: None)
 
     fake_cellrank_models = ModuleType("cellrank.models")
     fake_cellrank_models.GAM = lambda ad: ("GAM", len(ad.obs))
-    monkeypatch.setitem(
-        __import__("sys").modules, "cellrank.models", fake_cellrank_models
+    monkeypatch.setattr(
+        traj,
+        "require_module",
+        lambda *_args, **_kwargs: fake_cellrank_models,
     )
 
     with pytest.raises(DataNotFoundError, match="Fate probabilities"):
@@ -201,24 +227,13 @@ def test_prepare_gam_model_for_visualization_errors_and_success(
 
 def test_infer_pseudotime_palantir_root_validation(minimal_spatial_adata, monkeypatch):
     adata = minimal_spatial_adata.copy()
-    adata.obsm["X_pca"] = np.ones((adata.n_obs, 5))
-    monkeypatch.setattr(traj, "ensure_pca", lambda *_args, **_kwargs: None)
-
-    class _PR:
-        pseudotime = pd.Series(np.linspace(0, 1, adata.n_obs), index=adata.obs_names)
-        branch_probs = np.ones((adata.n_obs, 2))
-
-    fake_palantir = ModuleType("palantir")
-    fake_palantir.utils = SimpleNamespace(
-        run_diffusion_maps=lambda *_args, **_kwargs: {
-            "EigenVectors": adata.obsm["X_pca"]
-        },
-        determine_multiscale_space=lambda result: pd.DataFrame(
-            result["EigenVectors"], index=adata.obs_names
+    monkeypatch.setattr(
+        traj,
+        "require",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Root validation must precede dependency resolution")
         ),
     )
-    fake_palantir.core = SimpleNamespace(run_palantir=lambda *_args, **_kwargs: _PR())
-    monkeypatch.setitem(__import__("sys").modules, "palantir", fake_palantir)
 
     with pytest.raises(ParameterError, match="Root cell 'missing' not found"):
         traj.infer_pseudotime_palantir(adata, root_cells=["missing"])
@@ -293,6 +308,29 @@ async def test_analyze_rna_velocity_scvelo_wraps_compute_errors(
 
     with pytest.raises(ProcessingError, match="scVelo RNA velocity analysis failed"):
         await vel.analyze_rna_velocity("d2", _VelCtx(adata))
+
+
+@pytest.mark.asyncio
+async def test_analyze_rna_velocity_scvelo_preserves_domain_errors(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    adata.layers["spliced"] = np.ones((adata.n_obs, adata.n_vars))
+    adata.layers["unspliced"] = np.ones((adata.n_obs, adata.n_vars))
+    fake_scv = ModuleType("scvelo")
+
+    monkeypatch.setattr(vel, "require", lambda *_args, **_kwargs: fake_scv)
+    monkeypatch.setattr(vel, "validate_adata", lambda *_args, **_kwargs: None)
+    error = ParameterError("managed velocity error")
+    monkeypatch.setattr(
+        vel,
+        "compute_rna_velocity",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
+    )
+
+    with pytest.raises(ParameterError) as exc_info:
+        await vel.analyze_rna_velocity("d2", _VelCtx(adata))
+    assert exc_info.value is error
 
 
 @pytest.mark.asyncio
@@ -532,7 +570,7 @@ def _install_fake_cellrank(
         PrecomputedKernel=_Kernel,
     )
     fake_cr.estimators = SimpleNamespace(GPCCA=_GPCCA)
-    monkeypatch.setitem(__import__("sys").modules, "cellrank", fake_cr)
+    _patch_trajectory_dependency(monkeypatch, "cellrank", fake_cr)
 
 
 def test_infer_spatial_trajectory_cellrank_velovi_path_transfers_results(
@@ -694,6 +732,11 @@ async def test_analyze_velocity_with_velovi_success_handles_zero_latent_time(
     monkeypatch.setitem(__import__("sys").modules, "scvi.external", fake_scvi_external)
 
     monkeypatch.setattr(vel, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        vel,
+        "require_module",
+        lambda *_args, **_kwargs: fake_scvi_external,
+    )
 
     async def _fake_prepare(*_a, **_k):
         return adata_prepared
@@ -765,6 +808,11 @@ async def test_analyze_velocity_with_velovi_wraps_model_failures(
     monkeypatch.setitem(__import__("sys").modules, "scvi.external", fake_scvi_external)
 
     monkeypatch.setattr(vel, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        vel,
+        "require_module",
+        lambda *_args, **_kwargs: fake_scvi_external,
+    )
 
     async def _fake_prepare(*_a, **_k):
         return adata_prepared
@@ -790,7 +838,6 @@ def test_preprocess_for_velocity_uses_params_object_values(
             "filter", kwargs
         ),
     )
-    monkeypatch.setitem(__import__("sys").modules, "scvelo", fake_scv)
     monkeypatch.setattr(vel, "validate_adata", lambda *_a, **_k: None)
     monkeypatch.setattr(
         vel,
@@ -804,14 +851,18 @@ def test_preprocess_for_velocity_uses_params_object_values(
         n_pcs=17,
         n_neighbors=9,
     )
-    out = vel.preprocess_for_velocity(adata, params=params)
+    out = vel.preprocess_for_velocity(adata, params=params, scv=fake_scv)
     assert out is adata
     assert calls["filter"] == {
         "min_shared_counts": 11,
         "n_top_genes": 123,
         "enforce": True,
     }
-    assert calls["moments"] == {"n_pcs": 17, "n_neighbors": 9}
+    assert calls["moments"] == {
+        "n_pcs": 17,
+        "n_neighbors": 9,
+        "scv": fake_scv,
+    }
 
 
 def test_compute_rna_velocity_uses_params_mode_override(
@@ -827,10 +878,13 @@ def test_compute_rna_velocity_uses_params_mode_override(
         velocity=lambda *_a, **kwargs: seen.__setitem__("mode", kwargs["mode"]),
         velocity_graph=lambda *_a, **_k: None,
     )
-    monkeypatch.setitem(__import__("sys").modules, "scvelo", fake_scv)
-
     params = vel.RNAVelocityParameters(scvelo_mode="deterministic")
-    vel.compute_rna_velocity(adata, mode="stochastic", params=params)
+    vel.compute_rna_velocity(
+        adata,
+        mode="stochastic",
+        params=params,
+        scv=fake_scv,
+    )
     assert seen["mode"] == "deterministic"
 
 
@@ -849,12 +903,10 @@ async def test_prepare_velovi_data_raises_on_scv_preprocessing_failure(
     fake_scv.pp = SimpleNamespace(
         filter_and_normalize=_raise_pp,
     )
-    monkeypatch.setitem(__import__("sys").modules, "scvelo", fake_scv)
-
     with pytest.raises(
         ProcessingError, match="VELOVI preprocessing failed"
     ):
-        await vel._prepare_velovi_data(adata, None)
+        await vel._prepare_velovi_data(adata, None, scv=fake_scv)
 
 
 @pytest.mark.asyncio
@@ -870,13 +922,12 @@ async def test_prepare_velovi_data_raises_on_moments_failure(
 
     fake_scv = ModuleType("scvelo")
     fake_scv.pp = SimpleNamespace(filter_and_normalize=lambda *_a, **_k: None)
-    monkeypatch.setitem(__import__("sys").modules, "scvelo", fake_scv)
     monkeypatch.setattr(vel, "_compute_velocity_moments", _raise_moments)
 
     with pytest.raises(
         ProcessingError, match="Moments computation failed"
     ):
-        await vel._prepare_velovi_data(adata, None)
+        await vel._prepare_velovi_data(adata, None, scv=fake_scv)
 
 
 @pytest.mark.asyncio
@@ -885,7 +936,13 @@ async def test_prepare_velovi_data_requires_spliced_and_unspliced_layers(
 ):
     adata = minimal_spatial_adata.copy()
     adata.layers.clear()
-    monkeypatch.setitem(__import__("sys").modules, "scvelo", ModuleType("scvelo"))
+    monkeypatch.setattr(
+        vel,
+        "require",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("layer validation must precede dependency resolution")
+        ),
+    )
 
     with pytest.raises(
         DataNotFoundError, match="Missing required 'spliced' and 'unspliced' layers"
@@ -915,10 +972,9 @@ async def test_prepare_velovi_data_keeps_input_unmodified_and_builds_independent
     fake_scv.pp = SimpleNamespace(
         filter_and_normalize=_fake_filter_and_normalize,
     )
-    monkeypatch.setitem(__import__("sys").modules, "scvelo", fake_scv)
     monkeypatch.setattr(vel, "_compute_velocity_moments", _fake_moments)
 
-    out = await vel._prepare_velovi_data(adata, ctx=None)
+    out = await vel._prepare_velovi_data(adata, ctx=None, scv=fake_scv)
 
     # Working object is independent.
     assert out is not adata
@@ -1090,12 +1146,13 @@ async def test_analyze_rna_velocity_scvelo_success_includes_latent_time_result_k
     )
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(vel, "require", lambda *_a, **_k: None)
-    monkeypatch.setitem(__import__("sys").modules, "scvelo", ModuleType("scvelo"))
+    fake_scv = ModuleType("scvelo")
+    monkeypatch.setattr(vel, "require", lambda *_a, **_k: fake_scv)
     monkeypatch.setattr(vel, "validate_adata", lambda *_a, **_k: None)
 
-    def _fake_compute(_adata, mode: str, params):
+    def _fake_compute(_adata, mode: str, params, *, scv):
         del mode, params
+        assert scv is fake_scv
         _adata.obs["latent_time"] = np.linspace(0, 1, _adata.n_obs)
         return _adata
 
@@ -1303,7 +1360,7 @@ def test_infer_spatial_trajectory_cellrank_predict_terminal_value_error_bubbles(
         PrecomputedKernel=_Kernel,
     )
     fake_cr.estimators = SimpleNamespace(GPCCA=_GPCCA)
-    monkeypatch.setitem(__import__("sys").modules, "cellrank", fake_cr)
+    _patch_trajectory_dependency(monkeypatch, "cellrank", fake_cr)
 
     with pytest.raises(ValueError, match="unexpected state error"):
         traj.infer_spatial_trajectory_cellrank(adata, spatial_weight=0.0)
@@ -1361,7 +1418,7 @@ def test_infer_spatial_trajectory_cellrank_wraps_fate_probability_failures(
         PrecomputedKernel=_Kernel,
     )
     fake_cr.estimators = SimpleNamespace(GPCCA=_GPCCA)
-    monkeypatch.setitem(__import__("sys").modules, "cellrank", fake_cr)
+    _patch_trajectory_dependency(monkeypatch, "cellrank", fake_cr)
 
     with pytest.raises(ProcessingError, match="fate probability computation failed"):
         traj.infer_spatial_trajectory_cellrank(adata, spatial_weight=0.0)
@@ -1415,7 +1472,7 @@ def test_infer_spatial_trajectory_cellrank_raises_when_no_terminal_or_macrostate
         PrecomputedKernel=_Kernel,
     )
     fake_cr.estimators = SimpleNamespace(GPCCA=_GPCCA)
-    monkeypatch.setitem(__import__("sys").modules, "cellrank", fake_cr)
+    _patch_trajectory_dependency(monkeypatch, "cellrank", fake_cr)
 
     with pytest.raises(ProcessingError, match="could not compute terminal states"):
         traj.infer_spatial_trajectory_cellrank(adata, spatial_weight=0.0)
@@ -1447,10 +1504,12 @@ def test_infer_pseudotime_palantir_valid_root_populates_outputs(
         return _PR()
 
     fake_palantir.core = SimpleNamespace(run_palantir=_fake_run_palantir)
-    monkeypatch.setitem(__import__("sys").modules, "palantir", fake_palantir)
 
     out = traj.infer_pseudotime_palantir(
-        adata, root_cells=[adata.obs_names[1]], num_waypoints=123
+        adata,
+        root_cells=[adata.obs_names[1]],
+        num_waypoints=123,
+        palantir_module=fake_palantir,
     )
     assert out is adata
     assert captured["start_cell"] == adata.obs_names[1]
@@ -1493,9 +1552,13 @@ def test_infer_pseudotime_palantir_auto_selects_root_from_first_component(
         return _PR()
 
     fake_palantir.core = SimpleNamespace(run_palantir=_fake_run_palantir)
-    monkeypatch.setitem(__import__("sys").modules, "palantir", fake_palantir)
 
-    out = traj.infer_pseudotime_palantir(adata, root_cells=None, num_waypoints=77)
+    out = traj.infer_pseudotime_palantir(
+        adata,
+        root_cells=None,
+        num_waypoints=77,
+        palantir_module=fake_palantir,
+    )
     assert out is adata
     assert captured["used_multiscale"] is True
     assert captured["start_cell"] == adata.obs_names[5]
@@ -1573,9 +1636,6 @@ async def test_analyze_trajectory_cellrank_success_records_cellrank_specific_met
     adata.uns["velocity_graph"] = True
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(traj, "require", lambda *_a, **_k: None)
-    monkeypatch.setitem(__import__("sys").modules, "cellrank", ModuleType("cellrank"))
-
     def _fake_infer(_adata, **_kwargs):
         _adata.obs["pseudotime"] = np.linspace(0, 1, _adata.n_obs)
         _adata.obs["terminal_states"] = pd.Categorical(["T0"] * _adata.n_obs)
@@ -1625,9 +1685,6 @@ async def test_cellrank_metadata_omits_absent_keys(
     adata.uns["velocity_graph"] = True
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(traj, "require", lambda *_a, **_k: None)
-    monkeypatch.setitem(__import__("sys").modules, "cellrank", ModuleType("cellrank"))
-
     def _fake_infer_minimal(_adata, **_kwargs):
         # Only pseudotime, no terminal_states / macrostates / fate_probabilities
         _adata.obs["pseudotime"] = np.linspace(0, 1, _adata.n_obs)
@@ -1662,8 +1719,6 @@ async def test_analyze_trajectory_cellrank_wraps_inference_errors(
 ):
     adata = minimal_spatial_adata.copy()
     adata.uns["velocity_graph"] = True
-    monkeypatch.setattr(traj, "require", lambda *_a, **_k: None)
-    monkeypatch.setitem(__import__("sys").modules, "cellrank", ModuleType("cellrank"))
     monkeypatch.setattr(
         traj,
         "infer_spatial_trajectory_cellrank",
@@ -1692,6 +1747,27 @@ async def test_analyze_trajectory_palantir_wraps_inference_errors(
     with pytest.raises(ProcessingError, match="Palantir trajectory inference failed"):
         await traj.analyze_trajectory(
             "t-palantir-fail",
+            _VelCtx(adata),
+            traj.TrajectoryParameters(method="palantir"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_analyze_trajectory_palantir_preserves_dependency_errors(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    monkeypatch.setattr(
+        traj,
+        "infer_pseudotime_palantir",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            DependencyError("palantir is unavailable")
+        ),
+    )
+
+    with pytest.raises(DependencyError, match="palantir is unavailable"):
+        await traj.analyze_trajectory(
+            "t-palantir-missing",
             _VelCtx(adata),
             traj.TrajectoryParameters(method="palantir"),
         )

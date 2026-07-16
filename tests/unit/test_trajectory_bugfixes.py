@@ -17,7 +17,7 @@ class TestPalantirAutoRoot:
     """Issue 5a: Palantir auto root should use abs() for sign invariance."""
 
     def test_auto_root_uses_abs_of_first_dc(
-        self, minimal_spatial_adata, monkeypatch, caplog
+        self, minimal_spatial_adata, caplog
     ):
         """Auto-selected root cell should be based on abs(DC1),
         making it invariant to eigenvector sign flips."""
@@ -75,12 +75,12 @@ class TestPalantirAutoRoot:
         fake_palantir.core = types.SimpleNamespace(
             run_palantir=fake_run_palantir
         )
-        monkeypatch.setitem(
-            __import__("sys").modules, "palantir", fake_palantir
-        )
-
         with caplog.at_level(logging.WARNING):
-            infer_pseudotime_palantir(adata, root_cells=None)
+            infer_pseudotime_palantir(
+                adata,
+                root_cells=None,
+                palantir_module=fake_palantir,
+            )
 
         # With abs(), cell_2 should be selected (|-0.9| > |0.5|)
         assert captured["start_cell"] == "cell_2", (
@@ -92,7 +92,7 @@ class TestPalantirAutoRoot:
         )
 
     def test_explicit_root_skips_auto_selection(
-        self, minimal_spatial_adata, monkeypatch
+        self, minimal_spatial_adata
     ):
         """When root_cells is provided, auto-selection is skipped."""
         adata = minimal_spatial_adata.copy()
@@ -141,11 +141,11 @@ class TestPalantirAutoRoot:
         fake_palantir.core = types.SimpleNamespace(
             run_palantir=fake_run_palantir
         )
-        monkeypatch.setitem(
-            __import__("sys").modules, "palantir", fake_palantir
+        infer_pseudotime_palantir(
+            adata,
+            root_cells=["cell_5"],
+            palantir_module=fake_palantir,
         )
-
-        infer_pseudotime_palantir(adata, root_cells=["cell_5"])
         assert captured["start_cell"] == "cell_5"
 
 
