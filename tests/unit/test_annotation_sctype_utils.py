@@ -140,6 +140,35 @@ def test_get_sctype_cache_key_changes_with_params(minimal_spatial_adata):
     assert k1 != k2
 
 
+def test_get_sctype_cache_key_includes_axis_identity(minimal_spatial_adata):
+    adata = minimal_spatial_adata.copy()
+    params = AnnotationParameters(method="sctype", sctype_tissue="Brain")
+    renamed_genes = adata.copy()
+    renamed_genes.var_names = [f"renamed_gene_{i}" for i in range(adata.n_vars)]
+    renamed_cells = adata.copy()
+    renamed_cells.obs_names = [f"renamed_cell_{i}" for i in range(adata.n_obs)]
+
+    keys = {
+        ann._get_sctype_cache_key(candidate, params)
+        for candidate in (adata, renamed_genes, renamed_cells)
+    }
+
+    assert len(keys) == 3
+
+
+def test_get_nonnegative_int_env_is_safe_and_allows_zero(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("CHATSPATIAL_TEST_LIMIT", "0")
+    assert ann._get_nonnegative_int_env("CHATSPATIAL_TEST_LIMIT", 64) == 0
+
+    monkeypatch.setenv("CHATSPATIAL_TEST_LIMIT", "-5")
+    assert ann._get_nonnegative_int_env("CHATSPATIAL_TEST_LIMIT", 64) == 0
+
+    monkeypatch.setenv("CHATSPATIAL_TEST_LIMIT", "invalid")
+    assert ann._get_nonnegative_int_env("CHATSPATIAL_TEST_LIMIT", 64) == 64
+
+
 def test_get_sctype_cache_dir_uses_shared_platform_cache(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -671,10 +700,7 @@ def test_prepare_sctype_genesets_allows_remote_db_per_call(
 
     assert out == {"ok": True}
     assert environment.robjects.globalenv == {}
-    assert (
-        environment.robjects.last_localenv["db_path"]
-        == ann._SCTYPE_DEFAULT_DB_URL
-    )
+    assert environment.robjects.last_localenv["db_path"] == ann._SCTYPE_DEFAULT_DB_URL
 
 
 def test_run_sctype_scoring_converts_r_matrix_to_dataframe(
@@ -684,6 +710,7 @@ def test_run_sctype_scoring_converts_r_matrix_to_dataframe(
     params = AnnotationParameters(
         method="sctype", sctype_tissue="Brain", sctype_scaled=False
     )
+
     class _R:
         def __call__(self, code: str):
             if code == "rownames(es_max)":
@@ -707,6 +734,8 @@ def test_run_sctype_scoring_converts_r_matrix_to_dataframe(
     assert list(out.columns) == ["cell_1", "cell_2"]
     assert environment.robjects.globalenv == {}
     assert environment.robjects.last_localenv["gs_list"] == {"ok": True}
+    assert environment.robjects.last_localenv["scaled_input"] is False
+    assert "scaled = scaled_input" in ann._R_SCTYPE_SCORING
 
 
 def test_run_sctype_scoring_preserves_dataframe_and_relabels_axes(
@@ -835,6 +864,22 @@ async def test_cache_sctype_results_respects_lru_capacity(
 
     assert "k1" not in ann._SCTYPE_CACHE
     assert "k2" in ann._SCTYPE_CACHE
+
+
+@pytest.mark.asyncio
+async def test_cache_sctype_results_allows_disabling_memory_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(ann, "_get_sctype_cache_dir", lambda: tmp_path)
+    monkeypatch.setattr(ann, "_SCTYPE_CACHE", OrderedDict())
+    monkeypatch.setattr(ann, "_SCTYPE_CACHE_MAX_ITEMS", 0)
+
+    await ann._cache_sctype_results(
+        "k1", (["T"], {"T": 1}, {"T": 0.9}, None), DummyCtx()
+    )
+
+    assert ann._SCTYPE_CACHE == {}
+    assert (tmp_path / "k1.json").is_file()
 
 
 @pytest.mark.asyncio

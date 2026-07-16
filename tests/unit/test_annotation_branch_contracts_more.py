@@ -154,7 +154,11 @@ async def test_singler_uses_normalized_layers_and_warns_for_low_delta_confidence
     out = await ann._annotate_with_singler(
         adata,
         AnnotationParameters(
-            method="singler", reference_data_id="r", cell_type_key="ctype"
+            method="singler",
+            reference_data_id="r",
+            cell_type_key="ctype",
+            n_threads=3,
+            singler_fine_tune=False,
         ),
         ctx,
         "cell_type_singler",
@@ -166,6 +170,8 @@ async def test_singler_uses_normalized_layers_and_warns_for_low_delta_confidence
         captured["kwargs"]["test_data"], adata.layers["X_normalized"].T
     )
     assert np.array_equal(captured["kwargs"]["ref_data"], ref.layers["X_normalized"].T)
+    assert captured["kwargs"]["num_threads"] == 3
+    assert captured["kwargs"]["classify_args"] == {"use_fine_tune": False}
     assert "n_threads" not in captured["kwargs"]
     assert set(out.cell_types) == {"B", "T"}
     assert any("low confidence scores" in msg for msg in ctx.warnings)
@@ -1175,8 +1181,14 @@ async def test_singler_celldex_label_fallback_and_integrated_branch(
 
     fake_celldex = ModuleType("celldex")
     fake_celldex.fetch_reference = lambda *_a, **_k: _Ref([1, 2, 3])
+    captured: dict[str, object] = {}
     fake_singler = ModuleType("singler")
-    fake_singler.annotate_integrated = lambda *_a, **_k: (None, _Integrated())
+
+    def _annotate_integrated(*_args, **kwargs):
+        captured.update(kwargs)
+        return None, _Integrated()
+
+    fake_singler.annotate_integrated = _annotate_integrated
     monkeypatch.setitem(__import__("sys").modules, "singler", fake_singler)
     monkeypatch.setattr(ann, "require", _required_module)
     monkeypatch.setattr(
@@ -1195,7 +1207,11 @@ async def test_singler_celldex_label_fallback_and_integrated_branch(
     out = await ann._annotate_with_singler(
         adata,
         AnnotationParameters(
-            method="singler", singler_integrated=True, singler_reference="hpca"
+            method="singler",
+            singler_integrated=True,
+            singler_reference="hpca",
+            n_threads=2,
+            singler_fine_tune=False,
         ),
         DummyWarnCtx(),
         "cell_type_singler",
@@ -1205,6 +1221,10 @@ async def test_singler_celldex_label_fallback_and_integrated_branch(
 
     assert out.cell_types == ["T"]
     assert out.confidence == {"T": 0.9}
+    assert captured["num_threads"] == 2
+    assert captured["classify_single_args"] == {"use_fine_tune": False}
+    assert captured["classify_integrated_args"] == {"use_fine_tune": False}
+    assert "n_threads" not in captured
 
 
 @pytest.mark.asyncio

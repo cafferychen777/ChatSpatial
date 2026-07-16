@@ -259,7 +259,8 @@ async def _annotate_with_singler(
     reference_name = getattr(params, "singler_reference", None)
     reference_data_id = getattr(params, "reference_data_id", None)
     use_integrated = bool(getattr(params, "singler_integrated", False))
-    n_threads = getattr(params, "n_threads", 4)
+    n_threads = params.n_threads
+    classification_args = {"use_fine_tune": params.singler_fine_tune}
 
     ref_data = None
     ref_labels = None
@@ -376,7 +377,9 @@ async def _annotate_with_singler(
             ref_data=ref_data,
             ref_labels=ref_labels,
             test_features=test_features,
-            n_threads=n_threads,
+            classify_single_args=classification_args,
+            classify_integrated_args=classification_args,
+            num_threads=n_threads,
         )
         best_labels = integrated.column("best_label")
         scores = integrated.column("scores")
@@ -387,6 +390,8 @@ async def _annotate_with_singler(
             "test_features": test_features,
             "ref_data": ref_data,
             "ref_labels": ref_labels,
+            "classify_args": classification_args,
+            "num_threads": n_threads,
         }
 
         # Add ref_features if we're using custom reference data (not celldex)
@@ -1706,11 +1711,23 @@ async def annotate_cell_types(
 
 # Cache for sc-type results (bounded LRU + optional TTL)
 _SCTYPE_CACHE: OrderedDict[str, Any] = OrderedDict()
-_SCTYPE_CACHE_MAX_ITEMS = max(
-    1, int(os.getenv("CHATSPATIAL_SCTYPE_CACHE_MAX_ITEMS", "64"))
+
+
+def _get_nonnegative_int_env(name: str, default: int) -> int:
+    """Read a non-negative integer setting without breaking module import."""
+    try:
+        value = int(os.getenv(name, str(default)))
+    except ValueError:
+        logger.warning("Invalid %s value; using default %d", name, default)
+        return default
+    return max(0, value)
+
+
+_SCTYPE_CACHE_MAX_ITEMS = _get_nonnegative_int_env(
+    "CHATSPATIAL_SCTYPE_CACHE_MAX_ITEMS", 64
 )
-_SCTYPE_CACHE_TTL_SECONDS = max(
-    0, int(os.getenv("CHATSPATIAL_SCTYPE_CACHE_TTL_SECONDS", "86400"))
+_SCTYPE_CACHE_TTL_SECONDS = _get_nonnegative_int_env(
+    "CHATSPATIAL_SCTYPE_CACHE_TTL_SECONDS", 86400
 )
 
 
@@ -1787,7 +1804,7 @@ if (length(filtered_gs_positive) == 0) {
 # Run sc-type scoring
 es_max <- sctype_score(
     scRNAseqData = as.matrix(scdata),
-    scaled = TRUE,
+    scaled = scaled_input,
     gs = filtered_gs_positive,
     gs2 = filtered_gs_negative
 )
@@ -1834,9 +1851,24 @@ def _is_remote_resource(path: str) -> bool:
 
 def _get_sctype_cache_key(adata, params: AnnotationParameters) -> str:
     """Generate cache key for sc-type results."""
-    data_hash = hashlib.md5()
+    data_hash = hashlib.blake2b(digest_size=16)
+    data_hash.update(b"sctype-cache-key-v2\0")
 
-    # Include full shape so any cell/gene count change invalidates
+    # Values alone do not identify an annotated matrix: scType consumes gene
+    # names, and cached labels are aligned to cell identities. Length-prefix
+    # every label so adjacent strings cannot produce ambiguous byte streams.
+    for axis_name, labels in (
+        ("obs_names", adata.obs_names),
+        ("var_names", adata.var_names),
+    ):
+        data_hash.update(axis_name.encode("utf-8"))
+        data_hash.update(b"\0")
+        for label in labels:
+            encoded_label = str(label).encode("utf-8")
+            data_hash.update(len(encoded_label).to_bytes(8, "big"))
+            data_hash.update(encoded_label)
+
+    # Include full shape so any cell/gene count change invalidates.
     data_hash.update(f"{adata.n_obs}x{adata.n_vars}".encode())
 
     # Hash the entire expression matrix for correctness
@@ -2152,6 +2184,7 @@ def _run_sctype_scoring(
         environment["gene_names"] = list(adata.var_names)
         environment["cell_names"] = list(adata.obs_names)
         environment["gs_list"] = gs_list
+        environment["scaled_input"] = params.sctype_scaled
 
         # Run scoring using pre-defined R code
         r_env.robjects.r(_R_SCTYPE_SCORING)
@@ -2397,9 +2430,7 @@ async def _annotate_with_sctype(
     # Keep function loading, gene-set preparation, and scoring in one isolated
     # R environment so request objects never leak into .GlobalEnv.
     r_env = validate_r_environment(ctx, require_anndata2ri=True)
-    with r_env.local_context(
-        anndata=True, pandas=True, numpy=True
-    ) as r_context:
+    with r_env.local_context(anndata=True, pandas=True, numpy=True) as r_context:
         _load_sctype_functions(
             ctx,
             allow_remote=params.sctype_allow_remote,
