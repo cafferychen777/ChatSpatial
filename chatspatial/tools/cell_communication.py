@@ -32,7 +32,13 @@ Storage Structure:
 """
 
 import logging
+import os
+import shutil
+import ssl
+import tempfile
 import threading
+import urllib.request
+import zipfile
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -62,7 +68,6 @@ from ..utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
-from ..utils.mcp_utils import suppress_output
 from ..utils.statistics import adjust_pvalues
 
 if TYPE_CHECKING:
@@ -814,12 +819,47 @@ def _run_liana_spatial_analysis(
     )
 
 
-def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
+def _download_cellphonedb_release(
+    target_dir: Path,
+    version: str,
+    ssl_context: ssl.SSLContext,
+) -> None:
+    """Download one CellPhoneDB database archive using a scoped TLS context."""
+    release_url = (
+        f"https://github.com/ventolab/cellphonedb-data/archive/refs/tags/{version}.zip"
+    )
+
+    # ZipFile needs a seekable input, so spool the release instead of retaining
+    # the entire repository archive in memory.
+    with (
+        urllib.request.urlopen(release_url, context=ssl_context) as response,
+        tempfile.TemporaryFile() as release_file,
+    ):
+        shutil.copyfileobj(response, release_file)
+        release_file.seek(0)
+
+        with zipfile.ZipFile(release_file) as release:
+            database_members = [
+                member
+                for member in release.infolist()
+                if not member.is_dir()
+                and member.filename.rsplit("/", maxsplit=1)[-1] == "cellphonedb.zip"
+            ]
+            if len(database_members) != 1:
+                raise DependencyError(
+                    "CellPhoneDB release must contain exactly one "
+                    "cellphonedb.zip archive."
+                )
+
+            with (
+                release.open(database_members[0]) as source,
+                (target_dir / "cellphonedb.zip").open("wb") as destination,
+            ):
+                shutil.copyfileobj(source, destination)
+
+
+def _ensure_cellphonedb_database(output_dir: str) -> str:
     """Return an atomically cached, validated CellPhoneDB database path."""
-    import os
-    import ssl
-    import tempfile
-    import zipfile
 
     cache_dir = Path(output_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -836,38 +876,17 @@ def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
 
         import certifi
 
-        db_utils = require_module(
-            "cellphonedb",
-            "cellphonedb.utils.db_utils",
-            ctx,
-            feature="CellPhoneDB database management",
-        )
-
-        # CellPhoneDB does not accept an SSL context and writes directly into
-        # its target directory. Serialize the narrow compatibility patch and
-        # download into caller-private staging before publishing atomically.
-        original_https_context = ssl._create_default_https_context
-
-        def _create_certifi_https_context(*args: Any, **kwargs: Any) -> ssl.SSLContext:
-            kwargs.setdefault("cafile", certifi.where())
-            return ssl.create_default_context(*args, **kwargs)
-
         try:
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
             with tempfile.TemporaryDirectory(
                 dir=cache_dir,
                 prefix=".download-",
             ) as staging_dir:
-                ssl._create_default_https_context = _create_certifi_https_context
-                try:
-                    # Upstream prints downloaded filenames to stdout, which is
-                    # unsafe for MCP stdio transport.
-                    with suppress_output():
-                        db_utils.download_database(
-                            staging_dir,
-                            CELLPHONEDB_DATABASE_VERSION,
-                        )
-                finally:
-                    ssl._create_default_https_context = original_https_context
+                _download_cellphonedb_release(
+                    Path(staging_dir),
+                    CELLPHONEDB_DATABASE_VERSION,
+                    ssl_context,
+                )
 
                 staged_database = Path(staging_dir) / "cellphonedb.zip"
                 if not staged_database.is_file() or not zipfile.is_zipfile(
@@ -1009,7 +1028,6 @@ async def _analyze_communication_cellphonedb(
                     db_path = await asyncio.to_thread(
                         _ensure_cellphonedb_database,
                         str(cache_dir),
-                        ctx,
                     )
                 except DependencyError:
                     raise
