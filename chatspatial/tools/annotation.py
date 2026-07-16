@@ -4,6 +4,7 @@ Cell type annotation tools for spatial transcriptomics data.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
 
     from ..spatial_mcp_adapter import ToolContext
 
+from ..config import get_cache_dir
 from ..models.analysis import AnnotationResult
 from ..models.data import AnnotationParameters
 from ..utils.adata_utils import (
@@ -53,6 +55,7 @@ from ..utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
+from ..utils.path_utils import atomic_output_path
 
 logger = logging.getLogger(__name__)
 
@@ -1699,13 +1702,18 @@ async def annotate_cell_types(
 
 # Cache for sc-type results (bounded LRU + optional TTL)
 _SCTYPE_CACHE: OrderedDict[str, Any] = OrderedDict()
-_SCTYPE_CACHE_DIR = Path.home() / ".chatspatial" / "sctype_cache"
 _SCTYPE_CACHE_MAX_ITEMS = max(
     1, int(os.getenv("CHATSPATIAL_SCTYPE_CACHE_MAX_ITEMS", "64"))
 )
 _SCTYPE_CACHE_TTL_SECONDS = max(
     0, int(os.getenv("CHATSPATIAL_SCTYPE_CACHE_TTL_SECONDS", "86400"))
 )
+
+
+def _get_sctype_cache_dir() -> Path:
+    """Return the shared platform cache root for scType results."""
+    return get_cache_dir() / "sctype"
+
 
 # R code constants for sc-type (extracted for clarity)
 _R_CHECK_PACKAGES = """
@@ -2197,8 +2205,9 @@ async def _cache_sctype_results(
 ) -> None:
     """Cache sc-type results to disk as JSON (secure, no pickle)."""
     try:
-        _SCTYPE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        cache_file = _SCTYPE_CACHE_DIR / f"{cache_key}.json"
+        cache_dir = _get_sctype_cache_dir()
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = cache_dir / f"{cache_key}.json"
 
         # Convert tuple to serializable dict
         per_cell_types, counts, confidence_by_celltype, mapping_score = results
@@ -2213,8 +2222,14 @@ async def _cache_sctype_results(
             "mapping_score": mapping_score,
         }
 
-        with open(cache_file, "w", encoding="utf-8") as f:
-            json.dump(cache_data, f)
+        def _write_cache_file() -> None:
+            with (
+                atomic_output_path(cache_file) as staging_path,
+                staging_path.open("w", encoding="utf-8") as file,
+            ):
+                json.dump(cache_data, file)
+
+        await asyncio.to_thread(_write_cache_file)
 
         _store_memory_sctype_cache(cache_key, results)
     except Exception as e:
@@ -2239,7 +2254,7 @@ def _load_cached_sctype_results(cache_key: str, ctx: "ToolContext") -> Optional[
                 return payload
 
     # Check disk cache (JSON)
-    cache_file = _SCTYPE_CACHE_DIR / f"{cache_key}.json"
+    cache_file = _get_sctype_cache_dir() / f"{cache_key}.json"
     if cache_file.exists():
         try:
             with open(cache_file, "r", encoding="utf-8") as f:

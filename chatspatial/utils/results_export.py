@@ -12,17 +12,23 @@ Design Principles:
 
 import json
 import logging
+import math
 import os
-from datetime import datetime
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import pandas as pd
+
+from .path_utils import atomic_output_path, validate_path_component
 
 if TYPE_CHECKING:
     from anndata import AnnData
 
 logger = logging.getLogger(__name__)
+_INDEX_LOCK = threading.Lock()
 
 
 def _is_export_enabled() -> bool:
@@ -91,7 +97,8 @@ def get_results_dir(data_id: str) -> Path:
     Returns:
         Path to ~/.chatspatial/results/{data_id}/
     """
-    results_dir = Path.home() / ".chatspatial" / "results" / data_id
+    safe_data_id = validate_path_component(data_id, name="data_id")
+    results_dir = Path.home() / ".chatspatial" / "results" / safe_data_id
     results_dir.mkdir(parents=True, exist_ok=True)
     return results_dir
 
@@ -107,7 +114,8 @@ def get_analysis_dir(data_id: str, analysis_name: str) -> Path:
     Returns:
         Path to ~/.chatspatial/results/{data_id}/{analysis_name}/
     """
-    analysis_dir = get_results_dir(data_id) / analysis_name
+    safe_analysis_name = validate_path_component(analysis_name, name="analysis_name")
+    analysis_dir = get_results_dir(data_id) / safe_analysis_name
     analysis_dir.mkdir(parents=True, exist_ok=True)
     return analysis_dir
 
@@ -152,6 +160,7 @@ def export_analysis_result(
     metadata = adata.uns[metadata_key]
     results_keys = metadata.get("results_keys", {})
     method = metadata.get("method", "unknown")
+    safe_method = validate_path_component(str(method), name="method")
 
     if not results_keys:
         # No CSV-exportable keys (e.g. bbknn modifies only the neighbors
@@ -172,9 +181,10 @@ def export_analysis_result(
                     _warn_large_export(df, location=location, key=key)
                     # Sanitize key for filename
                     safe_key = key.replace("/", "_").replace("\\", "_")
-                    filename = f"{method}_{safe_key}.csv"
+                    filename = f"{safe_method}_{safe_key}.csv"
                     filepath = analysis_dir / filename
-                    df.to_csv(filepath, index=True)
+                    with atomic_output_path(filepath) as staging_path:
+                        df.to_csv(staging_path, index=True)
                     exported_files.append(filepath)
                     logger.info(f"Exported {analysis_name} result to {filepath}")
             except Exception as e:
@@ -617,46 +627,57 @@ def _update_index(
     """Update the _index.json with export information."""
     index_path = get_results_dir(data_id) / "_index.json"
 
-    # Load existing index or create new
-    if index_path.exists():
-        try:
-            with open(index_path) as f:
-                index = json.load(f)
-        except json.JSONDecodeError:
+    # The index is a shared read-modify-write document within one MCP process.
+    # Serialize updates and publish atomically so concurrent analyses cannot
+    # corrupt it or silently discard one another's entries.
+    with _INDEX_LOCK:
+        if index_path.exists():
+            try:
+                with index_path.open(encoding="utf-8") as file:
+                    index = json.load(file)
+            except json.JSONDecodeError:
+                index = {"data_id": data_id, "analyses": {}, "created_at": _now()}
+        else:
             index = {"data_id": data_id, "analyses": {}, "created_at": _now()}
-    else:
-        index = {"data_id": data_id, "analyses": {}, "created_at": _now()}
 
-    # Update with new analysis
-    index["analyses"][analysis_name] = {
-        "method": method,
-        "parameters": _sanitize_for_json(metadata.get("parameters", {})),
-        "statistics": _sanitize_for_json(metadata.get("statistics", {})),
-        "exported_at": _now(),
-        "files": [f.name for f in exported_files],
-    }
-    index["updated_at"] = _now()
+        index["analyses"][analysis_name] = {
+            "method": method,
+            "parameters": _sanitize_for_json(metadata.get("parameters", {})),
+            "statistics": _sanitize_for_json(metadata.get("statistics", {})),
+            "exported_at": _now(),
+            "files": [file.name for file in exported_files],
+        }
+        index["updated_at"] = _now()
 
-    # Write index
-    with open(index_path, "w") as f:
-        json.dump(index, f, indent=2, default=str)
+        with (
+            atomic_output_path(index_path) as staging_path,
+            staging_path.open("w", encoding="utf-8") as file,
+        ):
+            json.dump(index, file, indent=2, allow_nan=False)
 
 
 def _sanitize_for_json(obj: Any) -> Any:
-    """Sanitize object for JSON serialization."""
+    """Convert metadata to deterministic, standards-compliant JSON values."""
     if isinstance(obj, dict):
-        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+        return {str(key): _sanitize_for_json(value) for key, value in obj.items()}
+    if isinstance(obj, np.ndarray):
+        return _sanitize_for_json(obj.tolist())
+    if isinstance(obj, np.generic):
+        return _sanitize_for_json(obj.item())
     if isinstance(obj, (list, tuple)):
-        return [_sanitize_for_json(v) for v in obj]
-    if isinstance(obj, (int, float, str, bool, type(None))):
+        return [_sanitize_for_json(value) for value in obj]
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, (int, str, bool, type(None))):
         return obj
-    # Convert other types to string
+    if isinstance(obj, Path):
+        return str(obj)
     return str(obj)
 
 
 def _now() -> str:
-    """Get current timestamp as ISO string."""
-    return datetime.now().isoformat()
+    """Get the current UTC timestamp as an unambiguous ISO string."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 # =============================================================================
@@ -698,4 +719,5 @@ def get_result_path(data_id: str, analysis_name: str, filename: str) -> Path:
     Returns:
         Full path to the file
     """
-    return get_analysis_dir(data_id, analysis_name) / filename
+    safe_filename = validate_path_component(filename, name="filename")
+    return get_analysis_dir(data_id, analysis_name) / safe_filename

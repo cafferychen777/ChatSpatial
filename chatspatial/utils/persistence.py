@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any
 import pandas as pd
 from pandas.api.types import is_object_dtype, is_string_dtype
 
+from .path_utils import atomic_output_path, validate_path_component
+
 
 def _coerce_object_series_for_h5ad(series: pd.Series) -> pd.Series:
     numeric = pd.to_numeric(series, errors="coerce")
@@ -51,7 +53,8 @@ def get_active_path(data_id: str) -> Path:
     Returns:
         Path to ~/.chatspatial/active/{data_id}.h5ad
     """
-    return get_active_dir() / f"{data_id}.h5ad"
+    safe_data_id = validate_path_component(data_id, name="data_id")
+    return get_active_dir() / f"{safe_data_id}.h5ad"
 
 
 def _sanitize_dataframe_for_h5ad(df: pd.DataFrame) -> pd.DataFrame:
@@ -99,15 +102,16 @@ def export_adata(data_id: str, adata: "AnnData", path: Path | None = None) -> Pa
     Raises:
         IOError: If export fails
     """
-    if path is None:
-        export_path = get_active_path(data_id)
-    else:
-        export_path = Path(path)
-        export_path.parent.mkdir(parents=True, exist_ok=True)
+    export_path = get_active_path(data_id) if path is None else Path(path).expanduser()
 
     try:
         export_adata_obj = _prepare_export_adata(adata)
-        export_adata_obj.write_h5ad(export_path, compression="gzip", compression_opts=4)
+        with atomic_output_path(export_path) as staging_path:
+            export_adata_obj.write_h5ad(
+                staging_path,
+                compression="gzip",
+                compression_opts=4,
+            )
         return export_path
     except Exception as e:
         raise IOError(f"Failed to export data to {export_path}: {e}") from e
@@ -130,7 +134,7 @@ def load_adata_from_active(data_id: str, path: Path | None = None) -> "AnnData":
     """
     import anndata
 
-    load_path = get_active_path(data_id) if path is None else Path(path)
+    load_path = get_active_path(data_id) if path is None else Path(path).expanduser()
 
     if not load_path.exists():
         raise FileNotFoundError(f"Data file not found: {load_path}")

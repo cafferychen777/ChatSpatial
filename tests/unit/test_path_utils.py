@@ -86,3 +86,36 @@ def test_permission_failure_without_fallback_raises(
 
     with pytest.raises(PermissionError, match="Cannot write to output directory"):
         path_utils.get_safe_output_path("./cannot_write", fallback_to_tmp=False)
+
+
+@pytest.mark.parametrize("value", ["", ".", "..", "../escape", r"..\escape", "a/b"])
+def test_validate_path_component_rejects_unsafe_identifiers(value: str) -> None:
+    with pytest.raises(path_utils.ParameterError, match="filesystem-safe"):
+        path_utils.validate_path_component(value, name="data_id")
+
+
+def test_atomic_output_path_publishes_only_complete_file(tmp_path: Path) -> None:
+    destination = tmp_path / "result.json"
+    destination.write_text("old", encoding="utf-8")
+
+    with path_utils.atomic_output_path(destination) as staging_path:
+        assert staging_path.parent == destination.parent
+        assert staging_path != destination
+        staging_path.write_text("new", encoding="utf-8")
+        assert destination.read_text(encoding="utf-8") == "old"
+
+    assert destination.read_text(encoding="utf-8") == "new"
+    assert list(tmp_path.iterdir()) == [destination]
+
+
+def test_atomic_output_path_preserves_destination_after_failure(tmp_path: Path) -> None:
+    destination = tmp_path / "result.csv"
+    destination.write_text("complete", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="writer failed"):
+        with path_utils.atomic_output_path(destination) as staging_path:
+            staging_path.write_text("partial", encoding="utf-8")
+            raise RuntimeError("writer failed")
+
+    assert destination.read_text(encoding="utf-8") == "complete"
+    assert list(tmp_path.iterdir()) == [destination]

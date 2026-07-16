@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 from chatspatial.utils import persistence
+from chatspatial.utils.exceptions import ParameterError
 
 
 def _make_adata(n_obs: int = 8, n_vars: int = 5):
@@ -25,6 +26,17 @@ def test_get_active_path_uses_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
 
     p = persistence.get_active_path("demo")
     assert p == tmp_path / ".chatspatial" / "active" / "demo.h5ad"
+
+
+def test_get_active_path_rejects_path_traversal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    with pytest.raises(ParameterError, match="filesystem-safe"):
+        persistence.get_active_path("../outside")
+
+    assert not (tmp_path / ".chatspatial" / "outside.h5ad").exists()
 
 
 def test_export_and_load_roundtrip_with_custom_path(tmp_path: Path):
@@ -109,6 +121,28 @@ def test_export_wraps_underlying_write_errors(tmp_path: Path):
 
     with pytest.raises(IOError, match="Failed to export data"):
         persistence.export_adata("broken", _BrokenAnnData(), tmp_path / "x" / "broken.h5ad")
+
+
+def test_export_failure_preserves_previous_complete_file(tmp_path: Path) -> None:
+    class _PartiallyWritingAnnData:
+        uns: dict[str, object] = {}
+
+        def copy(self):
+            return self
+
+        def write_h5ad(self, path: Path, **_kwargs) -> None:
+            Path(path).write_bytes(b"partial")
+            raise RuntimeError("disk full")
+
+    destination = tmp_path / "active" / "dataset.h5ad"
+    destination.parent.mkdir()
+    destination.write_bytes(b"previous complete dataset")
+
+    with pytest.raises(IOError, match="Failed to export data"):
+        persistence.export_adata("dataset", _PartiallyWritingAnnData(), destination)
+
+    assert destination.read_bytes() == b"previous complete dataset"
+    assert list(destination.parent.iterdir()) == [destination]
 
 
 def test_load_adata_uses_active_path_when_custom_path_not_provided(

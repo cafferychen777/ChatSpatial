@@ -12,7 +12,11 @@ Key features:
 Design principle: Outputs should NEVER pollute the package source directory.
 """
 
+import os
+import tempfile
 import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from ..config import (
@@ -22,6 +26,52 @@ from ..config import (
     is_inside_package_dir,
     is_writable_dir,
 )
+from .exceptions import ParameterError
+
+
+def validate_path_component(value: str, *, name: str) -> str:
+    """Validate an identifier before using it as one filesystem component.
+
+    Paths derived from dataset or analysis identifiers must never escape their
+    managed root. Reject separators explicitly so the contract is identical on
+    POSIX and Windows, regardless of the host running the validation.
+    """
+    if (
+        not isinstance(value, str)
+        or not value
+        or value in {".", ".."}
+        or "/" in value
+        or "\\" in value
+        or "\x00" in value
+    ):
+        raise ParameterError(f"{name} must be a non-empty filesystem-safe identifier")
+    return value
+
+
+@contextmanager
+def atomic_output_path(destination: Path) -> Iterator[Path]:
+    """Yield a same-directory staging path and atomically publish on success.
+
+    Keeping the staging file beside the destination makes ``os.replace`` an
+    atomic rename on the destination filesystem. A failed writer leaves any
+    previous destination untouched and removes its incomplete staging file.
+    """
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    suffix = f".tmp{destination.suffix}" if destination.suffix else ".tmp"
+    descriptor, staging_name = tempfile.mkstemp(
+        dir=destination.parent,
+        prefix=f".{destination.name}.",
+        suffix=suffix,
+    )
+    os.close(descriptor)
+    staging_path = Path(staging_name)
+
+    try:
+        yield staging_path
+        os.replace(staging_path, destination)
+    finally:
+        staging_path.unlink(missing_ok=True)
 
 
 def get_safe_output_path(

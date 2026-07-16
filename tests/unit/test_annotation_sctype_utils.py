@@ -117,8 +117,16 @@ def test_get_sctype_cache_key_changes_with_params(minimal_spatial_adata):
     assert k1 != k2
 
 
+def test_get_sctype_cache_dir_uses_shared_platform_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ann, "get_cache_dir", lambda: tmp_path / "cache")
+
+    assert ann._get_sctype_cache_dir() == tmp_path / "cache" / "sctype"
+
+
 def test_load_cached_sctype_results_reads_json(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(ann, "_SCTYPE_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(ann, "_get_sctype_cache_dir", lambda: tmp_path)
     monkeypatch.setattr(ann, "_SCTYPE_CACHE", {})
     cache_key = "abc"
     payload = {
@@ -137,7 +145,7 @@ def test_load_cached_sctype_results_reads_json(tmp_path: Path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cache_sctype_results_writes_json(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(ann, "_SCTYPE_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(ann, "_get_sctype_cache_dir", lambda: tmp_path)
     monkeypatch.setattr(ann, "_SCTYPE_CACHE", {})
     cache_key = "k1"
     results = (["T"], {"T": 1}, {"T": 0.9}, 0.5)
@@ -149,6 +157,33 @@ async def test_cache_sctype_results_writes_json(tmp_path: Path, monkeypatch):
     data = json.loads(f.read_text(encoding="utf-8"))
     assert data["cell_types"] == ["T"]
     assert data["mapping_score"] == 0.5
+
+
+@pytest.mark.asyncio
+async def test_cache_sctype_failure_preserves_previous_complete_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ann, "_get_sctype_cache_dir", lambda: tmp_path)
+    monkeypatch.setattr(ann, "_SCTYPE_CACHE", {})
+    cache_file = tmp_path / "stable.json"
+    previous = {"cell_types": ["previous"]}
+    cache_file.write_text(json.dumps(previous), encoding="utf-8")
+
+    def _partial_dump(_value, file, **_kwargs) -> None:
+        file.write('{"partial"')
+        raise OSError("disk full")
+
+    monkeypatch.setattr(ann.json, "dump", _partial_dump)
+
+    await ann._cache_sctype_results(
+        "stable",
+        (["new"], {"new": 1}, {"new": 0.9}, None),
+        DummyCtx(),
+    )
+
+    assert json.loads(cache_file.read_text(encoding="utf-8")) == previous
+    assert ann._SCTYPE_CACHE == {}
+    assert list(tmp_path.iterdir()) == [cache_file]
 
 
 @pytest.mark.asyncio
@@ -690,7 +725,7 @@ def test_load_cached_sctype_results_returns_memory_cache_hit(
 def test_load_cached_sctype_results_returns_none_on_corrupted_json(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    monkeypatch.setattr(ann, "_SCTYPE_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(ann, "_get_sctype_cache_dir", lambda: tmp_path)
     monkeypatch.setattr(ann, "_SCTYPE_CACHE", {})
     (tmp_path / "bad.json").write_text("{not valid json", encoding="utf-8")
 
@@ -714,7 +749,7 @@ def test_load_cached_sctype_results_expires_stale_memory_entry(
 def test_load_cached_sctype_results_expires_stale_disk_entry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    monkeypatch.setattr(ann, "_SCTYPE_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(ann, "_get_sctype_cache_dir", lambda: tmp_path)
     monkeypatch.setattr(ann, "_SCTYPE_CACHE", {})
     monkeypatch.setattr(ann, "_SCTYPE_CACHE_TTL_SECONDS", 1)
     monkeypatch.setattr(ann.time, "time", lambda: 100.0)
@@ -741,7 +776,7 @@ async def test_cache_sctype_results_failure_is_non_fatal(
 ):
     blocked = tmp_path / "not_a_dir"
     blocked.write_text("file", encoding="utf-8")
-    monkeypatch.setattr(ann, "_SCTYPE_CACHE_DIR", blocked)
+    monkeypatch.setattr(ann, "_get_sctype_cache_dir", lambda: blocked)
     monkeypatch.setattr(ann, "_SCTYPE_CACHE", {})
 
     await ann._cache_sctype_results(
@@ -754,7 +789,7 @@ async def test_cache_sctype_results_failure_is_non_fatal(
 async def test_cache_sctype_results_respects_lru_capacity(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    monkeypatch.setattr(ann, "_SCTYPE_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(ann, "_get_sctype_cache_dir", lambda: tmp_path)
     monkeypatch.setattr(ann, "_SCTYPE_CACHE", OrderedDict())
     monkeypatch.setattr(ann, "_SCTYPE_CACHE_MAX_ITEMS", 1)
     monkeypatch.setattr(ann, "_SCTYPE_CACHE_TTL_SECONDS", 0)

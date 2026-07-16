@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -328,6 +330,70 @@ def test_update_index_recovers_from_invalid_json_and_list_exported_results_missi
     assert loaded["analyses"]["demo"]["method"] == "demo_method"
     assert loaded["analyses"]["demo"]["files"] == ["demo_key.csv"]
     assert loaded["analyses"]["demo"]["parameters"]["path"] == "x/y"
+
+
+def test_update_index_failure_preserves_previous_complete_index(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _patch_home(monkeypatch, tmp_path)
+    index_path = re.get_results_dir("dataset") / "_index.json"
+    previous = {
+        "data_id": "dataset",
+        "analyses": {"existing": {"method": "kept", "files": []}},
+    }
+    index_path.write_text(json.dumps(previous), encoding="utf-8")
+
+    def _partial_dump(_value, file, **_kwargs) -> None:
+        file.write('{"partial"')
+        raise OSError("disk full")
+
+    monkeypatch.setattr(re.json, "dump", _partial_dump)
+
+    with pytest.raises(OSError, match="disk full"):
+        re._update_index("dataset", "new", "method", {}, [])
+
+    assert json.loads(index_path.read_text(encoding="utf-8")) == previous
+    assert list(index_path.parent.iterdir()) == [index_path]
+
+
+def test_concurrent_index_updates_preserve_every_analysis(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _patch_home(monkeypatch, tmp_path)
+
+    def _update(name: str) -> None:
+        re._update_index("dataset", name, name, {}, [])
+
+    names = [f"analysis_{index}" for index in range(8)]
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(_update, names))
+
+    index_path = re.get_results_dir("dataset") / "_index.json"
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    assert set(index["analyses"]) == set(names)
+
+
+def test_result_timestamps_are_explicit_utc() -> None:
+    timestamp = datetime.fromisoformat(re._now())
+    assert timestamp.utcoffset() == timedelta(0)
+
+
+def test_sanitize_for_json_preserves_numeric_types_and_rejects_nonfinite_values() -> None:
+    sanitized = re._sanitize_for_json(
+        {
+            1: np.int64(3),
+            "ratio": np.float32(0.5),
+            "values": np.array([1.0, np.nan, np.inf]),
+            "path": Path("data/result.csv"),
+        }
+    )
+
+    assert sanitized == {
+        "1": 3,
+        "ratio": 0.5,
+        "values": [1.0, None, None],
+        "path": "data/result.csv",
+    }
 
 
 def test_extract_squidpy_matrix_filters_unused_categories(

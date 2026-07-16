@@ -7,8 +7,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from chatspatial.utils import results_export as re
+from chatspatial.utils.exceptions import ParameterError
 
 
 def _patch_home(monkeypatch, tmp_path: Path) -> None:
@@ -240,3 +242,64 @@ def test_export_analysis_result_continues_when_one_key_extraction_fails(
     exported = re.export_analysis_result(adata, "d2", "demo")
     assert len(exported) == 1
     assert exported[0].name == "demo_good.csv"
+
+
+def test_managed_result_paths_reject_path_traversal(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _patch_home(monkeypatch, tmp_path)
+
+    with pytest.raises(ParameterError, match="filesystem-safe"):
+        re.get_results_dir("../outside")
+    with pytest.raises(ParameterError, match="filesystem-safe"):
+        re.get_analysis_dir("dataset", "../../outside")
+    with pytest.raises(ParameterError, match="filesystem-safe"):
+        re.get_result_path("dataset", "analysis", "../outside.csv")
+
+    assert not (tmp_path / ".chatspatial" / "outside").exists()
+
+
+def test_export_rejects_unsafe_method_filename_component(
+    minimal_spatial_adata,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_home(monkeypatch, tmp_path)
+    monkeypatch.setenv("CHATSPATIAL_EXPORT_RESULTS", "1")
+    adata = minimal_spatial_adata.copy()
+    adata.uns["demo_metadata"] = {
+        "method": "../../outside",
+        "results_keys": {"obs": ["group"]},
+    }
+
+    with pytest.raises(ParameterError, match="filesystem-safe"):
+        re.export_analysis_result(adata, "dataset", "demo")
+
+    assert not (tmp_path / ".chatspatial" / "outside_group.csv").exists()
+
+
+def test_failed_csv_export_preserves_previous_complete_result(
+    minimal_spatial_adata,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _patch_home(monkeypatch, tmp_path)
+    monkeypatch.setenv("CHATSPATIAL_EXPORT_RESULTS", "1")
+    adata = minimal_spatial_adata.copy()
+    adata.var["score"] = np.arange(adata.n_vars, dtype=float)
+    adata.uns["demo_metadata"] = {
+        "method": "demo",
+        "results_keys": {"var": ["score"]},
+    }
+    destination = re.get_analysis_dir("dataset", "demo") / "demo_score.csv"
+    destination.write_text("complete\n", encoding="utf-8")
+
+    def _partial_write(_self, path, *_args, **_kwargs) -> None:
+        Path(path).write_text("partial\n", encoding="utf-8")
+        raise OSError("disk full")
+
+    monkeypatch.setattr(pd.DataFrame, "to_csv", _partial_write)
+
+    assert re.export_analysis_result(adata, "dataset", "demo") == []
+    assert destination.read_text(encoding="utf-8") == "complete\n"
+    assert [path for path in destination.parent.iterdir() if path != destination] == []
