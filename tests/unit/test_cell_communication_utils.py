@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import zipfile
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -974,6 +977,11 @@ def _install_fake_cellphonedb_modules(monkeypatch: pytest.MonkeyPatch, download_
     )
 
 
+def _write_valid_cellphonedb_archive(path: Path) -> None:
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("gene_table.csv", "id\n")
+
+
 def test_ensure_cellphonedb_database_returns_existing_file(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -982,15 +990,15 @@ def test_ensure_cellphonedb_database_returns_existing_file(
     monkeypatch.setattr(ccc, "require_module", _fail_dependency_load)
 
     db_file = tmp_path / "cellphonedb.zip"
-    db_file.write_text("ok", encoding="utf-8")
+    _write_valid_cellphonedb_archive(db_file)
 
     out = ccc._ensure_cellphonedb_database(str(tmp_path), DummyCtx())
 
     assert out == os.path.join(str(tmp_path), "cellphonedb.zip")
 
 
-def test_ensure_cellphonedb_database_downloads_and_restores_ssl(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+def test_ensure_cellphonedb_database_downloads_atomically_and_restores_ssl(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
     import os
     import ssl
@@ -999,7 +1007,8 @@ def test_ensure_cellphonedb_database_downloads_and_restores_ssl(
 
     def _download(output_dir, version):
         calls["download_args"] = (output_dir, version)
-        (tmp_path / "cellphonedb.zip").write_text("ok", encoding="utf-8")
+        print("Downloaded cellphonedb.zip")
+        _write_valid_cellphonedb_archive(Path(output_dir) / "cellphonedb.zip")
 
     _install_fake_cellphonedb_modules(monkeypatch, _download)
     monkeypatch.setattr(ccc, "require", _required_dependency)
@@ -1010,8 +1019,34 @@ def test_ensure_cellphonedb_database_downloads_and_restores_ssl(
     out = ccc._ensure_cellphonedb_database(str(tmp_path), DummyCtx())
 
     assert out == os.path.join(str(tmp_path), "cellphonedb.zip")
-    assert calls["download_args"] == (str(tmp_path), "v5.0.0")
+    assert calls["download_args"] is not None
+    download_dir, version = calls["download_args"]
+    assert Path(download_dir).parent == tmp_path
+    assert Path(download_dir) != tmp_path
+    assert version == ccc.CELLPHONEDB_DATABASE_VERSION
+    assert zipfile.is_zipfile(out)
+    assert capsys.readouterr().out == ""
     assert ssl._create_default_https_context is original_ctx
+
+
+def test_ensure_cellphonedb_database_replaces_corrupt_cache(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    db_file = tmp_path / "cellphonedb.zip"
+    db_file.write_bytes(b"partial download")
+    calls = {"count": 0}
+
+    def _download(output_dir, _version):
+        calls["count"] += 1
+        _write_valid_cellphonedb_archive(Path(output_dir) / "cellphonedb.zip")
+
+    _install_fake_cellphonedb_modules(monkeypatch, _download)
+
+    out = ccc._ensure_cellphonedb_database(str(tmp_path), DummyCtx())
+
+    assert out == str(db_file)
+    assert calls["count"] == 1
+    assert zipfile.is_zipfile(db_file)
 
 
 @pytest.mark.asyncio

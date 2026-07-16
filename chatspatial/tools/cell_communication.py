@@ -31,16 +31,18 @@ Storage Structure:
         "ccc_spatial_pvals": ndarray   # (n_spots, n_pairs) optional
 """
 
+import logging
+import threading
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import pandas as pd
 
+from ..config import get_cache_dir
 from ..models.analysis import CellCommunicationResult
 from ..models.data import CellCommunicationParameters
 from ..utils import validate_obs_column
@@ -75,6 +77,8 @@ logger = logging.getLogger(__name__)
 CCC_UNS_KEY = "ccc"  # Main storage in adata.uns
 CCC_SPATIAL_SCORES_KEY = "ccc_spatial_scores"  # Spatial scores in adata.obsm
 CCC_SPATIAL_PVALS_KEY = "ccc_spatial_pvals"  # Spatial p-values in adata.obsm
+CELLPHONEDB_DATABASE_VERSION = "v5.0.0"
+_CELLPHONEDB_DOWNLOAD_LOCK = threading.Lock()
 
 
 def _top_n_desc_indices(values: np.ndarray, n_top: int) -> np.ndarray:
@@ -810,57 +814,92 @@ def _run_liana_spatial_analysis(
 
 
 def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
-    """Ensure CellPhoneDB database is available, download if not exists"""
+    """Return an atomically cached, validated CellPhoneDB database path."""
+    import io
     import os
-
-    # Check if database file already exists
-    db_path = os.path.join(output_dir, "cellphonedb.zip")
-
-    if os.path.exists(db_path):
-        return db_path
-
     import ssl
+    import tempfile
+    import zipfile
+    from contextlib import redirect_stdout
 
-    import certifi
+    cache_dir = Path(output_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    db_path = cache_dir / "cellphonedb.zip"
 
-    db_utils = require_module(
-        "cellphonedb",
-        "cellphonedb.utils.db_utils",
-        ctx,
-        feature="CellPhoneDB database management",
-    )
+    if db_path.is_file() and zipfile.is_zipfile(db_path):
+        return str(db_path)
 
-    # Fix macOS SSL certificate issue: patch urllib to use certifi certificates
-    # CellPhoneDB uses urllib.request.urlopen which fails on macOS without this fix
-    original_https_context = ssl._create_default_https_context
+    with _CELLPHONEDB_DOWNLOAD_LOCK:
+        # Another caller may have populated the cache while this caller waited.
+        if db_path.is_file() and zipfile.is_zipfile(db_path):
+            return str(db_path)
+        db_path.unlink(missing_ok=True)
 
-    def _create_certifi_https_context(*args: Any, **kwargs: Any) -> ssl.SSLContext:
-        kwargs.setdefault("cafile", certifi.where())
-        return ssl.create_default_context(*args, **kwargs)
+        import certifi
 
-    ssl._create_default_https_context = _create_certifi_https_context
-
-    try:
-        # Download latest database
-        db_utils.download_database(output_dir, "v5.0.0")
-
-        return db_path
-
-    except Exception as e:
-        error_msg = (
-            f"Failed to download CellPhoneDB database: {e}\n\n"
-            "Troubleshooting:\n"
-            "1. Check internet connection\n"
-            "2. Verify CellPhoneDB version compatibility\n"
-            "3. Try manually downloading database:\n"
-            "   from cellphonedb.utils import db_utils\n"
-            "   db_utils.download_database('/path/to/dir', 'v5.0.0')"
+        db_utils = require_module(
+            "cellphonedb",
+            "cellphonedb.utils.db_utils",
+            ctx,
+            feature="CellPhoneDB database management",
         )
-        raise DependencyError(error_msg) from e
 
-    finally:
-        # Restore original SSL context
-        ssl._create_default_https_context = original_https_context
+        # CellPhoneDB does not accept an SSL context and writes directly into
+        # its target directory. Serialize the narrow compatibility patch and
+        # download into caller-private staging before publishing atomically.
+        original_https_context = ssl._create_default_https_context
+
+        def _create_certifi_https_context(*args: Any, **kwargs: Any) -> ssl.SSLContext:
+            kwargs.setdefault("cafile", certifi.where())
+            return ssl.create_default_context(*args, **kwargs)
+
+        download_output = io.StringIO()
+        try:
+            with tempfile.TemporaryDirectory(
+                dir=cache_dir,
+                prefix=".download-",
+            ) as staging_dir:
+                ssl._create_default_https_context = _create_certifi_https_context
+                try:
+                    # Upstream prints downloaded filenames to stdout, which is
+                    # unsafe for MCP stdio transport. Capture it as debug data.
+                    with redirect_stdout(download_output):
+                        db_utils.download_database(
+                            staging_dir,
+                            CELLPHONEDB_DATABASE_VERSION,
+                        )
+                finally:
+                    ssl._create_default_https_context = original_https_context
+
+                staged_database = Path(staging_dir) / "cellphonedb.zip"
+                if not staged_database.is_file() or not zipfile.is_zipfile(
+                    staged_database
+                ):
+                    raise DependencyError(
+                        "CellPhoneDB download did not produce a valid "
+                        "cellphonedb.zip archive."
+                    )
+                os.replace(staged_database, db_path)
+
+            captured = download_output.getvalue().strip()
+            if captured:
+                logger.debug("CellPhoneDB database download: %s", captured)
+            return str(db_path)
+
+        except DependencyError:
+            raise
+        except Exception as e:
+            error_msg = (
+                f"Failed to download CellPhoneDB database: {e}\n\n"
+                "Troubleshooting:\n"
+                "1. Check internet connection\n"
+                "2. Verify CellPhoneDB version compatibility\n"
+                "3. Try manually downloading database:\n"
+                "   from cellphonedb.utils import db_utils\n"
+                f"   db_utils.download_database('/path/to/dir', "
+                f"'{CELLPHONEDB_DATABASE_VERSION}')"
+            )
+            raise DependencyError(error_msg) from e
 
 
 async def _analyze_communication_cellphonedb(
@@ -881,6 +920,7 @@ async def _analyze_communication_cellphonedb(
             f"  - method='cellchat_r' (has built-in mouse/human databases)"
         )
 
+    import asyncio
     import os
     import tempfile
 
@@ -968,7 +1008,14 @@ async def _analyze_communication_cellphonedb(
                 meta_df.to_csv(meta_file, sep="\t", index=False)
 
                 try:
-                    db_path = _ensure_cellphonedb_database(temp_dir, ctx)
+                    cache_dir = (
+                        get_cache_dir() / "cellphonedb" / CELLPHONEDB_DATABASE_VERSION
+                    )
+                    db_path = await asyncio.to_thread(
+                        _ensure_cellphonedb_database,
+                        str(cache_dir),
+                        ctx,
+                    )
                 except DependencyError:
                     raise
                 except Exception as db_error:
