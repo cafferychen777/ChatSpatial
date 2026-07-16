@@ -62,6 +62,7 @@ from ..utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
+from ..utils.mcp_utils import suppress_output
 from ..utils.statistics import adjust_pvalues
 
 if TYPE_CHECKING:
@@ -815,12 +816,10 @@ def _run_liana_spatial_analysis(
 
 def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
     """Return an atomically cached, validated CellPhoneDB database path."""
-    import io
     import os
     import ssl
     import tempfile
     import zipfile
-    from contextlib import redirect_stdout
 
     cache_dir = Path(output_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -853,7 +852,6 @@ def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
             kwargs.setdefault("cafile", certifi.where())
             return ssl.create_default_context(*args, **kwargs)
 
-        download_output = io.StringIO()
         try:
             with tempfile.TemporaryDirectory(
                 dir=cache_dir,
@@ -862,8 +860,8 @@ def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
                 ssl._create_default_https_context = _create_certifi_https_context
                 try:
                     # Upstream prints downloaded filenames to stdout, which is
-                    # unsafe for MCP stdio transport. Capture it as debug data.
-                    with redirect_stdout(download_output):
+                    # unsafe for MCP stdio transport.
+                    with suppress_output():
                         db_utils.download_database(
                             staging_dir,
                             CELLPHONEDB_DATABASE_VERSION,
@@ -881,9 +879,6 @@ def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
                     )
                 os.replace(staged_database, db_path)
 
-            captured = download_output.getvalue().strip()
-            if captured:
-                logger.debug("CellPhoneDB database download: %s", captured)
             return str(db_path)
 
         except DependencyError:

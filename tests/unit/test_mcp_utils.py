@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import sys
 
 import pytest
 
@@ -12,7 +14,11 @@ from chatspatial.utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
-from chatspatial.utils.mcp_utils import mcp_tool_error_handler, suppress_output
+from chatspatial.utils.mcp_utils import (
+    mcp_tool_error_handler,
+    suppress_output,
+    suppress_output_async,
+)
 
 
 @pytest.mark.asyncio
@@ -77,18 +83,59 @@ def test_suppress_output_discards_large_output(capsys: pytest.CaptureFixture[str
     assert captured.err == ""
 
 
-def test_suppress_output_restores_logging_when_redirection_setup_fails(monkeypatch):
+def test_suppress_output_restores_streams_and_preserves_logging_level(
+    capsys: pytest.CaptureFixture[str],
+):
     root_logger = logging.getLogger()
     original_level = root_logger.level
-    root_logger.setLevel(logging.WARNING)
-    monkeypatch.setattr(
-        "builtins.open",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("open failed")),
-    )
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
 
-    try:
-        with pytest.raises(OSError, match="open failed"), suppress_output():
-            pass
-        assert root_logger.level == logging.WARNING
-    finally:
-        root_logger.setLevel(original_level)
+    with pytest.raises(RuntimeError, match="failed"), suppress_output():
+        print("hidden stdout")
+        print("hidden stderr", file=sys.stderr)
+        raise RuntimeError("failed")
+
+    assert root_logger.level == original_level
+    assert sys.stdout is original_stdout
+    assert sys.stderr is original_stderr
+    captured = capsys.readouterr()
+    assert "hidden" not in captured.out
+    assert "hidden" not in captured.err
+
+
+@pytest.mark.asyncio
+async def test_async_suppression_is_task_local(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    suppression_active = asyncio.Event()
+    visible_output_written = asyncio.Event()
+
+    async def hidden_task() -> None:
+        async with suppress_output_async():
+            print("hidden before await")
+            suppression_active.set()
+            await visible_output_written.wait()
+            print("hidden after await", file=sys.stderr)
+
+    async def visible_task() -> None:
+        await suppression_active.wait()
+        print("visible stdout")
+        print("visible stderr", file=sys.stderr)
+        visible_output_written.set()
+
+    await asyncio.gather(hidden_task(), visible_task())
+
+    captured = capsys.readouterr()
+    assert captured.out == "visible stdout\n"
+    assert captured.err == "visible stderr\n"
+
+
+@pytest.mark.asyncio
+async def test_async_suppression_propagates_through_to_thread(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    async with suppress_output_async():
+        await asyncio.to_thread(print, "hidden worker output")
+
+    assert "hidden worker output" not in capsys.readouterr().out

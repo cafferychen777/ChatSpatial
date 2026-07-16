@@ -19,12 +19,14 @@ Code/algorithm errors (message + traceback for debugging):
 - ProcessingError, all other exceptions
 """
 
-import logging
-import os
+import contextvars
+import sys
+import threading
 import traceback
-import warnings
-from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from collections.abc import AsyncIterator, Iterable, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from functools import wraps
+from typing import Any, TextIO
 
 from .exceptions import (
     DataError,
@@ -45,29 +47,110 @@ USER_ERRORS = (
 # =============================================================================
 # Output Suppression
 # =============================================================================
+_OUTPUT_SUPPRESSED = contextvars.ContextVar(
+    "chatspatial_output_suppressed",
+    default=False,
+)
+_STREAM_STATE_LOCK = threading.RLock()
+_ACTIVE_SUPPRESSORS = 0
+_ORIGINAL_STREAMS: tuple[TextIO, TextIO] | None = None
+
+
+class _ContextAwareTextStream:
+    """Forward writes unless the current task or thread suppresses output."""
+
+    def __init__(self, target: TextIO) -> None:
+        self._target = target
+
+    def write(self, data: str) -> int:
+        if _OUTPUT_SUPPRESSED.get():
+            return len(data)
+        written = self._target.write(data)
+        return len(data) if written is None else written
+
+    def writelines(self, lines: Iterable[str]) -> None:
+        if _OUTPUT_SUPPRESSED.get():
+            for _line in lines:
+                pass
+            return
+        self._target.writelines(lines)
+
+    def flush(self) -> None:
+        if not _OUTPUT_SUPPRESSED.get():
+            self._target.flush()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._target, name)
+
+
+_STREAM_PROXIES: tuple[_ContextAwareTextStream, _ContextAwareTextStream] | None = None
+
+
+def _install_context_aware_streams() -> None:
+    global _ACTIVE_SUPPRESSORS, _ORIGINAL_STREAMS, _STREAM_PROXIES
+
+    with _STREAM_STATE_LOCK:
+        if _ACTIVE_SUPPRESSORS == 0:
+            _ORIGINAL_STREAMS = (sys.stdout, sys.stderr)
+            _STREAM_PROXIES = (
+                _ContextAwareTextStream(sys.stdout),
+                _ContextAwareTextStream(sys.stderr),
+            )
+            sys.stdout, sys.stderr = _STREAM_PROXIES
+        _ACTIVE_SUPPRESSORS += 1
+
+
+def _restore_context_aware_streams() -> None:
+    global _ACTIVE_SUPPRESSORS, _ORIGINAL_STREAMS, _STREAM_PROXIES
+
+    with _STREAM_STATE_LOCK:
+        _ACTIVE_SUPPRESSORS -= 1
+        if _ACTIVE_SUPPRESSORS != 0:
+            return
+
+        if _ORIGINAL_STREAMS is not None and _STREAM_PROXIES is not None:
+            stdout_proxy, stderr_proxy = _STREAM_PROXIES
+            original_stdout, original_stderr = _ORIGINAL_STREAMS
+            if sys.stdout is stdout_proxy:
+                sys.stdout = original_stdout
+            if sys.stderr is stderr_proxy:
+                sys.stderr = original_stderr
+        _ORIGINAL_STREAMS = None
+        _STREAM_PROXIES = None
+
+
 @contextmanager
-def suppress_output():
-    """
-    Context manager to suppress stdout, stderr, warnings, and logging.
+def suppress_output() -> Iterator[None]:
+    """Suppress Python stdout and stderr for the current execution context.
+
+    A process-global redirect is unsafe across concurrent MCP tasks. The stream
+    proxy remains shared only while needed, while a ``ContextVar`` decides
+    whether each task or thread is suppressed. ``asyncio.to_thread`` propagates
+    this context automatically.
 
     Usage:
         with suppress_output():
             noisy_function()
     """
-    old_level = logging.getLogger().level
-    logging.getLogger().setLevel(logging.ERROR)
+    token = _OUTPUT_SUPPRESSED.set(True)
+    try:
+        _install_context_aware_streams()
+    except BaseException:
+        _OUTPUT_SUPPRESSED.reset(token)
+        raise
 
     try:
-        with (
-            warnings.catch_warnings(),
-            open(os.devnull, "w") as devnull,
-            redirect_stdout(devnull),
-            redirect_stderr(devnull),
-        ):
-            warnings.simplefilter("ignore")
-            yield
+        yield
     finally:
-        logging.getLogger().setLevel(old_level)
+        _OUTPUT_SUPPRESSED.reset(token)
+        _restore_context_aware_streams()
+
+
+@asynccontextmanager
+async def suppress_output_async() -> AsyncIterator[None]:
+    """Async form of :func:`suppress_output` for scopes containing ``await``."""
+    with suppress_output():
+        yield
 
 
 # =============================================================================

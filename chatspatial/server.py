@@ -53,7 +53,10 @@ from .models.data import VisualizationParameters  # noqa: E402
 from .tools.embeddings import EmbeddingParameters  # noqa: E402
 from .spatial_mcp_adapter import ToolContext  # noqa: E402
 from .spatial_mcp_adapter import create_spatial_mcp_server  # noqa: E402
-from .utils.mcp_utils import mcp_tool_error_handler, suppress_output  # noqa: E402
+from .utils.mcp_utils import (  # noqa: E402
+    mcp_tool_error_handler,
+    suppress_output_async,
+)
 
 # Create MCP server and adapter
 mcp, adapter = create_spatial_mcp_server("ChatSpatial")
@@ -200,7 +203,7 @@ async def compute_embeddings(
 
     resolved = _resolve_params(params, EmbeddingParameters)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
-    with suppress_output():
+    async with suppress_output_async():
         result = await compute_embeddings_func(data_id, ctx, resolved)
     dumped = result.model_dump()
     await data_manager.save_result(data_id, "embeddings", dumped)
@@ -229,7 +232,7 @@ async def visualize_data(
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     resolved_params = _resolve_params(params, VisualizationParameters)
-    with suppress_output():
+    async with suppress_output_async():
         from .tools.visualization.main import visualize_data as visualize_func
 
         result = await visualize_func(data_id, ctx, resolved_params)
@@ -270,7 +273,7 @@ async def annotate_cell_types(
     resolved_params = _resolve_params(params, AnnotationParameters)
 
     # Call annotation function with ToolContext
-    with suppress_output():
+    async with suppress_output_async():
         result = await annotate_cell_types(data_id, ctx, resolved_params)
 
     # Note: No writeback needed - adata modifications are in-place on the same object
@@ -649,7 +652,7 @@ async def analyze_cell_communication(
     )
 
     # Call cell communication function with ToolContext
-    with suppress_output():
+    async with suppress_output_async():
         result = await analyze_comm_func(data_id, ctx, params)
 
     # Note: No writeback needed - adata modifications are in-place on the same object
