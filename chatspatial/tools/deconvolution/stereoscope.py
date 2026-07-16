@@ -12,8 +12,9 @@ from typing import Any
 import pandas as pd
 
 from ...utils.adata_utils import ensure_categorical
+from ...utils.dependency_manager import require_module
 from ...utils.device_utils import get_accelerator
-from ...utils.exceptions import ProcessingError
+from ...utils.exceptions import ChatSpatialError, ProcessingError
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
@@ -36,7 +37,13 @@ def deconvolve(
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
     """
-    from scvi.external import RNAStereoscope, SpatialStereoscope
+    scvi_external = require_module(
+        "scvi",
+        "scvi.external",
+        feature="Stereoscope deconvolution",
+    )
+    rna_stereoscope = scvi_external.RNAStereoscope
+    spatial_stereoscope = scvi_external.SpatialStereoscope
 
     try:
         # Data already copied in prepare_deconvolution
@@ -59,8 +66,8 @@ def deconvolve(
         accelerator = get_accelerator(prefer_gpu=use_gpu)
 
         # ===== Stage 1: Train RNAStereoscope =====
-        RNAStereoscope.setup_anndata(ref_data, labels_key=data.cell_type_key)
-        rna_model = RNAStereoscope(ref_data)
+        rna_stereoscope.setup_anndata(ref_data, labels_key=data.cell_type_key)
+        rna_model = rna_stereoscope(ref_data)
 
         train_kwargs: dict[str, Any] = {
             "max_epochs": rna_epochs,
@@ -72,8 +79,8 @@ def deconvolve(
         rna_model.train(**train_kwargs)
 
         # ===== Stage 2: Train SpatialStereoscope =====
-        SpatialStereoscope.setup_anndata(spatial_data)
-        spatial_model = SpatialStereoscope.from_rna_model(spatial_data, rna_model)
+        spatial_stereoscope.setup_anndata(spatial_data)
+        spatial_model = spatial_stereoscope.from_rna_model(spatial_data, rna_model)
 
         train_kwargs["max_epochs"] = spatial_epochs
         spatial_model.train(**train_kwargs)
@@ -104,7 +111,7 @@ def deconvolve(
 
         return proportions, stats
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
-        if isinstance(e, ProcessingError):
-            raise
         raise ProcessingError(f"Stereoscope deconvolution failed: {e}") from e

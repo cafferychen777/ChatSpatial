@@ -38,7 +38,7 @@ from ..utils.adata_utils import (
     validate_obs_column,
 )
 from ..utils.dependency_manager import (
-    is_available,
+    get,
     require,
     validate_r_environment,
     validate_scvi_tools,
@@ -111,12 +111,7 @@ async def _annotate_with_singler(
     singler = require("singler", ctx, feature="SingleR annotation")
     require("singlecellexperiment", ctx, feature="SingleR annotation")
 
-    # Optional: check for celldex (import to module-level alias to avoid redef)
-    celldex_module: Any = None
-    if is_available("celldex"):
-        import celldex as _celldex_mod
-
-        celldex_module = _celldex_mod
+    celldex_module = get("celldex", ctx)
 
     # Get expression matrix - prefer normalized data
     # IMPORTANT: Ensure test_mat dimensions match adata.var_names (used in test_features)
@@ -144,8 +139,7 @@ async def _annotate_with_singler(
             )
         elif "log1p" not in adata.uns:
             await ctx.warning(
-                "Data may not be log-normalized. "
-                "Applying log1p for SingleR..."
+                "Data may not be log-normalized. Applying log1p for SingleR..."
             )
             test_mat = np.log1p(test_mat)
 
@@ -477,6 +471,26 @@ async def _annotate_with_tangram(
                 "No cluster label found. Provide cluster_label parameter."
             )
 
+    if mode == "clusters":
+        annotation_col = cluster_label
+        if annotation_col is None or annotation_col not in adata_sc.obs:
+            raise ParameterError(
+                f"Cluster column '{annotation_col}' not found in reference data."
+            )
+    else:
+        annotation_col = params.cell_type_key
+        if annotation_col not in adata_sc.obs:
+            available_cols = list(adata_sc.obs.columns)
+            categorical_cols = [
+                col
+                for col in available_cols
+                if adata_sc.obs[col].dtype.name in ["object", "category"]
+            ]
+            raise ParameterError(
+                f"Cell type column '{annotation_col}' not found. "
+                f"Available: {categorical_cols[:5]}"
+            )
+
     # Device selection (supports CUDA, MPS, and CPU)
     device = get_device(prefer_gpu=params.tangram_use_gpu)
     if params.tangram_use_gpu and device == "cpu":
@@ -540,6 +554,8 @@ async def _annotate_with_tangram(
                     f"Upgrade tangram-sc: pip install --upgrade tangram-sc"
                 )
                 raise ProcessingError(error_msg)
+    except ChatSpatialError:
+        raise
     except Exception as score_error:
         raise ProcessingError(
             f"Tangram mapping completed but score extraction failed: {score_error}"
@@ -561,35 +577,15 @@ async def _annotate_with_tangram(
         except Exception as gene_error:
             await ctx.warning(f"Could not project genes: {gene_error}")
 
-    # Project cell annotations to space using proper API function
+    # Projecting annotations is the core output step, not an optional enhancement.
     try:
-        # Determine annotation column
-        annotation_col = None
-        if mode == "clusters" and cluster_label:
-            annotation_col = cluster_label
-        else:
-            # cell_type_key is now required (no auto-detect)
-            if params.cell_type_key not in adata_sc.obs:
-                # Improved error message showing available columns
-                available_cols = list(adata_sc.obs.columns)
-                categorical_cols = [
-                    col
-                    for col in available_cols
-                    if adata_sc.obs[col].dtype.name in ["object", "category"]
-                ]
-
-                raise ParameterError(
-                    f"Cell type column '{params.cell_type_key}' not found. "
-                    f"Available: {categorical_cols[:5]}"
-                )
-
-            annotation_col = params.cell_type_key
-
-        # annotation_col is guaranteed to be set (either from cluster_label or cell_type_key)
         tg.project_cell_annotations(ad_map, adata_sp, annotation=annotation_col)
+    except ChatSpatialError:
+        raise
     except Exception as proj_error:
-        await ctx.warning(f"Could not project cell annotations: {proj_error}")
-        # Continue without projection
+        raise ProcessingError(
+            f"Tangram cell annotation projection failed: {proj_error}"
+        ) from proj_error
 
     # Get cell type predictions (keys provided by caller for single-point control)
     cell_types: list[str] = []
@@ -1066,7 +1062,7 @@ async def _annotate_with_mllmcelltype(
         raise ParameterError(
             f"cluster_label parameter is required for mLLMCellType method.\n\n"
             f"Available categorical columns (likely clusters):\n  {', '.join(categorical_cols[:15])}\n"
-            f"{f'  ... and {len(categorical_cols)-15} more' if len(categorical_cols) > 15 else ''}\n\n"
+            f"{f'  ... and {len(categorical_cols) - 15} more' if len(categorical_cols) > 15 else ''}\n\n"
             f"Common cluster column names: leiden, louvain, seurat_clusters, phenograph\n\n"
             f"Example: params = {{'cluster_label': 'leiden', ...}}"
         )
@@ -1156,7 +1152,7 @@ async def _annotate_with_mllmcelltype(
                 use_cache=use_cache,
                 base_urls=base_urls,
             )
-    except ParameterError:
+    except ChatSpatialError:
         raise
     except Exception as e:
         raise ProcessingError(f"mLLMCellType annotation failed: {e}") from e
@@ -1200,17 +1196,15 @@ async def _annotate_with_cellassign(
     confidence_key: str,
 ) -> AnnotationMethodOutput:
     """Annotate cell types using CellAssign method"""
-
-    # Validate dependencies with comprehensive error reporting
-    validate_scvi_tools(ctx, components=["CellAssign"])
-    from scvi.external import CellAssign
-
     # Check if marker genes are provided
     if params.marker_genes is None:
         raise ParameterError(
             "CellAssign requires marker genes to be provided. "
             "Please specify marker_genes parameter with a dictionary of cell types and their marker genes."
         )
+
+    scvi = validate_scvi_tools(ctx, components=["CellAssign"])
+    CellAssign = scvi.external.CellAssign
 
     marker_genes = params.marker_genes
 
@@ -1909,16 +1903,13 @@ def _load_sctype_functions(
             )
         load_script = _R_LOAD_SCTYPE_REMOTE
 
-    robjects, _, _, _, _, default_converter, openrlib, _ = validate_r_environment(ctx)
-    from rpy2.robjects import conversion
-
-    with openrlib.rlock:
-        with conversion.localconverter(default_converter):
-            if allow_runtime_install:
-                robjects.r(_R_INSTALL_PACKAGES)
-            else:
-                robjects.r(_R_CHECK_PACKAGES)
-            robjects.r(load_script)
+    r_env = validate_r_environment(ctx)
+    with r_env.conversion_context():
+        if allow_runtime_install:
+            r_env.robjects.r(_R_INSTALL_PACKAGES)
+        else:
+            r_env.robjects.r(_R_CHECK_PACKAGES)
+        r_env.robjects.r(load_script)
 
 
 def _prepare_sctype_genesets(
@@ -1954,15 +1945,12 @@ def _prepare_sctype_genesets(
             raise DataNotFoundError(f"scType database file not found: {local_db}")
         db_path = local_db.as_posix()
 
-    robjects, _, _, _, _, default_converter, openrlib, _ = validate_r_environment(ctx)
-    from rpy2.robjects import conversion
-
-    with openrlib.rlock:
-        with conversion.localconverter(default_converter):
-            robjects.r.assign("db_path", db_path)
-            robjects.r.assign("tissue_type", tissue)
-            robjects.r("gs_list <- gene_sets_prepare(db_path, tissue_type)")
-            return robjects.r["gs_list"]
+    r_env = validate_r_environment(ctx)
+    with r_env.conversion_context():
+        r_env.robjects.r.assign("db_path", db_path)
+        r_env.robjects.r.assign("tissue_type", tissue)
+        r_env.robjects.r("gs_list <- gene_sets_prepare(db_path, tissue_type)")
+        return r_env.robjects.r["gs_list"]
 
 
 def _convert_custom_markers_to_gs(
@@ -2009,32 +1997,26 @@ def _convert_custom_markers_to_gs(
             "No valid cell types found in custom markers - all cell types need at least one positive marker"
         )
 
-    # Get robjects and converters from validation
-    robjects, pandas2ri, _, _, localconverter, _, openrlib, _ = (
-        validate_r_environment(ctx)
-    )
+    r_env = validate_r_environment(ctx)
+    with r_env.conversion_context(pandas=True):
+        # Convert Python dictionaries to R named lists, handle empty lists properly
+        r_gs_positive = r_env.robjects.r["list"](
+            **{
+                k: r_env.robjects.StrVector(v) if v else r_env.robjects.StrVector([])
+                for k, v in gs_positive.items()
+            }
+        )
+        r_gs_negative = r_env.robjects.r["list"](
+            **{
+                k: r_env.robjects.StrVector(v) if v else r_env.robjects.StrVector([])
+                for k, v in gs_negative.items()
+            }
+        )
 
-    # Wrap R calls in conversion context (FIX for contextvars issue)
-    with openrlib.rlock:
-        with localconverter(robjects.default_converter + pandas2ri.converter):
-            # Convert Python dictionaries to R named lists, handle empty lists properly
-            r_gs_positive = robjects.r["list"](
-                **{
-                    k: robjects.StrVector(v) if v else robjects.StrVector([])
-                    for k, v in gs_positive.items()
-                }
-            )
-            r_gs_negative = robjects.r["list"](
-                **{
-                    k: robjects.StrVector(v) if v else robjects.StrVector([])
-                    for k, v in gs_negative.items()
-                }
-            )
-
-            # Create the final gs_list structure
-            gs_list = robjects.r["list"](
-                gs_positive=r_gs_positive, gs_negative=r_gs_negative
-            )
+        # Create the final gs_list structure
+        gs_list = r_env.robjects.r["list"](
+            gs_positive=r_gs_positive, gs_negative=r_gs_negative
+        )
 
     return gs_list
 
@@ -2043,10 +2025,7 @@ def _run_sctype_scoring(
     adata, gs_list, params: AnnotationParameters, ctx: "ToolContext"
 ) -> pd.DataFrame:
     """Run sc-type scoring algorithm."""
-    robjects, pandas2ri, numpy2ri, _, _, default_converter, openrlib, anndata2ri = (
-        validate_r_environment(ctx)
-    )
-    from rpy2.robjects import conversion
+    r_env = validate_r_environment(ctx, require_anndata2ri=True)
 
     # Prepare expression data
     expr_data = (
@@ -2055,26 +2034,20 @@ def _run_sctype_scoring(
         else adata.X
     )
 
-    with openrlib.rlock:
-        with conversion.localconverter(
-            default_converter
-            + anndata2ri.converter
-            + pandas2ri.converter
-            + numpy2ri.converter
-        ):
-            # Transfer data to R (genes × cells for scType)
-            robjects.r.assign("scdata", expr_data.T)
-            robjects.r.assign("gene_names", list(adata.var_names))
-            robjects.r.assign("cell_names", list(adata.obs_names))
-            robjects.r.assign("gs_list", gs_list)
+    with r_env.conversion_context(anndata=True, pandas=True, numpy=True):
+        # Transfer data to R (genes × cells for scType)
+        r_env.robjects.r.assign("scdata", expr_data.T)
+        r_env.robjects.r.assign("gene_names", list(adata.var_names))
+        r_env.robjects.r.assign("cell_names", list(adata.obs_names))
+        r_env.robjects.r.assign("gs_list", gs_list)
 
-            # Run scoring using pre-defined R code
-            robjects.r(_R_SCTYPE_SCORING)
+        # Run scoring using pre-defined R code
+        r_env.robjects.r(_R_SCTYPE_SCORING)
 
-            # Get results
-            row_names = list(robjects.r("rownames(es_max)"))
-            col_names = list(robjects.r("colnames(es_max)"))
-            scores_matrix = robjects.r["es_max"]
+        # Get results
+        row_names = list(r_env.robjects.r("rownames(es_max)"))
+        col_names = list(r_env.robjects.r("colnames(es_max)"))
+        scores_matrix = r_env.robjects.r["es_max"]
 
     # Convert to DataFrame
     if isinstance(scores_matrix, pd.DataFrame):

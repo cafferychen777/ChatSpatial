@@ -11,8 +11,8 @@ import numpy as np
 import pandas as pd
 
 from ...utils.adata_utils import to_dense
-from ...utils.dependency_manager import validate_r_package
-from ...utils.exceptions import DataError, ProcessingError
+from ...utils.dependency_manager import validate_r_environment
+from ...utils.exceptions import ChatSpatialError, DataError, ProcessingError
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
@@ -37,18 +37,7 @@ def deconvolve(
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
     """
-    import rpy2.robjects as ro
-    from rpy2.rinterface_lib import openrlib
-    from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
-
     ctx = data.ctx
-
-    # Validate R package
-    validate_r_package(
-        "SPOTlight",
-        ctx,
-        install_cmd="BiocManager::install('SPOTlight')",
-    )
 
     try:
         # Validate spatial coordinates from prepared data
@@ -77,31 +66,40 @@ def deconvolve(
         # R factors support arbitrary string values; preserve biological labels.
         cell_types = reference_data.obs[data.cell_type_key].astype(str)
 
-        r_converter = default_converter + pandas2ri.converter + numpy2ri.converter
-        with openrlib.rlock:
-            with conversion.localconverter(r_converter):
-                ro.r("library(SPOTlight)")
-                ro.r("library(SingleCellExperiment)")
-                ro.r("library(SpatialExperiment)")
-                ro.r("library(scran)")
-                ro.r("library(scuttle)")
+        required_packages = [
+            "SPOTlight",
+            "SingleCellExperiment",
+            "SpatialExperiment",
+            "scran",
+            "scuttle",
+        ]
+        r_env = validate_r_environment(
+            ctx,
+            required_packages=required_packages,
+            package_install_commands={
+                package: f"BiocManager::install('{package}')"
+                for package in required_packages
+            },
+        )
+        ro = r_env.robjects
 
-                ro.globalenv["spatial_counts"] = spatial_counts.T
-                ro.globalenv["reference_counts"] = reference_counts.T
-                ro.globalenv["spatial_coords"] = spatial_coords
-                ro.globalenv["gene_names"] = ro.StrVector(data.common_genes)
-                ro.globalenv["spatial_names"] = ro.StrVector(list(spatial_data.obs_names))
-                ro.globalenv["reference_names"] = ro.StrVector(
-                    list(reference_data.obs_names)
-                )
-                ro.globalenv["cell_types"] = ro.StrVector(cell_types.tolist())
-                ro.globalenv["nmf_model"] = nmf_model
-                ro.globalenv["min_prop"] = min_prop
-                ro.globalenv["scale_data"] = scale
-                ro.globalenv["weight_id"] = weight_id
-                ro.globalenv["n_top_genes"] = n_top_genes
+        with r_env.conversion_context(pandas=True, numpy=True):
+            ro.globalenv["spatial_counts"] = spatial_counts.T
+            ro.globalenv["reference_counts"] = reference_counts.T
+            ro.globalenv["spatial_coords"] = spatial_coords
+            ro.globalenv["gene_names"] = ro.StrVector(data.common_genes)
+            ro.globalenv["spatial_names"] = ro.StrVector(list(spatial_data.obs_names))
+            ro.globalenv["reference_names"] = ro.StrVector(
+                list(reference_data.obs_names)
+            )
+            ro.globalenv["cell_types"] = ro.StrVector(cell_types.tolist())
+            ro.globalenv["nmf_model"] = nmf_model
+            ro.globalenv["min_prop"] = min_prop
+            ro.globalenv["scale_data"] = scale
+            ro.globalenv["weight_id"] = weight_id
+            ro.globalenv["n_top_genes"] = n_top_genes
 
-                ro.r("""
+            ro.r("""
                     sce <- SingleCellExperiment(
                         assays = list(counts = reference_counts),
                         colData = data.frame(
@@ -154,13 +152,13 @@ def deconvolve(
                     )
                 """)
 
-                proportions_np = np.array(ro.r("spotlight_result$mat"))
-                spot_names = list(ro.r("rownames(spotlight_result$mat)"))
-                cell_type_names = list(ro.r("colnames(spotlight_result$mat)"))
+            proportions_np = np.array(ro.r("spotlight_result$mat"))
+            spot_names = list(ro.r("rownames(spotlight_result$mat)"))
+            cell_type_names = list(ro.r("colnames(spotlight_result$mat)"))
 
-                proportions = pd.DataFrame(
-                    proportions_np, index=spot_names, columns=cell_type_names
-                )
+            proportions = pd.DataFrame(
+                proportions_np, index=spot_names, columns=cell_type_names
+            )
 
         # Create statistics
         stats = create_deconvolution_stats(
@@ -173,20 +171,19 @@ def deconvolve(
             min_prop=min_prop,
         )
 
-        with openrlib.rlock:
-            with conversion.localconverter(r_converter):
-                ro.r("""
+        with r_env.conversion_context(pandas=True, numpy=True):
+            ro.r("""
                     rm(list = c("spatial_counts", "reference_counts", "spatial_coords",
                                 "gene_names", "spatial_names", "reference_names", "cell_types",
                                 "nmf_model", "min_prop", "scale_data", "weight_id",
                                 "sce", "spe", "markers", "mgs", "spotlight_result"),
                            envir = .GlobalEnv)
                     gc()
-                """)
+            """)
 
         return proportions, stats
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
-        if isinstance(e, ProcessingError):
-            raise
         raise ProcessingError(f"SPOTlight deconvolution failed: {e}") from e

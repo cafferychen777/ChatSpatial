@@ -87,6 +87,22 @@ def test_non_interactive_backend_is_noop_when_backend_is_agg(monkeypatch):
     assert ioff_calls["count"] == 0
 
 
+def test_isolated_figure_scope_closes_only_figures_created_inside():
+    existing = plt.figure()
+    created_number: int | None = None
+
+    try:
+        with pytest.raises(RuntimeError, match="plot failed"):
+            with image_utils.isolated_figure_scope():
+                created_number = plt.figure().number
+                raise RuntimeError("plot failed")
+
+        assert existing.number in plt.get_fignums()
+        assert created_number not in plt.get_fignums()
+    finally:
+        plt.close(existing)
+
+
 async def test_optimize_fig_to_image_with_cache_jpg_sets_quality_and_suffix(
     monkeypatch, tmp_path: Path
 ):

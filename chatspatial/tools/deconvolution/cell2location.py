@@ -18,10 +18,10 @@ if TYPE_CHECKING:
 
     from ...spatial_mcp_adapter import ToolContext
 
-from ...utils.dependency_manager import is_available, require
+from ...utils.dependency_manager import is_available, require_module
 from ...utils.device_utils import get_accelerator, get_device
-from ...utils.exceptions import DataError, ProcessingError
-from ...utils.image_utils import non_interactive_backend
+from ...utils.exceptions import ChatSpatialError, ProcessingError
+from ...utils.image_utils import isolated_figure_scope, non_interactive_backend
 from ...utils.mcp_utils import suppress_output
 from .base import (
     PreparedDeconvolutionData,
@@ -54,18 +54,19 @@ async def apply_gene_filtering(
         )
         return adata.copy()
 
-    import matplotlib.pyplot as plt
-
-    with non_interactive_backend():
-        from cell2location.utils.filtering import filter_genes
-
-        selected = filter_genes(
+    filtering = require_module(
+        "cell2location",
+        "cell2location.utils.filtering",
+        ctx,
+        feature="cell2location gene filtering",
+    )
+    with non_interactive_backend(), isolated_figure_scope():
+        selected = filtering.filter_genes(
             adata,
             cell_count_cutoff=cell_count_cutoff,
             cell_percentage_cutoff2=cell_percentage_cutoff2,
             nonz_mean_cutoff=nonz_mean_cutoff,
         )
-        plt.close("all")
 
     return adata[:, selected].copy()
 
@@ -113,8 +114,13 @@ def deconvolve(
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
     """
-    require("cell2location")
-    from cell2location.models import Cell2location, RegressionModel
+    models = require_module(
+        "cell2location",
+        "cell2location.models",
+        feature="cell2location deconvolution",
+    )
+    cell2location_model = models.Cell2location
+    regression_model = models.RegressionModel
 
     cell_type_key = data.cell_type_key
 
@@ -142,14 +148,14 @@ def deconvolve(
             ref = ref[~ref.obs[cell_type_key].isna()].copy()
 
         # ===== Stage 1: Train Reference Model =====
-        RegressionModel.setup_anndata(
+        regression_model.setup_anndata(
             adata=ref,
             labels_key=cell_type_key,
             batch_key=batch_key,
             categorical_covariate_keys=categorical_covariate_keys,
         )
 
-        ref_model = RegressionModel(ref)
+        ref_model = regression_model(ref)
         with suppress_output():
             train_kwargs = _build_train_kwargs(
                 epochs=ref_model_epochs,
@@ -176,13 +182,13 @@ def deconvolve(
         ref_signatures = _extract_reference_signatures(ref)
 
         # ===== Stage 2: Train Cell2location Model =====
-        Cell2location.setup_anndata(
+        cell2location_model.setup_anndata(
             adata=sp,
             batch_key=batch_key,
             categorical_covariate_keys=categorical_covariate_keys,
         )
 
-        cell2loc_model = Cell2location(
+        cell2loc_model = cell2location_model(
             sp,
             cell_state_df=ref_signatures,
             N_cells_per_location=n_cells_per_spot,
@@ -249,9 +255,9 @@ def deconvolve(
 
         return proportions, stats
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
-        if isinstance(e, (ProcessingError, DataError)):
-            raise
         raise ProcessingError(f"Cell2location deconvolution failed: {e}") from e
 
 

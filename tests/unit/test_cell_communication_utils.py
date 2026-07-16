@@ -18,6 +18,7 @@ from chatspatial.tools.cell_communication import (
     standardize_lr_pair,
     store_ccc_results,
 )
+from chatspatial.utils.dependency_manager import REnvironment
 from chatspatial.utils.exceptions import (
     DataCompatibilityError,
     DataNotFoundError,
@@ -36,6 +37,51 @@ class DummyCtx:
 
     async def get_adata(self, _data_id: str):
         return None
+
+
+def _required_dependency(name: str, *_args, **_kwargs):
+    return __import__("sys").modules.get(name, object())
+
+
+def _fail_dependency_load(*_args, **_kwargs):
+    raise AssertionError("Dependency should not be loaded on this path")
+
+
+def _patch_required_module(
+    monkeypatch: pytest.MonkeyPatch,
+    module_name: str,
+    module: object,
+) -> None:
+    def _require_module(
+        _dependency: str,
+        requested_module: str,
+        *_args,
+        **_kwargs,
+    ):
+        if requested_module != module_name:
+            raise AssertionError(f"Unexpected module request: {requested_module}")
+        return module
+
+    monkeypatch.setattr(ccc, "require_module", _require_module)
+
+
+def _patch_required_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+    dependency_name: str,
+    dependency: object,
+) -> None:
+    def _require(
+        requested_dependency: str,
+        *_args,
+        **_kwargs,
+    ):
+        if requested_dependency != dependency_name:
+            raise AssertionError(
+                f"Unexpected dependency request: {requested_dependency}"
+            )
+        return dependency
+
+    monkeypatch.setattr(ccc, "require", _require)
 
 
 def test_standardize_lr_pair_normalizes_separators():
@@ -494,7 +540,7 @@ def test_run_liana_cluster_analysis_builds_expected_storage(
         liana_significance_alpha=0.05,
     )
 
-    out = ccc._run_liana_cluster_analysis(adata, params, DummyCtx())
+    out = ccc._run_liana_cluster_analysis(adata, params, DummyCtx(), fake_liana)
 
     assert out.analysis_type == "cluster"
     assert out.n_pairs == 4
@@ -547,7 +593,7 @@ def test_run_liana_spatial_analysis_builds_expected_storage(
         plot_top_pairs=3,
     )
 
-    out = ccc._run_liana_spatial_analysis(adata, params, DummyCtx())
+    out = ccc._run_liana_spatial_analysis(adata, params, DummyCtx(), fake_liana)
 
     assert out.analysis_type == "spatial"
     assert out.n_pairs == 3
@@ -621,7 +667,7 @@ async def test_analyze_communication_liana_without_cluster_column_dispatches_spa
     if "cell_type" in adata.obs:
         del adata.obs["cell_type"]
 
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ccc, "require", _required_dependency)
     monkeypatch.setitem(__import__("sys").modules, "liana", type("L", (), {})())
 
     expected = CCCStorage(
@@ -655,7 +701,7 @@ async def test_analyze_communication_liana_cluster_dispatch_when_cluster_present
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = pd.Categorical(["T"] * adata.n_obs)
 
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ccc, "require", _required_dependency)
     monkeypatch.setitem(__import__("sys").modules, "liana", type("L", (), {})())
 
     expected = CCCStorage(
@@ -689,21 +735,7 @@ async def test_analyze_communication_cellphonedb_rejects_non_human_early(
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = pd.Categorical(["T"] * adata.n_obs)
 
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
-
-    fake_cpdb_method = type("CP", (), {"call": staticmethod(lambda **_kwargs: {})})
-    import sys
-    import types
-
-    cellphonedb_pkg = types.ModuleType("cellphonedb")
-    src_pkg = types.ModuleType("cellphonedb.src")
-    core_pkg = types.ModuleType("cellphonedb.src.core")
-    methods_pkg = types.ModuleType("cellphonedb.src.core.methods")
-    methods_pkg.cpdb_statistical_analysis_method = fake_cpdb_method
-    sys.modules["cellphonedb"] = cellphonedb_pkg
-    sys.modules["cellphonedb.src"] = src_pkg
-    sys.modules["cellphonedb.src.core"] = core_pkg
-    sys.modules["cellphonedb.src.core.methods"] = methods_pkg
+    monkeypatch.setattr(ccc, "require_module", _fail_dependency_load)
 
     with pytest.raises(ParameterError, match="CellPhoneDB only supports human"):
         await ccc._analyze_communication_cellphonedb(
@@ -755,7 +787,7 @@ async def test_run_ccc_analysis_dispatches_to_liana(
     async def _fake_liana(*_args, **_kwargs):
         return expected
 
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ccc, "require", _required_dependency)
     monkeypatch.setattr(ccc, "_analyze_communication_liana", _fake_liana)
 
     out = await ccc._run_ccc_analysis(
@@ -795,8 +827,7 @@ async def test_run_ccc_analysis_dispatches_to_cellphonedb_and_cellchat_r(
     async def _fake_cpdb(*_args, **_kwargs):
         return cpdb_expected
 
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(ccc, "validate_r_package", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ccc, "require", _required_dependency)
     monkeypatch.setattr(ccc, "_analyze_communication_cellphonedb", _fake_cpdb)
     monkeypatch.setattr(
         ccc,
@@ -887,10 +918,33 @@ async def test_create_microenvironments_file_writes_expected_format(
     os.remove(path)
 
 
-def test_integrate_autocrine_detection_cellchat_prob_matrix_branch():
-    results = pd.DataFrame(
-        {"interaction_name": ["L1^R1", "L1_R1", "L2-R2", "L3^R3"]}
+@pytest.mark.asyncio
+async def test_create_microenvironments_file_skips_empty_assignments(
+    minimal_spatial_adata,
+):
+    adata = minimal_spatial_adata.copy()
+    adata.obs["cell_type"] = pd.Categorical(["T"] * adata.n_obs)
+    ctx = DummyCtx()
+
+    path = await ccc._create_microenvironments_file(
+        adata,
+        CellCommunicationParameters(
+            method="cellphonedb",
+            species="human",
+            cell_type_key="cell_type",
+            cellphonedb_spatial_radius=10.0,
+        ),
+        ctx,
     )
+
+    assert path is None
+    assert any(
+        "No mixed cell-type neighborhoods" in warning for warning in ctx.warnings
+    )
+
+
+def test_integrate_autocrine_detection_cellchat_prob_matrix_branch():
+    results = pd.DataFrame({"interaction_name": ["L1^R1", "L1_R1", "L2-R2", "L3^R3"]})
     prob = np.zeros((2, 2, 4), dtype=float)
     prob[0, 0, :] = [1.0, 0.5, 0.0, 2.0]
     prob[1, 1, :] = [0.0, 0.0, 0.0, 0.0]
@@ -912,17 +966,12 @@ def test_integrate_autocrine_detection_cellchat_prob_matrix_branch():
 
 
 def _install_fake_cellphonedb_modules(monkeypatch: pytest.MonkeyPatch, download_impl):
-    import sys
-    from types import ModuleType
-
-    cellphonedb_pkg = ModuleType("cellphonedb")
-    utils_pkg = ModuleType("cellphonedb.utils")
-    db_utils_mod = ModuleType("cellphonedb.utils.db_utils")
-    db_utils_mod.download_database = download_impl
-
-    monkeypatch.setitem(sys.modules, "cellphonedb", cellphonedb_pkg)
-    monkeypatch.setitem(sys.modules, "cellphonedb.utils", utils_pkg)
-    monkeypatch.setitem(sys.modules, "cellphonedb.utils.db_utils", db_utils_mod)
+    db_utils = type("DBUtils", (), {"download_database": staticmethod(download_impl)})
+    _patch_required_module(
+        monkeypatch,
+        "cellphonedb.utils.db_utils",
+        db_utils,
+    )
 
 
 def test_ensure_cellphonedb_database_returns_existing_file(
@@ -930,14 +979,7 @@ def test_ensure_cellphonedb_database_returns_existing_file(
 ):
     import os
 
-    calls: dict[str, int] = {"download": 0}
-
-    def _download(*_args, **_kwargs):
-        calls["download"] += 1
-
-    _install_fake_cellphonedb_modules(monkeypatch, _download)
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr("certifi.where", lambda: str(tmp_path / "ca.pem"))
+    monkeypatch.setattr(ccc, "require_module", _fail_dependency_load)
 
     db_file = tmp_path / "cellphonedb.zip"
     db_file.write_text("ok", encoding="utf-8")
@@ -945,7 +987,6 @@ def test_ensure_cellphonedb_database_returns_existing_file(
     out = ccc._ensure_cellphonedb_database(str(tmp_path), DummyCtx())
 
     assert out == os.path.join(str(tmp_path), "cellphonedb.zip")
-    assert calls["download"] == 0
 
 
 def test_ensure_cellphonedb_database_downloads_and_restores_ssl(
@@ -961,7 +1002,7 @@ def test_ensure_cellphonedb_database_downloads_and_restores_ssl(
         (tmp_path / "cellphonedb.zip").write_text("ok", encoding="utf-8")
 
     _install_fake_cellphonedb_modules(monkeypatch, _download)
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ccc, "require", _required_dependency)
     monkeypatch.setattr("certifi.where", lambda: str(tmp_path / "ca.pem"))
 
     original_ctx = ssl._create_default_https_context
@@ -1003,12 +1044,11 @@ async def test_analyze_communication_fastccc_success_single_method(
         assert sp.issparse(saved.X)
         return interactions_strength, pvalues, percentages
 
-    import sys
     from types import ModuleType
 
     fastccc_mod = ModuleType("fastccc")
     fastccc_mod.statistical_analysis_method = _fake_statistical_analysis_method
-    monkeypatch.setitem(sys.modules, "fastccc", fastccc_mod)
+    _patch_required_dependency(monkeypatch, "fastccc", fastccc_mod)
 
     monkeypatch.setattr(
         ccc,
@@ -1059,7 +1099,7 @@ def test_ensure_cellphonedb_database_raises_dependency_error_and_restores_ssl_on
         raise RuntimeError("network down")
 
     _install_fake_cellphonedb_modules(monkeypatch, _download_fail)
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ccc, "require", _required_dependency)
     monkeypatch.setattr("certifi.where", lambda: str(tmp_path / "ca.pem"))
 
     original_ctx = ssl._create_default_https_context
@@ -1104,13 +1144,62 @@ async def test_create_microenvironments_file_warns_and_returns_none_on_exception
 
 
 @pytest.mark.asyncio
+async def test_create_microenvironments_file_removes_partial_file_on_write_error(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    import tempfile
+    from pathlib import Path
+
+    adata = minimal_spatial_adata.copy()
+    adata.obs["cell_type"] = pd.Categorical(
+        ["T"] * (adata.n_obs // 2) + ["B"] * (adata.n_obs - adata.n_obs // 2)
+    )
+    real_named_temporary_file = tempfile.NamedTemporaryFile
+    created_paths: list[str] = []
+
+    class _BrokenTemporaryFile:
+        def __init__(self, **kwargs):
+            self._file = real_named_temporary_file(**kwargs)
+            self.name = self._file.name
+            created_paths.append(self.name)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            self._file.close()
+
+        def write(self, _value):
+            raise OSError("disk full")
+
+    monkeypatch.setattr(tempfile, "NamedTemporaryFile", _BrokenTemporaryFile)
+
+    ctx = DummyCtx()
+    out = await ccc._create_microenvironments_file(
+        adata,
+        CellCommunicationParameters(
+            method="cellphonedb",
+            species="human",
+            cell_type_key="cell_type",
+            cellphonedb_spatial_radius=10.0,
+        ),
+        ctx,
+    )
+
+    assert out is None
+    assert len(created_paths) == 1
+    assert not Path(created_paths[0]).exists()
+    assert any("disk full" in warning for warning in ctx.warnings)
+
+
+@pytest.mark.asyncio
 async def test_analyze_communication_liana_wraps_internal_errors(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = pd.Categorical(["T"] * adata.n_obs)
 
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ccc, "require", _required_dependency)
     monkeypatch.setitem(__import__("sys").modules, "liana", type("L", (), {})())
 
     def _boom(*_args, **_kwargs):
@@ -1175,6 +1264,7 @@ def test_run_liana_spatial_analysis_without_pvals_layer_sets_none(
             plot_top_pairs=1,
         ),
         DummyCtx(),
+        fake_liana,
     )
 
     assert out.method_data["spatial_pvals"] is None
@@ -1182,10 +1272,10 @@ def test_run_liana_spatial_analysis_without_pvals_layer_sets_none(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("debug_seed", [None, 17])
 async def test_analyze_communication_cellphonedb_success_with_correction_stats(
-    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, debug_seed
 ):
-    import sys
     import types
 
     adata = minimal_spatial_adata.copy()
@@ -1209,25 +1299,28 @@ async def test_analyze_communication_cellphonedb_success_with_correction_stats(
         index=["pair1", "pair2"],
     )
 
-    fake_cpdb_method = types.SimpleNamespace(
-        call=lambda **_kwargs: {
+    captured_kwargs: dict[str, object] = {}
+
+    def _call(**kwargs):
+        captured_kwargs.update(kwargs)
+        if "debug_seed" in kwargs:
+            # Simulate CellPhoneDB's process-global RNG mutation.
+            np.random.seed(kwargs["debug_seed"])
+        return {
             "deconvoluted": pd.DataFrame(),
             "means": means,
             "pvalues": pvals,
             "significant_means": means.copy(),
         }
-    )
-    cellphonedb_pkg = types.ModuleType("cellphonedb")
-    src_pkg = types.ModuleType("cellphonedb.src")
-    core_pkg = types.ModuleType("cellphonedb.src.core")
-    methods_pkg = types.ModuleType("cellphonedb.src.core.methods")
-    methods_pkg.cpdb_statistical_analysis_method = fake_cpdb_method
-    sys.modules["cellphonedb"] = cellphonedb_pkg
-    sys.modules["cellphonedb.src"] = src_pkg
-    sys.modules["cellphonedb.src.core"] = core_pkg
-    sys.modules["cellphonedb.src.core.methods"] = methods_pkg
 
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    fake_cpdb_method = types.SimpleNamespace(call=_call)
+    _patch_required_module(
+        monkeypatch,
+        "cellphonedb.src.core.methods.cpdb_statistical_analysis_method",
+        fake_cpdb_method,
+    )
+
+    monkeypatch.setattr(ccc, "require", _required_dependency)
     monkeypatch.setattr(
         ccc,
         "_ensure_cellphonedb_database",
@@ -1242,10 +1335,13 @@ async def test_analyze_communication_cellphonedb_success_with_correction_stats(
         cellphonedb_iterations=5,
         cellphonedb_pvalue=0.05,
         cellphonedb_correction_method="fdr_bh",
+        cellphonedb_debug_seed=debug_seed,
         plot_top_pairs=2,
     )
 
+    rng_state_before = np.random.get_state()
     out = await ccc._analyze_communication_cellphonedb(adata, params, DummyCtx())
+    rng_state_after = np.random.get_state()
 
     assert out.method == "cellphonedb"
     assert out.n_pairs == 2
@@ -1253,13 +1349,21 @@ async def test_analyze_communication_cellphonedb_success_with_correction_stats(
     assert out.lr_pairs == ["L1^R1", "L2^R2"]
     assert out.top_lr_pairs == ["L1^R1"]
     assert "correction_statistics" in out.statistics
+    assert rng_state_after[0] == rng_state_before[0]
+    np.testing.assert_array_equal(rng_state_after[1], rng_state_before[1])
+    assert rng_state_after[2:] == rng_state_before[2:]
+    if debug_seed is None:
+        assert "debug_seed" not in captured_kwargs
+        assert "threads" not in captured_kwargs
+    else:
+        assert captured_kwargs["debug_seed"] == debug_seed
+        assert captured_kwargs["threads"] == 1
 
 
 @pytest.mark.asyncio
 async def test_analyze_communication_fastccc_success_standard_path(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import sys
     import types
 
     adata = minimal_spatial_adata.copy()
@@ -1283,9 +1387,7 @@ async def test_analyze_communication_fastccc_success_standard_path(
         pvalues,
         percentages,
     )
-    sys.modules["fastccc"] = fake_fastccc
-
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    _patch_required_dependency(monkeypatch, "fastccc", fake_fastccc)
     monkeypatch.setattr(
         ccc,
         "get_raw_data_source",
@@ -1334,7 +1436,6 @@ async def test_analyze_communication_fastccc_success_standard_path(
 async def test_analyze_communication_fastccc_cauchy_without_outputs_raises(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import sys
     import types
 
     adata = minimal_spatial_adata.copy()
@@ -1344,9 +1445,7 @@ async def test_analyze_communication_fastccc_cauchy_without_outputs_raises(
     fake_fastccc.Cauchy_combination_of_statistical_analysis_methods = (
         lambda **_kwargs: None
     )
-    sys.modules["fastccc"] = fake_fastccc
-
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    _patch_required_dependency(monkeypatch, "fastccc", fake_fastccc)
     monkeypatch.setattr(
         ccc,
         "get_raw_data_source",
@@ -1390,24 +1489,19 @@ async def test_analyze_communication_fastccc_cauchy_without_outputs_raises(
 async def test_analyze_communication_cellphonedb_rejects_unexpected_return_format(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import sys
     import types
 
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = pd.Categorical(["T"] * adata.n_obs)
 
     fake_cpdb_method = types.SimpleNamespace(call=lambda **_kwargs: "bad-result")
-    cellphonedb_pkg = types.ModuleType("cellphonedb")
-    src_pkg = types.ModuleType("cellphonedb.src")
-    core_pkg = types.ModuleType("cellphonedb.src.core")
-    methods_pkg = types.ModuleType("cellphonedb.src.core.methods")
-    methods_pkg.cpdb_statistical_analysis_method = fake_cpdb_method
-    sys.modules["cellphonedb"] = cellphonedb_pkg
-    sys.modules["cellphonedb.src"] = src_pkg
-    sys.modules["cellphonedb.src.core"] = core_pkg
-    sys.modules["cellphonedb.src.core.methods"] = methods_pkg
+    _patch_required_module(
+        monkeypatch,
+        "cellphonedb.src.core.methods.cpdb_statistical_analysis_method",
+        fake_cpdb_method,
+    )
 
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ccc, "require", _required_dependency)
     monkeypatch.setattr(
         ccc,
         "_ensure_cellphonedb_database",
@@ -1429,7 +1523,6 @@ async def test_analyze_communication_cellphonedb_rejects_unexpected_return_forma
 async def test_analyze_communication_cellphonedb_rejects_missing_significant_means(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import sys
     import types
 
     adata = minimal_spatial_adata.copy()
@@ -1445,17 +1538,13 @@ async def test_analyze_communication_cellphonedb_rejects_missing_significant_mea
             # intentionally missing 'significant_means'
         }
     )
-    cellphonedb_pkg = types.ModuleType("cellphonedb")
-    src_pkg = types.ModuleType("cellphonedb.src")
-    core_pkg = types.ModuleType("cellphonedb.src.core")
-    methods_pkg = types.ModuleType("cellphonedb.src.core.methods")
-    methods_pkg.cpdb_statistical_analysis_method = fake_cpdb_method
-    sys.modules["cellphonedb"] = cellphonedb_pkg
-    sys.modules["cellphonedb.src"] = src_pkg
-    sys.modules["cellphonedb.src.core"] = core_pkg
-    sys.modules["cellphonedb.src.core.methods"] = methods_pkg
+    _patch_required_module(
+        monkeypatch,
+        "cellphonedb.src.core.methods.cpdb_statistical_analysis_method",
+        fake_cpdb_method,
+    )
 
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ccc, "require", _required_dependency)
     monkeypatch.setattr(
         ccc,
         "_ensure_cellphonedb_database",
@@ -1477,7 +1566,6 @@ async def test_analyze_communication_cellphonedb_rejects_missing_significant_mea
 async def test_analyze_communication_cellphonedb_rejects_non_numeric_pvalues(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import sys
     import types
 
     adata = minimal_spatial_adata.copy()
@@ -1494,17 +1582,13 @@ async def test_analyze_communication_cellphonedb_rejects_non_numeric_pvalues(
             "significant_means": means.copy(),
         }
     )
-    cellphonedb_pkg = types.ModuleType("cellphonedb")
-    src_pkg = types.ModuleType("cellphonedb.src")
-    core_pkg = types.ModuleType("cellphonedb.src.core")
-    methods_pkg = types.ModuleType("cellphonedb.src.core.methods")
-    methods_pkg.cpdb_statistical_analysis_method = fake_cpdb_method
-    sys.modules["cellphonedb"] = cellphonedb_pkg
-    sys.modules["cellphonedb.src"] = src_pkg
-    sys.modules["cellphonedb.src.core"] = core_pkg
-    sys.modules["cellphonedb.src.core.methods"] = methods_pkg
+    _patch_required_module(
+        monkeypatch,
+        "cellphonedb.src.core.methods.cpdb_statistical_analysis_method",
+        fake_cpdb_method,
+    )
 
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ccc, "require", _required_dependency)
     monkeypatch.setattr(
         ccc,
         "_ensure_cellphonedb_database",
@@ -1547,7 +1631,7 @@ async def test_analyze_communication_liana_requires_species_parameter(
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = pd.Categorical(["T"] * adata.n_obs)
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ccc, "require", _required_dependency)
     monkeypatch.setitem(__import__("sys").modules, "liana", type("L", (), {})())
 
     params = CellCommunicationParameters(
@@ -1569,11 +1653,11 @@ def test_get_liana_resource_name_mouse_unknown_resource_passthrough():
 async def test_analyze_communication_cellphonedb_sparse_microenv_and_cleanup_oseror(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import sys
     import types
 
     adata = minimal_spatial_adata.copy()
     adata.X = sp.csr_matrix(np.asarray(adata.X))
+    adata.obsm["X_spatial"] = adata.obsm.pop("spatial")
     adata.obs["cell_type"] = pd.Categorical(
         ["T"] * (adata.n_obs // 2) + ["B"] * (adata.n_obs - adata.n_obs // 2)
     )
@@ -1592,17 +1676,13 @@ async def test_analyze_communication_cellphonedb_sparse_microenv_and_cleanup_ose
             "significant_means": means.copy(),
         }
     )
-    cellphonedb_pkg = types.ModuleType("cellphonedb")
-    src_pkg = types.ModuleType("cellphonedb.src")
-    core_pkg = types.ModuleType("cellphonedb.src.core")
-    methods_pkg = types.ModuleType("cellphonedb.src.core.methods")
-    methods_pkg.cpdb_statistical_analysis_method = fake_cpdb_method
-    sys.modules["cellphonedb"] = cellphonedb_pkg
-    sys.modules["cellphonedb.src"] = src_pkg
-    sys.modules["cellphonedb.src.core"] = core_pkg
-    sys.modules["cellphonedb.src.core.methods"] = methods_pkg
+    _patch_required_module(
+        monkeypatch,
+        "cellphonedb.src.core.methods.cpdb_statistical_analysis_method",
+        fake_cpdb_method,
+    )
 
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ccc, "require", _required_dependency)
     monkeypatch.setattr(
         ccc,
         "_ensure_cellphonedb_database",
@@ -1637,24 +1717,19 @@ async def test_analyze_communication_cellphonedb_sparse_microenv_and_cleanup_ose
 async def test_analyze_communication_cellphonedb_database_setup_error_is_wrapped(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import sys
     import types
 
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = pd.Categorical(["T"] * adata.n_obs)
 
     fake_cpdb_method = types.SimpleNamespace(call=lambda **_kwargs: {})
-    cellphonedb_pkg = types.ModuleType("cellphonedb")
-    src_pkg = types.ModuleType("cellphonedb.src")
-    core_pkg = types.ModuleType("cellphonedb.src.core")
-    methods_pkg = types.ModuleType("cellphonedb.src.core.methods")
-    methods_pkg.cpdb_statistical_analysis_method = fake_cpdb_method
-    sys.modules["cellphonedb"] = cellphonedb_pkg
-    sys.modules["cellphonedb.src"] = src_pkg
-    sys.modules["cellphonedb.src.core"] = core_pkg
-    sys.modules["cellphonedb.src.core.methods"] = methods_pkg
+    _patch_required_module(
+        monkeypatch,
+        "cellphonedb.src.core.methods.cpdb_statistical_analysis_method",
+        fake_cpdb_method,
+    )
 
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ccc, "require", _required_dependency)
     monkeypatch.setattr(
         ccc,
         "_ensure_cellphonedb_database",
@@ -1685,7 +1760,6 @@ async def test_analyze_communication_cellphonedb_database_setup_error_is_wrapped
 async def test_analyze_communication_cellphonedb_api_error_branches(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, exc: Exception, msg: str
 ):
-    import sys
     import types
 
     adata = minimal_spatial_adata.copy()
@@ -1695,17 +1769,13 @@ async def test_analyze_communication_cellphonedb_api_error_branches(
         raise exc
 
     fake_cpdb_method = types.SimpleNamespace(call=_raise_call)
-    cellphonedb_pkg = types.ModuleType("cellphonedb")
-    src_pkg = types.ModuleType("cellphonedb.src")
-    core_pkg = types.ModuleType("cellphonedb.src.core")
-    methods_pkg = types.ModuleType("cellphonedb.src.core.methods")
-    methods_pkg.cpdb_statistical_analysis_method = fake_cpdb_method
-    sys.modules["cellphonedb"] = cellphonedb_pkg
-    sys.modules["cellphonedb.src"] = src_pkg
-    sys.modules["cellphonedb.src.core"] = core_pkg
-    sys.modules["cellphonedb.src.core.methods"] = methods_pkg
+    _patch_required_module(
+        monkeypatch,
+        "cellphonedb.src.core.methods.cpdb_statistical_analysis_method",
+        fake_cpdb_method,
+    )
 
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ccc, "require", _required_dependency)
     monkeypatch.setattr(
         ccc,
         "_ensure_cellphonedb_database",
@@ -1729,7 +1799,6 @@ async def test_analyze_communication_cellphonedb_api_error_branches(
 async def test_analyze_communication_cellphonedb_handles_missing_pvalues_and_index_lr_pairs(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import sys
     import types
 
     adata = minimal_spatial_adata.copy()
@@ -1757,17 +1826,13 @@ async def test_analyze_communication_cellphonedb_handles_missing_pvalues_and_ind
         }
 
     fake_cpdb_method = types.SimpleNamespace(call=_call)
-    cellphonedb_pkg = types.ModuleType("cellphonedb")
-    src_pkg = types.ModuleType("cellphonedb.src")
-    core_pkg = types.ModuleType("cellphonedb.src.core")
-    methods_pkg = types.ModuleType("cellphonedb.src.core.methods")
-    methods_pkg.cpdb_statistical_analysis_method = fake_cpdb_method
-    sys.modules["cellphonedb"] = cellphonedb_pkg
-    sys.modules["cellphonedb.src"] = src_pkg
-    sys.modules["cellphonedb.src.core"] = core_pkg
-    sys.modules["cellphonedb.src.core.methods"] = methods_pkg
+    _patch_required_module(
+        monkeypatch,
+        "cellphonedb.src.core.methods.cpdb_statistical_analysis_method",
+        fake_cpdb_method,
+    )
 
-    monkeypatch.setattr(ccc, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ccc, "require", _required_dependency)
     monkeypatch.setattr(
         ccc,
         "_ensure_cellphonedb_database",
@@ -1827,6 +1892,38 @@ async def test_create_microenvironments_file_auto_radius_branch(minimal_spatial_
 
 
 @pytest.mark.asyncio
+async def test_create_microenvironments_file_auto_radius_handles_small_dataset(
+    minimal_spatial_adata,
+):
+    from pathlib import Path
+
+    adata = minimal_spatial_adata[:4].copy()
+    adata.obs["cell_type"] = pd.Categorical(["T", "T", "B", "B"])
+    adata.obsm["spatial"] = np.column_stack(
+        [np.arange(4, dtype=float), np.zeros(4, dtype=float)]
+    )
+
+    path = await ccc._create_microenvironments_file(
+        adata,
+        CellCommunicationParameters(
+            method="cellphonedb",
+            species="human",
+            cell_type_key="cell_type",
+            cellphonedb_spatial_radius=None,
+        ),
+        DummyCtx(),
+    )
+
+    assert path is not None
+    try:
+        contents = Path(path).read_text(encoding="utf-8")
+        assert "T\tmicroenv_" in contents
+        assert "B\tmicroenv_" in contents
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
 async def test_analyze_communication_fastccc_normalizes_when_values_too_large(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
@@ -1845,7 +1942,7 @@ async def test_analyze_communication_fastccc_normalizes_when_values_too_large(
         pvalues,
         None,
     )
-    sys.modules["fastccc"] = fake_fastccc
+    _patch_required_dependency(monkeypatch, "fastccc", fake_fastccc)
 
     calls = {"norm": 0, "log1p": 0}
     fake_scanpy = types.ModuleType("scanpy")
@@ -1895,7 +1992,6 @@ async def test_analyze_communication_fastccc_normalizes_when_values_too_large(
 async def test_analyze_communication_fastccc_missing_database_files_raises(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import sys
     import types
 
     adata = minimal_spatial_adata.copy()
@@ -1907,7 +2003,7 @@ async def test_analyze_communication_fastccc_missing_database_files_raises(
         pd.DataFrame(),
         None,
     )
-    sys.modules["fastccc"] = fake_fastccc
+    _patch_required_dependency(monkeypatch, "fastccc", fake_fastccc)
 
     monkeypatch.setattr(
         ccc,
@@ -1944,7 +2040,6 @@ async def test_analyze_communication_fastccc_cauchy_reads_saved_outputs_and_none
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     import os
-    import sys
     import types
 
     adata = minimal_spatial_adata.copy()
@@ -1963,7 +2058,7 @@ async def test_analyze_communication_fastccc_cauchy_reads_saved_outputs_and_none
 
     fake_fastccc = types.ModuleType("fastccc")
     fake_fastccc.Cauchy_combination_of_statistical_analysis_methods = _fake_cauchy
-    sys.modules["fastccc"] = fake_fastccc
+    _patch_required_dependency(monkeypatch, "fastccc", fake_fastccc)
 
     monkeypatch.setattr(
         ccc,
@@ -2017,7 +2112,6 @@ async def test_analyze_communication_fastccc_cauchy_reads_saved_outputs_and_none
 async def test_analyze_communication_fastccc_none_pvalues_sets_zero_significant(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import sys
     import types
 
     adata = minimal_spatial_adata.copy()
@@ -2029,7 +2123,7 @@ async def test_analyze_communication_fastccc_none_pvalues_sets_zero_significant(
         None,
         None,
     )
-    sys.modules["fastccc"] = fake_fastccc
+    _patch_required_dependency(monkeypatch, "fastccc", fake_fastccc)
 
     monkeypatch.setattr(
         ccc,
@@ -2126,6 +2220,28 @@ def _install_fake_rpy2(
 
     fake_conversion = types.ModuleType("rpy2.robjects.conversion")
     fake_conversion.localconverter = lambda _converter: _LCtx()
+
+    class _RLock:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    environment = REnvironment(
+        robjects=fake_ro,
+        pandas2ri=fake_ro.pandas2ri,
+        numpy2ri=fake_ro.numpy2ri,
+        packages=types.SimpleNamespace(importr=lambda _package: object()),
+        conversion=fake_conversion,
+        openrlib=types.SimpleNamespace(rlock=_RLock()),
+        anndata2ri=None,
+    )
+    monkeypatch.setattr(
+        ccc,
+        "validate_r_environment",
+        lambda *_args, **_kwargs: environment,
+    )
 
     fake_rpy2 = types.ModuleType("rpy2")
     fake_rpy2.robjects = fake_ro
@@ -2286,7 +2402,7 @@ def test_analyze_communication_cellchat_r_spatial_uses_contact_knn_when_range_is
     assert "contact.knn.k = 9" in "\n".join(r_exec.scripts)
 
 
-def test_analyze_communication_cellchat_r_no_gene_overlap_is_wrapped(
+def test_analyze_communication_cellchat_r_preserves_no_gene_overlap_error(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
@@ -2312,7 +2428,7 @@ def test_analyze_communication_cellchat_r_no_gene_overlap_is_wrapped(
         )(),
     )
 
-    with pytest.raises(ProcessingError, match="No genes overlap"):
+    with pytest.raises(DataCompatibilityError, match="No genes overlap"):
         ccc._analyze_communication_cellchat_r(
             adata,
             CellCommunicationParameters(
@@ -2329,7 +2445,6 @@ async def test_analyze_communication_fastccc_cauchy_reads_percentages_when_prese
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     import os
-    import sys
     import types
 
     adata = minimal_spatial_adata.copy()
@@ -2351,7 +2466,7 @@ async def test_analyze_communication_fastccc_cauchy_reads_percentages_when_prese
 
     fake_fastccc = types.ModuleType("fastccc")
     fake_fastccc.Cauchy_combination_of_statistical_analysis_methods = _fake_cauchy
-    sys.modules["fastccc"] = fake_fastccc
+    _patch_required_dependency(monkeypatch, "fastccc", fake_fastccc)
 
     monkeypatch.setattr(
         ccc,

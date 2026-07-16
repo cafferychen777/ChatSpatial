@@ -139,6 +139,23 @@ def test_cell_communication_uses_canonical_cellchat_literal():
         )
 
 
+def test_cellphonedb_debug_seed_is_explicit_and_nonnegative():
+    params = CellCommunicationParameters(
+        method="cellphonedb",
+        species="human",
+        cell_type_key="cell_type",
+    )
+    assert params.cellphonedb_debug_seed is None
+
+    with pytest.raises(ValidationError):
+        CellCommunicationParameters(
+            method="cellphonedb",
+            species="human",
+            cell_type_key="cell_type",
+            cellphonedb_debug_seed=-1,
+        )
+
+
 def test_numbat_genome_matches_supported_backend_references():
     for genome in ["hg38", "hg19", "mm10"]:
         params = CNVParameters(
@@ -170,9 +187,7 @@ def test_numbat_genome_matches_supported_backend_references():
         ("velovi_learning_rate", 0.0),
     ],
 )
-def test_rna_velocity_rejects_invalid_velovi_hyperparameters(
-    field: str, value: float
-):
+def test_rna_velocity_rejects_invalid_velovi_hyperparameters(field: str, value: float):
     with pytest.raises(ValidationError):
         RNAVelocityParameters.model_validate({field: value})
 

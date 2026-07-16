@@ -70,6 +70,24 @@ def non_interactive_backend() -> Generator[None, None, None]:
             matplotlib.use(original_backend)
 
 
+@contextmanager
+def isolated_figure_scope() -> Generator[None, None, None]:
+    """Close only Matplotlib figures created inside this context.
+
+    This prevents a failing visualization or third-party plotting call from
+    leaking figures without closing figures owned by another task.
+    """
+    import matplotlib.pyplot as plt
+
+    existing_figures = set(plt.get_fignums())
+    try:
+        yield
+    finally:
+        created_figures = set(plt.get_fignums()) - existing_figures
+        for figure_number in created_figures:
+            plt.close(figure_number)
+
+
 if TYPE_CHECKING:
     import matplotlib.pyplot as plt
 

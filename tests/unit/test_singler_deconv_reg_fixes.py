@@ -70,50 +70,35 @@ async def test_prepare_counts_require_counts_succeeds_for_integer_data(
 
 
 # ---------------------------------------------------------------------------
-# Bug 3: _transform_coordinates must preserve original query coordinates
-# for zero-transport-signal rows instead of mapping them to (0, 0).
+# Registration coordinate-system regressions
 # ---------------------------------------------------------------------------
 
 
-def test_transform_coordinates_preserves_query_coords_for_zero_rows():
-    """When a row in the transport matrix is all zeros and query_coords
-    is provided, the original query coordinates should be preserved
-    instead of returning (0, 0)."""
+def test_stalign_image_transform_round_trip_preserves_xy_order():
+    """Image row/column conversion must be reversible for asymmetric axes."""
     from chatspatial.tools import spatial_registration as reg
 
-    transport = np.array([
-        [0.0, 0.0],  # zero row - no correspondence
-        [0.2, 0.8],  # normal row
-        [0.0, 0.0],  # another zero row
-    ], dtype=float)
-    ref = np.array([[1.0, 1.0], [3.0, 5.0]], dtype=float)
-    query = np.array([[10.0, 20.0], [0.0, 0.0], [30.0, 40.0]], dtype=float)
+    coords = np.array(
+        [[100.0, 1000.0], [140.0, 1150.0], [180.0, 1300.0]],
+        dtype=np.float32,
+    )
+    transform = reg._ImageCoordinateTransform.from_coords(coords, (21, 41))
 
-    result = reg._transform_coordinates(transport, ref, query_coords=query)
-
-    assert result.shape == (3, 2)
-    assert np.isfinite(result).all()
-
-    # Zero rows should retain their original query coordinates
-    np.testing.assert_allclose(result[0], [10.0, 20.0])
-    np.testing.assert_allclose(result[2], [30.0, 40.0])
-
-    # Normal row should be transformed: 0.2*[1,1] + 0.8*[3,5] = [2.6, 4.2]
-    np.testing.assert_allclose(result[1], [2.6, 4.2])
+    image_coords = transform.to_image(coords)
+    assert image_coords.shape == coords.shape
+    assert not np.allclose(image_coords[:, 0], image_coords[:, 1])
+    np.testing.assert_allclose(transform.from_image(image_coords), coords, atol=1e-5)
 
 
-def test_transform_coordinates_without_query_coords_backward_compat():
-    """Without query_coords, zero rows map to (0,0) as before (no regression
-    for callers that don't pass query_coords)."""
+def test_stalign_target_image_transform_restores_target_coordinate_system():
+    """Transformed image points must be decoded with the target slice scale."""
     from chatspatial.tools import spatial_registration as reg
 
-    transport = np.array([[0.0, 0.0], [0.2, 0.8]], dtype=float)
-    ref = np.array([[1.0, 1.0], [3.0, 5.0]], dtype=float)
+    source = np.array([[0.0, 0.0], [10.0, 20.0]], dtype=np.float32)
+    target = np.array([[100.0, 1000.0], [300.0, 1400.0]], dtype=np.float32)
+    source_transform = reg._ImageCoordinateTransform.from_coords(source, (31, 51))
+    target_transform = reg._ImageCoordinateTransform.from_coords(target, (31, 51))
 
-    result = reg._transform_coordinates(transport, ref)
-
-    assert result.shape == (2, 2)
-    assert np.isfinite(result).all()
-    # Zero row maps to (0, 0) when no query_coords
-    np.testing.assert_allclose(result[0], [0.0, 0.0])
-    np.testing.assert_allclose(result[1], [2.6, 4.2])
+    source_pixels = source_transform.to_image(source)
+    restored = target_transform.from_image(source_pixels)
+    np.testing.assert_allclose(restored, target, atol=1e-5)

@@ -10,12 +10,11 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-import torch
 from scipy import sparse
 
-from ...utils.dependency_manager import is_available
+from ...utils.dependency_manager import require
 from ...utils.device_utils import get_accelerator
-from ...utils.exceptions import DataError, DependencyError, ProcessingError
+from ...utils.exceptions import ChatSpatialError, DataError, ProcessingError
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
@@ -26,14 +25,17 @@ def _ensure_float32_x(adata: Any) -> None:
         adata.X.data = adata.X.data.astype(np.float32, copy=False)
 
 
-def _patch_condscvi_vamp_prior_tensors(condscvi_model: Any) -> None:
+def _patch_condscvi_vamp_prior_tensors(
+    condscvi_model: Any,
+    torch_module: Any,
+) -> None:
     original_get_vamp_prior = getattr(condscvi_model, "get_vamp_prior", None)
     if original_get_vamp_prior is None:
         return
 
-    def _get_vamp_prior_tensors(*args: Any, **kwargs: Any) -> dict[str, torch.Tensor]:
+    def _get_vamp_prior_tensors(*args: Any, **kwargs: Any) -> dict[str, Any]:
         return {
-            key: torch.as_tensor(value, dtype=torch.float32)
+            key: torch_module.as_tensor(value, dtype=torch_module.float32)
             for key, value in original_get_vamp_prior(*args, **kwargs).items()
         }
 
@@ -73,13 +75,6 @@ def deconvolve(
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
     """
-    if not is_available("scvi-tools"):
-        raise DependencyError(
-            "scvi-tools is required for DestVI. Install with: pip install scvi-tools"
-        )
-
-    import scvi
-
     try:
         # Data already copied in prepare_deconvolution
         spatial_data = data.spatial
@@ -92,6 +87,9 @@ def deconvolve(
             raise DataError(
                 f"Reference needs at least 2 cell types, found {data.n_cell_types}"
             )
+
+        scvi = require("scvi", feature="DestVI deconvolution")
+        torch_module = require("torch", feature="DestVI deconvolution")
 
         # Calculate epoch distribution
         condscvi_epochs = max(400, n_epochs // 5)
@@ -127,7 +125,7 @@ def deconvolve(
 
         # ===== Stage 2: Train DestVI on spatial =====
         scvi.model.DestVI.setup_anndata(spatial_data)
-        _patch_condscvi_vamp_prior_tensors(condscvi_model)
+        _patch_condscvi_vamp_prior_tensors(condscvi_model, torch_module)
 
         destvi_model = scvi.model.DestVI.from_rna_model(
             spatial_data,
@@ -169,7 +167,7 @@ def deconvolve(
 
         return proportions, stats
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
-        if isinstance(e, (DependencyError, DataError, ProcessingError)):
-            raise
         raise ProcessingError(f"DestVI deconvolution failed: {e}") from e

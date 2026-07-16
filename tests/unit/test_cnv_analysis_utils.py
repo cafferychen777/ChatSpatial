@@ -12,11 +12,12 @@ from scipy import sparse
 from chatspatial.models.data import CNVParameters
 from chatspatial.tools import cnv_analysis as cnv
 from chatspatial.tools.cnv_analysis import _expand_gene_aligned_layer
+from chatspatial.utils.dependency_manager import REnvironment
 from chatspatial.utils.exceptions import (
     DataCompatibilityError,
+    DataNotFoundError,
     DependencyError,
     ParameterError,
-    ProcessingError,
 )
 
 
@@ -34,12 +35,16 @@ class DummyCtx:
 
 def _add_gene_positions(adata, chromosomes: list[str] | None = None):
     if chromosomes is None:
-        chromosomes = ["chr1"] * (adata.n_vars // 2) + [
-            "chr2"
-        ] * (adata.n_vars - adata.n_vars // 2)
+        chromosomes = ["chr1"] * (adata.n_vars // 2) + ["chr2"] * (
+            adata.n_vars - adata.n_vars // 2
+        )
     adata.var["chromosome"] = chromosomes
     adata.var["start"] = np.arange(adata.n_vars) * 1000
     adata.var["end"] = adata.var["start"] + 999
+
+
+def _required_dependency(name: str, *_args, **_kwargs):
+    return __import__("sys").modules[name]
 
 
 def _numbat_allele_data(cell: str) -> pd.DataFrame:
@@ -95,7 +100,7 @@ async def test_infer_cnv_infercnvpy_success_sparse_stats_and_metadata(
 
     fake_infercnvpy.tl = SimpleNamespace(infercnv=_fake_infercnv)
     monkeypatch.setitem(__import__("sys").modules, "infercnvpy", fake_infercnvpy)
-    monkeypatch.setattr(cnv, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cnv, "require", _required_dependency)
     monkeypatch.setattr(
         cnv,
         "store_analysis_metadata",
@@ -149,7 +154,7 @@ async def test_infer_cnv_infercnvpy_workspace_isolation_avoids_leaking_temp_muta
 
     fake_infercnvpy.tl = SimpleNamespace(infercnv=_fake_infercnv)
     monkeypatch.setitem(__import__("sys").modules, "infercnvpy", fake_infercnvpy)
-    monkeypatch.setattr(cnv, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cnv, "require", _required_dependency)
     monkeypatch.setattr(cnv, "export_analysis_result", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(cnv, "store_analysis_metadata", lambda *_args, **_kwargs: None)
 
@@ -184,7 +189,7 @@ async def test_infer_cnv_infercnvpy_rejects_missing_gene_positions(
         infercnv=lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
     )
     monkeypatch.setitem(__import__("sys").modules, "infercnvpy", fake_infercnvpy)
-    monkeypatch.setattr(cnv, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cnv, "require", _required_dependency)
 
     with pytest.raises(DataCompatibilityError, match="Missing columns"):
         await cnv.infer_cnv(
@@ -221,32 +226,13 @@ def test_infer_cnv_numbat_requires_allele_dataframe(
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
 
-    fake_ro = ModuleType("rpy2.robjects")
-    fake_ro.r = lambda *_a, **_k: None
-    monkeypatch.setitem(__import__("sys").modules, "rpy2.robjects", fake_ro)
-    monkeypatch.setitem(
-        __import__("sys").modules, "anndata2ri", ModuleType("anndata2ri")
+    monkeypatch.setattr(
+        cnv,
+        "validate_r_environment",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("R should load only after allele-data validation")
+        ),
     )
-
-    fake_openrlib = ModuleType("rpy2.rinterface_lib")
-    fake_openrlib.openrlib = SimpleNamespace(
-        rlock=SimpleNamespace(
-            __enter__=lambda self: self, __exit__=lambda self, exc_type, exc, tb: False
-        )
-    )
-    monkeypatch.setitem(__import__("sys").modules, "rpy2.rinterface_lib", fake_openrlib)
-
-    fake_robj = ModuleType("rpy2.robjects")
-    fake_robj.r = lambda *_a, **_k: None
-    fake_robj.conversion = SimpleNamespace(
-        localconverter=lambda *_a, **_k: SimpleNamespace(
-            __enter__=lambda self: None, __exit__=lambda self, exc_type, exc, tb: False
-        )
-    )
-    fake_robj.default_converter = object()
-    fake_robj.numpy2ri = SimpleNamespace(converter=object())
-    fake_robj.pandas2ri = SimpleNamespace(converter=object())
-    monkeypatch.setitem(__import__("sys").modules, "rpy2.robjects", fake_robj)
 
     with pytest.raises(ParameterError, match="numbat_allele_data_raw"):
         cnv._infer_cnv_numbat(
@@ -264,21 +250,18 @@ def test_infer_cnv_numbat_requires_allele_dataframe(
 def test_infer_cnv_numbat_dependency_error_when_rpy2_missing(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    from chatspatial.utils.exceptions import DependencyError
-
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
+    adata.uns["numbat_allele_data_raw"] = _numbat_allele_data(adata.obs_names[0])
+    monkeypatch.setattr(
+        cnv,
+        "validate_r_environment",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            DependencyError("rpy2 is required")
+        ),
+    )
 
-    real_import = __import__("builtins").__import__
-
-    def _import_fail(name, *args, **kwargs):
-        if name == "anndata2ri":
-            raise ImportError("missing anndata2ri")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(__import__("builtins"), "__import__", _import_fail)
-
-    with pytest.raises(DependencyError, match="rpy2 not installed"):
+    with pytest.raises(DependencyError, match="rpy2 is required"):
         cnv._infer_cnv_numbat(
             "d4",
             adata,
@@ -306,7 +289,7 @@ async def test_infer_cnv_infercnvpy_without_cnv_matrix_returns_non_visual_result
 
     fake_infercnvpy.tl = SimpleNamespace(infercnv=_fake_infercnv)
     monkeypatch.setitem(__import__("sys").modules, "infercnvpy", fake_infercnvpy)
-    monkeypatch.setattr(cnv, "require", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cnv, "require", _required_dependency)
     monkeypatch.setattr(cnv, "export_analysis_result", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(cnv, "store_analysis_metadata", lambda *_args, **_kwargs: None)
 
@@ -368,6 +351,22 @@ def _install_fake_rpy2_stack(monkeypatch: pytest.MonkeyPatch):
     fake_rpy2_pkg.rinterface_lib = fake_openrlib_mod
     monkeypatch.setitem(__import__("sys").modules, "rpy2", fake_rpy2_pkg)
 
+    environment = REnvironment(
+        robjects=fake_robj,
+        pandas2ri=fake_robj.pandas2ri,
+        numpy2ri=fake_robj.numpy2ri,
+        packages=SimpleNamespace(importr=lambda _package: object()),
+        conversion=fake_robj.conversion,
+        openrlib=fake_openrlib_mod.openrlib,
+        anndata2ri=fake_anndata2ri,
+    )
+    monkeypatch.setattr(
+        cnv,
+        "validate_r_environment",
+        lambda *_args, **_kwargs: environment,
+    )
+    return environment
+
 
 @pytest.mark.asyncio
 async def test_infer_cnv_infercnvpy_excludes_chromosomes_before_inference(
@@ -388,7 +387,7 @@ async def test_infer_cnv_infercnvpy_excludes_chromosomes_before_inference(
 
     fake_infercnvpy.tl = SimpleNamespace(infercnv=_fake_infercnv)
     monkeypatch.setitem(__import__("sys").modules, "infercnvpy", fake_infercnvpy)
-    monkeypatch.setattr(cnv, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(cnv, "require", _required_dependency)
     monkeypatch.setattr(cnv, "export_analysis_result", lambda *_a, **_k: [])
     monkeypatch.setattr(cnv, "store_analysis_metadata", lambda *_a, **_k: None)
 
@@ -429,7 +428,7 @@ async def test_infer_cnv_none_exclusion_keeps_sex_chromosomes(
 
     fake_infercnvpy.tl = SimpleNamespace(infercnv=_fake_infercnv)
     monkeypatch.setitem(__import__("sys").modules, "infercnvpy", fake_infercnvpy)
-    monkeypatch.setattr(cnv, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(cnv, "require", _required_dependency)
     monkeypatch.setattr(cnv, "export_analysis_result", lambda *_a, **_k: [])
     monkeypatch.setattr(cnv, "store_analysis_metadata", lambda *_a, **_k: None)
 
@@ -486,7 +485,7 @@ async def test_infer_cnv_infercnvpy_cluster_and_dendrogram_failures_emit_warning
     fake_infercnvpy.tl = SimpleNamespace(infercnv=_fake_infercnv)
     monkeypatch.setitem(__import__("sys").modules, "infercnvpy", fake_infercnvpy)
 
-    monkeypatch.setattr(cnv, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(cnv, "require", _required_dependency)
     monkeypatch.setattr(cnv, "export_analysis_result", lambda *_a, **_k: [])
     monkeypatch.setattr(cnv, "store_analysis_metadata", lambda *_a, **_k: None)
 
@@ -707,6 +706,22 @@ def _install_fake_rpy2_stack_with_runner(
     fake_rpy2_pkg.rinterface_lib = fake_openrlib_mod
     monkeypatch.setitem(__import__("sys").modules, "rpy2", fake_rpy2_pkg)
 
+    environment = REnvironment(
+        robjects=fake_robj,
+        pandas2ri=fake_robj.pandas2ri,
+        numpy2ri=fake_robj.numpy2ri,
+        packages=SimpleNamespace(importr=lambda _package: object()),
+        conversion=fake_robj.conversion,
+        openrlib=fake_openrlib_mod.openrlib,
+        anndata2ri=fake_anndata2ri,
+    )
+    monkeypatch.setattr(
+        cnv,
+        "validate_r_environment",
+        lambda *_args, **_kwargs: environment,
+    )
+    return environment
+
 
 @pytest.mark.asyncio
 async def test_infer_cnv_numbat_success_parses_outputs_and_writes_metadata(
@@ -741,7 +756,12 @@ async def test_infer_cnv_numbat_success_parses_outputs_and_writes_metadata(
         geno.to_csv(f"{out_dir}/geno_2.tsv", sep="\t", index=False)
 
         segs = pd.DataFrame({"segment": ["s1"], "chr": ["chr1"], "note": [None]})
-        segs.to_csv(f"{out_dir}/segs_consensus_2.tsv", sep="\t", index=False)
+        segs.to_csv(
+            f"{out_dir}/segs_consensus_2.tsv.gz",
+            sep="\t",
+            index=False,
+            compression="gzip",
+        )
 
         with open(f"{out_dir}/tree_final_2.rds", "wb") as f:
             f.write(b"tree")
@@ -782,9 +802,18 @@ async def test_infer_cnv_numbat_success_parses_outputs_and_writes_metadata(
     assert "numbat_clone" in adata.obs
     assert "numbat_segments" in adata.uns
     assert "numbat_phylogeny" in adata.uns
+    phylogeny = adata.uns["numbat_phylogeny"]
+    assert phylogeny == {
+        "generated": True,
+        "retained": False,
+        "source_filename": "tree_final_2.rds",
+        "tree_type": "tbl_graph",
+    }
+    assert "tree_file" not in phylogeny
+    assert not (tmp_path / "numbat_out").exists()
 
 
-def test_infer_cnv_numbat_missing_output_files_raises_processing_error(
+def test_infer_cnv_numbat_missing_output_files_preserves_data_error(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, tmp_path
 ):
     adata = minimal_spatial_adata.copy()
@@ -804,7 +833,7 @@ def test_infer_cnv_numbat_missing_output_files_raises_processing_error(
 
     monkeypatch.setattr(__import__("tempfile"), "mkdtemp", _mkdtemp_missing)
 
-    with pytest.raises(ProcessingError, match="No Numbat clone_post output found"):
+    with pytest.raises(DataNotFoundError, match="No Numbat clone_post output found"):
         cnv._infer_cnv_numbat(
             "d11",
             adata,
@@ -836,7 +865,7 @@ async def test_infer_cnv_infercnvpy_cluster_and_dendrogram_success_copies_output
 
     fake_infercnvpy.tl = SimpleNamespace(infercnv=_fake_infercnv)
     monkeypatch.setitem(__import__("sys").modules, "infercnvpy", fake_infercnvpy)
-    monkeypatch.setattr(cnv, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(cnv, "require", _required_dependency)
     monkeypatch.setattr(cnv, "export_analysis_result", lambda *_a, **_k: [])
     monkeypatch.setattr(
         cnv, "store_analysis_metadata", lambda _adata, **kwargs: captured.update(kwargs)
@@ -896,7 +925,7 @@ async def test_infer_cnv_infercnvpy_uses_cnv_layer_when_obsm_missing(
 
     fake_infercnvpy.tl = SimpleNamespace(infercnv=_fake_infercnv)
     monkeypatch.setitem(__import__("sys").modules, "infercnvpy", fake_infercnvpy)
-    monkeypatch.setattr(cnv, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(cnv, "require", _required_dependency)
     monkeypatch.setattr(cnv, "export_analysis_result", lambda *_a, **_k: [])
     monkeypatch.setattr(cnv, "store_analysis_metadata", lambda *_a, **_k: None)
 
@@ -921,15 +950,16 @@ def test_infer_cnv_numbat_dependency_error_when_r_package_unavailable(
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["A"] * 30 + ["B"] * 30
-
-    _install_fake_rpy2_stack(monkeypatch)
+    adata.uns["numbat_allele_data_raw"] = _numbat_allele_data(adata.obs_names[0])
     monkeypatch.setattr(
-        __import__("sys").modules["rpy2.robjects"],
-        "r",
-        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("numbat missing")),
+        cnv,
+        "validate_r_environment",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            DependencyError("R package 'numbat' not installed")
+        ),
     )
 
-    with pytest.raises(DependencyError, match="Numbat R package unavailable"):
+    with pytest.raises(DependencyError, match="R package 'numbat' not installed"):
         cnv._infer_cnv_numbat(
             "d14",
             adata,
@@ -942,7 +972,7 @@ def test_infer_cnv_numbat_dependency_error_when_r_package_unavailable(
         )
 
 
-def test_infer_cnv_numbat_missing_geno_file_raises_processing_error(
+def test_infer_cnv_numbat_missing_geno_file_preserves_data_error(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, tmp_path
 ):
     adata = minimal_spatial_adata.copy()
@@ -973,7 +1003,7 @@ def test_infer_cnv_numbat_missing_geno_file_raises_processing_error(
 
     monkeypatch.setattr(__import__("tempfile"), "mkdtemp", _mkdtemp)
 
-    with pytest.raises(ProcessingError, match="geno_2.tsv"):
+    with pytest.raises(DataNotFoundError, match="geno_2.tsv"):
         cnv._infer_cnv_numbat(
             "d15",
             adata,
@@ -986,7 +1016,7 @@ def test_infer_cnv_numbat_missing_geno_file_raises_processing_error(
         )
 
 
-def test_infer_cnv_numbat_cell_mismatch_raises_processing_error(
+def test_infer_cnv_numbat_cell_mismatch_preserves_compatibility_error(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, tmp_path
 ):
     adata = minimal_spatial_adata.copy()
@@ -1020,7 +1050,9 @@ def test_infer_cnv_numbat_cell_mismatch_raises_processing_error(
 
     monkeypatch.setattr(__import__("tempfile"), "mkdtemp", _mkdtemp)
 
-    with pytest.raises(ProcessingError, match="geno output contains cells absent"):
+    with pytest.raises(
+        DataCompatibilityError, match="geno output contains cells absent"
+    ):
         cnv._infer_cnv_numbat(
             "d16",
             adata,
@@ -1058,7 +1090,7 @@ def test_infer_cnv_numbat_cleanup_failure_is_swallowed(
         lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("rm fail")),
     )
 
-    with pytest.raises(ProcessingError, match="No Numbat clone_post output found"):
+    with pytest.raises(DataNotFoundError, match="No Numbat clone_post output found"):
         cnv._infer_cnv_numbat(
             "d17",
             adata,
@@ -1099,7 +1131,7 @@ async def test_infer_cnv_layers_cnv_padded_after_exclude_chromosomes(
 
     fake_infercnvpy.tl = SimpleNamespace(infercnv=_fake_infercnv)
     monkeypatch.setitem(__import__("sys").modules, "infercnvpy", fake_infercnvpy)
-    monkeypatch.setattr(cnv, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(cnv, "require", _required_dependency)
     monkeypatch.setattr(cnv, "export_analysis_result", lambda *_a, **_k: [])
     monkeypatch.setattr(cnv, "store_analysis_metadata", lambda *_a, **_k: None)
 
@@ -1150,7 +1182,7 @@ async def test_infer_cnv_layers_cnv_sparse_padded_after_exclude(
 
     fake_infercnvpy.tl = SimpleNamespace(infercnv=_fake_infercnv)
     monkeypatch.setitem(__import__("sys").modules, "infercnvpy", fake_infercnvpy)
-    monkeypatch.setattr(cnv, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(cnv, "require", _required_dependency)
     monkeypatch.setattr(cnv, "export_analysis_result", lambda *_a, **_k: [])
     monkeypatch.setattr(cnv, "store_analysis_metadata", lambda *_a, **_k: None)
 
@@ -1194,7 +1226,7 @@ async def test_infer_cnv_rejects_exclude_chromosomes_without_gene_positions(
         infercnv=lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
     )
     monkeypatch.setitem(__import__("sys").modules, "infercnvpy", fake_infercnvpy)
-    monkeypatch.setattr(cnv, "require", lambda *_a, **_k: None)
+    monkeypatch.setattr(cnv, "require", _required_dependency)
 
     with pytest.raises(DataCompatibilityError, match="Missing columns"):
         await cnv.infer_cnv(

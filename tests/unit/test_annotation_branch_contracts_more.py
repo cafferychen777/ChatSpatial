@@ -13,7 +13,13 @@ import scipy.sparse as sp
 
 from chatspatial.models.data import AnnotationParameters
 from chatspatial.tools import annotation as ann
-from chatspatial.utils.exceptions import DataError, DataNotFoundError, ParameterError, ProcessingError
+from chatspatial.utils.exceptions import (
+    DataError,
+    DataNotFoundError,
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 
 
 def _required_module(name: str, *_args, **_kwargs):
@@ -55,13 +61,18 @@ async def test_singler_celldex_reference_without_labels_raises(
     fake_celldex.fetch_reference = lambda *_a, **_k: _Ref()
 
     monkeypatch.setattr(ann, "require", _required_module)
-    monkeypatch.setattr(ann, "is_available", lambda name: name == "celldex")
-    monkeypatch.setitem(__import__("sys").modules, "celldex", fake_celldex)
+    monkeypatch.setattr(
+        ann,
+        "get",
+        lambda name, *_args, **_kwargs: fake_celldex if name == "celldex" else None,
+    )
     monkeypatch.setitem(__import__("sys").modules, "singler", ModuleType("singler"))
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata, prefer_complete_genes=False: SimpleNamespace(X=_adata.X, is_integer_counts=True),
+        lambda _adata, prefer_complete_genes=False: SimpleNamespace(
+            X=_adata.X, is_integer_counts=True
+        ),
     )
 
     with pytest.raises(DataNotFoundError, match="Could not find labels"):
@@ -124,25 +135,33 @@ async def test_singler_uses_normalized_layers_and_warns_for_low_delta_confidence
         return 1 if label == "query data" else 0
 
     monkeypatch.setattr(ann, "require", _required_module)
-    monkeypatch.setattr(ann, "is_available", lambda *_a, **_k: False)
-    monkeypatch.setattr(ann, "ensure_unique_var_names_async", _fake_ensure_unique_var_names_async)
+    monkeypatch.setattr(ann, "get", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        ann, "ensure_unique_var_names_async", _fake_ensure_unique_var_names_async
+    )
     monkeypatch.setattr(
         ann,
         "find_common_genes",
-        lambda test_features, ref_features: [g for g in test_features if g in set(ref_features)],
+        lambda test_features, ref_features: [
+            g for g in test_features if g in set(ref_features)
+        ],
     )
 
     ctx = DummyWarnCtx()
     out = await ann._annotate_with_singler(
         adata,
-        AnnotationParameters(method="singler", reference_data_id="r", cell_type_key="ctype"),
+        AnnotationParameters(
+            method="singler", reference_data_id="r", cell_type_key="ctype"
+        ),
         ctx,
         "cell_type_singler",
         "confidence_singler",
         reference_adata=ref,
     )
 
-    assert np.array_equal(captured["kwargs"]["test_data"], adata.layers["X_normalized"].T)
+    assert np.array_equal(
+        captured["kwargs"]["test_data"], adata.layers["X_normalized"].T
+    )
     assert np.array_equal(captured["kwargs"]["ref_data"], ref.layers["X_normalized"].T)
     assert "n_threads" not in captured["kwargs"]
     assert set(out.cell_types) == {"B", "T"}
@@ -186,22 +205,28 @@ async def test_singler_delta_extraction_failure_falls_back_to_score_confidence(
         return 0
 
     monkeypatch.setattr(ann, "require", _required_module)
-    monkeypatch.setattr(ann, "is_available", lambda *_a, **_k: False)
+    monkeypatch.setattr(ann, "get", lambda *_a, **_k: None)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(
         ann,
         "find_common_genes",
-        lambda test_features, ref_features: [g for g in test_features if g in set(ref_features)],
+        lambda test_features, ref_features: [
+            g for g in test_features if g in set(ref_features)
+        ],
     )
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata, prefer_complete_genes=False: SimpleNamespace(X=_adata.X, is_integer_counts=True),
+        lambda _adata, prefer_complete_genes=False: SimpleNamespace(
+            X=_adata.X, is_integer_counts=True
+        ),
     )
 
     out = await ann._annotate_with_singler(
         adata,
-        AnnotationParameters(method="singler", reference_data_id="r", cell_type_key="ctype"),
+        AnnotationParameters(
+            method="singler", reference_data_id="r", cell_type_key="ctype"
+        ),
         DummyWarnCtx(),
         "cell_type_singler",
         "confidence_singler",
@@ -217,7 +242,9 @@ async def test_singler_delta_confidence_computation_failure_falls_back_to_scores
 ):
     adata = minimal_spatial_adata.copy()
     ref = minimal_spatial_adata.copy()
-    ref.obs["ctype"] = pd.Categorical(["B"] * (ref.n_obs // 2) + ["T"] * (ref.n_obs - ref.n_obs // 2))
+    ref.obs["ctype"] = pd.Categorical(
+        ["B"] * (ref.n_obs // 2) + ["T"] * (ref.n_obs - ref.n_obs // 2)
+    )
 
     class _DeltaToken:
         def __init__(self, value: float):
@@ -257,22 +284,28 @@ async def test_singler_delta_confidence_computation_failure_falls_back_to_scores
         return 0
 
     monkeypatch.setattr(ann, "require", _required_module)
-    monkeypatch.setattr(ann, "is_available", lambda *_a, **_k: False)
+    monkeypatch.setattr(ann, "get", lambda *_a, **_k: None)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(
         ann,
         "find_common_genes",
-        lambda test_features, ref_features: [g for g in test_features if g in set(ref_features)],
+        lambda test_features, ref_features: [
+            g for g in test_features if g in set(ref_features)
+        ],
     )
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata, prefer_complete_genes=False: SimpleNamespace(X=_adata.X, is_integer_counts=True),
+        lambda _adata, prefer_complete_genes=False: SimpleNamespace(
+            X=_adata.X, is_integer_counts=True
+        ),
     )
 
     out = await ann._annotate_with_singler(
         adata,
-        AnnotationParameters(method="singler", reference_data_id="r", cell_type_key="ctype"),
+        AnnotationParameters(
+            method="singler", reference_data_id="r", cell_type_key="ctype"
+        ),
         DummyWarnCtx(),
         "cell_type_singler",
         "confidence_singler",
@@ -428,7 +461,7 @@ async def test_tangram_score_extraction_unknown_history_format_raises(
     monkeypatch.setattr(ann, "get_device", lambda prefer_gpu=False: "cpu")
     monkeypatch.setattr(ann, "shallow_copy_adata", lambda x: x)
 
-    with pytest.raises(ProcessingError, match="score extraction failed"):
+    with pytest.raises(ProcessingError, match="history format not recognized"):
         await ann._annotate_with_tangram(
             adata,
             AnnotationParameters(
@@ -460,9 +493,13 @@ async def test_tangram_copies_gene_predictions_back_to_original_adata(
     fake_tg.project_genes = lambda *_a, **_k: SimpleNamespace(
         X=np.ones((adata.n_obs, adata.n_vars), dtype=float)
     )
-    fake_tg.project_cell_annotations = lambda _ad_map, adata_sp, annotation: adata_sp.obsm.__setitem__(
-        "tangram_ct_pred",
-        pd.DataFrame({"B": np.ones(adata_sp.n_obs, dtype=float)}, index=adata_sp.obs_names),
+    fake_tg.project_cell_annotations = (
+        lambda _ad_map, adata_sp, annotation: adata_sp.obsm.__setitem__(
+            "tangram_ct_pred",
+            pd.DataFrame(
+                {"B": np.ones(adata_sp.n_obs, dtype=float)}, index=adata_sp.obs_names
+            ),
+        )
     )
     monkeypatch.setitem(__import__("sys").modules, "tangram", fake_tg)
 
@@ -598,8 +635,12 @@ async def test_scanvi_pretrain_subsetting_and_missing_batch_key_are_handled(
             if soft:
                 return pd.DataFrame(
                     {
-                        "B": [0.9 if i % 2 == 0 else 0.1 for i in range(self._adata.n_obs)],
-                        "T": [0.1 if i % 2 == 0 else 0.9 for i in range(self._adata.n_obs)],
+                        "B": [
+                            0.9 if i % 2 == 0 else 0.1 for i in range(self._adata.n_obs)
+                        ],
+                        "T": [
+                            0.1 if i % 2 == 0 else 0.9 for i in range(self._adata.n_obs)
+                        ],
                     },
                     index=self._adata.obs_names,
                 )
@@ -607,7 +648,9 @@ async def test_scanvi_pretrain_subsetting_and_missing_batch_key_are_handled(
                 ["B" if i % 2 == 0 else "T" for i in range(self._adata.n_obs)]
             )
 
-    fake_scvi = SimpleNamespace(model=SimpleNamespace(SCVI=_FakeSCVI, SCANVI=_FakeSCANVI))
+    fake_scvi = SimpleNamespace(
+        model=SimpleNamespace(SCVI=_FakeSCVI, SCANVI=_FakeSCANVI)
+    )
 
     async def _no_dupes(*_args, **_kwargs):
         return 0
@@ -681,12 +724,18 @@ async def test_cellassign_non_raw_source_data_cleaning_and_index_predictions(
             dense[2, 2] = -5.0
         return dense
 
-    monkeypatch.setattr(ann, "validate_scvi_tools", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        ann,
+        "validate_scvi_tools",
+        lambda *_a, **_k: SimpleNamespace(external=fake_scvi_external),
+    )
     monkeypatch.setattr(ann, "to_dense", _fake_to_dense)
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata, prefer_complete_genes=True, require_integer_counts=False: SimpleNamespace(
+        lambda _adata,
+        prefer_complete_genes=True,
+        require_integer_counts=False: SimpleNamespace(
             X=_adata.X,
             var_names=_adata.var_names,
             source="X",
@@ -745,16 +794,24 @@ async def test_cellassign_retries_without_n_hidden_for_newer_scvi_api(
             values = np.zeros((self._adata.n_obs, len(self._labels)))
             for i in range(self._adata.n_obs):
                 values[i, i % len(self._labels)] = 1.0
-            return pd.DataFrame(values, index=self._adata.obs_names, columns=self._labels)
+            return pd.DataFrame(
+                values, index=self._adata.obs_names, columns=self._labels
+            )
 
     fake_scvi_external = ModuleType("scvi.external")
     fake_scvi_external.CellAssign = _FakeCellAssign
     monkeypatch.setitem(__import__("sys").modules, "scvi.external", fake_scvi_external)
-    monkeypatch.setattr(ann, "validate_scvi_tools", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        ann,
+        "validate_scvi_tools",
+        lambda *_a, **_k: SimpleNamespace(external=fake_scvi_external),
+    )
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata, prefer_complete_genes=True, require_integer_counts=False: SimpleNamespace(
+        lambda _adata,
+        prefer_complete_genes=True,
+        require_integer_counts=False: SimpleNamespace(
             X=_adata.X,
             var_names=_adata.var_names,
             source="X",
@@ -806,11 +863,17 @@ async def test_cellassign_rejects_unknown_prediction_labels(
     fake_scvi_external = ModuleType("scvi.external")
     fake_scvi_external.CellAssign = _FakeCellAssign
     monkeypatch.setitem(__import__("sys").modules, "scvi.external", fake_scvi_external)
-    monkeypatch.setattr(ann, "validate_scvi_tools", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        ann,
+        "validate_scvi_tools",
+        lambda *_a, **_k: SimpleNamespace(external=fake_scvi_external),
+    )
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata, prefer_complete_genes=True, require_integer_counts=False: SimpleNamespace(
+        lambda _adata,
+        prefer_complete_genes=True,
+        require_integer_counts=False: SimpleNamespace(
             X=_adata.X,
             var_names=_adata.var_names,
             source="X",
@@ -874,11 +937,32 @@ async def test_mllmcelltype_consensus_path_handles_unmapped_clusters(
 
 
 @pytest.mark.asyncio
-async def test_mllmcelltype_single_model_errors_are_wrapped(
-    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("backend_error", "expected_error", "message"),
+    [
+        (
+            RuntimeError("api boom"),
+            ProcessingError,
+            "mLLMCellType annotation failed: api boom",
+        ),
+        (
+            DependencyError("credentials missing"),
+            DependencyError,
+            "credentials missing",
+        ),
+    ],
+)
+async def test_mllmcelltype_single_model_error_contracts(
+    minimal_spatial_adata,
+    monkeypatch: pytest.MonkeyPatch,
+    backend_error,
+    expected_error,
+    message,
 ):
     adata = minimal_spatial_adata.copy()
-    adata.obs["leiden"] = pd.Categorical(["0"] * (adata.n_obs // 2) + ["1"] * (adata.n_obs - adata.n_obs // 2))
+    adata.obs["leiden"] = pd.Categorical(
+        ["0"] * (adata.n_obs // 2) + ["1"] * (adata.n_obs - adata.n_obs // 2)
+    )
 
     def _fake_rank_genes_groups(adata_obj, *_a, **_k):
         adata_obj.uns["rank_genes_groups"] = {
@@ -889,12 +973,12 @@ async def test_mllmcelltype_single_model_errors_are_wrapped(
         }
 
     fake_mllm = ModuleType("mllmcelltype")
-    fake_mllm.annotate_clusters = lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("api boom"))
+    fake_mllm.annotate_clusters = lambda **_kwargs: (_ for _ in ()).throw(backend_error)
     monkeypatch.setitem(__import__("sys").modules, "mllmcelltype", fake_mllm)
     monkeypatch.setattr(ann.sc.tl, "rank_genes_groups", _fake_rank_genes_groups)
     monkeypatch.setattr(ann, "require", _required_module)
 
-    with pytest.raises(ProcessingError, match="mLLMCellType annotation failed: api boom"):
+    with pytest.raises(expected_error, match=message):
         await ann._annotate_with_mllmcelltype(
             adata,
             AnnotationParameters(method="mllmcelltype", cluster_label="leiden"),
@@ -916,12 +1000,21 @@ async def test_annotate_cell_types_dispatch_metadata_for_tangram_scanvi_and_mllm
     def _capture_metadata(_adata, **kwargs):
         captured_calls.append(kwargs)
 
-    monkeypatch.setattr("chatspatial.utils.adata_utils.store_analysis_metadata", _capture_metadata)
-    monkeypatch.setattr("chatspatial.utils.results_export.export_analysis_result", lambda *_a, **_k: [])
+    monkeypatch.setattr(
+        "chatspatial.utils.adata_utils.store_analysis_metadata", _capture_metadata
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.results_export.export_analysis_result", lambda *_a, **_k: []
+    )
 
     async def _fake_tangram(
-        _adata, _params, _ctx, output_key, confidence_key,
-        reference_adata, tangram_ct_pred_key="tangram_ct_pred",
+        _adata,
+        _params,
+        _ctx,
+        output_key,
+        confidence_key,
+        reference_adata,
+        tangram_ct_pred_key="tangram_ct_pred",
     ):
         del reference_adata
         _adata.obs[output_key] = ["B"] * _adata.n_obs
@@ -936,7 +1029,9 @@ async def test_annotate_cell_types_dispatch_metadata_for_tangram_scanvi_and_mllm
             tangram_mapping_score=0.77,
         )
 
-    async def _fake_scanvi(_adata, _params, _ctx, output_key, confidence_key, reference_adata):
+    async def _fake_scanvi(
+        _adata, _params, _ctx, output_key, confidence_key, reference_adata
+    ):
         del reference_adata
         _adata.obs[output_key] = ["T"] * _adata.n_obs
         _adata.obs[confidence_key] = [0.8] * _adata.n_obs
@@ -1023,14 +1118,19 @@ async def test_singler_default_celldex_reference_path_runs_successfully(
     fake_singler = ModuleType("singler")
     fake_singler.annotate_single = lambda **_kwargs: _SingleResults()
 
-    monkeypatch.setitem(__import__("sys").modules, "celldex", fake_celldex)
     monkeypatch.setitem(__import__("sys").modules, "singler", fake_singler)
     monkeypatch.setattr(ann, "require", _required_module)
-    monkeypatch.setattr(ann, "is_available", lambda name: name == "celldex")
+    monkeypatch.setattr(
+        ann,
+        "get",
+        lambda name, *_args, **_kwargs: fake_celldex if name == "celldex" else None,
+    )
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata, prefer_complete_genes=False: SimpleNamespace(X=_adata.X, is_integer_counts=True),
+        lambda _adata, prefer_complete_genes=False: SimpleNamespace(
+            X=_adata.X, is_integer_counts=True
+        ),
     )
 
     out = await ann._annotate_with_singler(
@@ -1074,19 +1174,26 @@ async def test_singler_celldex_label_fallback_and_integrated_branch(
     fake_celldex.fetch_reference = lambda *_a, **_k: _Ref([1, 2, 3])
     fake_singler = ModuleType("singler")
     fake_singler.annotate_integrated = lambda *_a, **_k: (None, _Integrated())
-    monkeypatch.setitem(__import__("sys").modules, "celldex", fake_celldex)
     monkeypatch.setitem(__import__("sys").modules, "singler", fake_singler)
     monkeypatch.setattr(ann, "require", _required_module)
-    monkeypatch.setattr(ann, "is_available", lambda name: name == "celldex")
+    monkeypatch.setattr(
+        ann,
+        "get",
+        lambda name, *_args, **_kwargs: fake_celldex if name == "celldex" else None,
+    )
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata, prefer_complete_genes=False: SimpleNamespace(X=_adata.X, is_integer_counts=True),
+        lambda _adata, prefer_complete_genes=False: SimpleNamespace(
+            X=_adata.X, is_integer_counts=True
+        ),
     )
 
     out = await ann._annotate_with_singler(
         adata,
-        AnnotationParameters(method="singler", singler_integrated=True, singler_reference="hpca"),
+        AnnotationParameters(
+            method="singler", singler_integrated=True, singler_reference="hpca"
+        ),
         DummyWarnCtx(),
         "cell_type_singler",
         "confidence_singler",
@@ -1109,18 +1216,22 @@ async def test_singler_custom_reference_requires_cell_type_key(
         return 0
 
     monkeypatch.setattr(ann, "require", _required_module)
-    monkeypatch.setattr(ann, "is_available", lambda *_a, **_k: False)
+    monkeypatch.setattr(ann, "get", lambda *_a, **_k: None)
     monkeypatch.setitem(__import__("sys").modules, "singler", ModuleType("singler"))
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(
         ann,
         "find_common_genes",
-        lambda test_features, ref_features: [g for g in test_features if g in set(ref_features)],
+        lambda test_features, ref_features: [
+            g for g in test_features if g in set(ref_features)
+        ],
     )
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata, prefer_complete_genes=False: SimpleNamespace(X=_adata.X, is_integer_counts=True),
+        lambda _adata, prefer_complete_genes=False: SimpleNamespace(
+            X=_adata.X, is_integer_counts=True
+        ),
     )
 
     params = AnnotationParameters(method="singler", reference_data_id="r").model_copy(
@@ -1181,22 +1292,28 @@ async def test_singler_score_fallback_handles_non_dataframe_score_objects(
         return 0
 
     monkeypatch.setattr(ann, "require", _required_module)
-    monkeypatch.setattr(ann, "is_available", lambda *_a, **_k: False)
+    monkeypatch.setattr(ann, "get", lambda *_a, **_k: None)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(
         ann,
         "find_common_genes",
-        lambda test_features, ref_features: [g for g in test_features if g in set(ref_features)],
+        lambda test_features, ref_features: [
+            g for g in test_features if g in set(ref_features)
+        ],
     )
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata, prefer_complete_genes=False: SimpleNamespace(X=_adata.X, is_integer_counts=True),
+        lambda _adata, prefer_complete_genes=False: SimpleNamespace(
+            X=_adata.X, is_integer_counts=True
+        ),
     )
 
     out = await ann._annotate_with_singler(
         adata,
-        AnnotationParameters(method="singler", reference_data_id="r", cell_type_key="ctype"),
+        AnnotationParameters(
+            method="singler", reference_data_id="r", cell_type_key="ctype"
+        ),
         DummyWarnCtx(),
         "cell_type_singler",
         "confidence_singler",
@@ -1230,7 +1347,9 @@ async def test_tangram_requires_hvg_when_training_genes_and_markers_not_provided
     with pytest.raises(DataNotFoundError, match="HVGs not found"):
         await ann._annotate_with_tangram(
             adata,
-            AnnotationParameters(method="tangram", training_genes=None, marker_genes=None),
+            AnnotationParameters(
+                method="tangram", training_genes=None, marker_genes=None
+            ),
             DummyWarnCtx(),
             "cell_type_tangram",
             "confidence_tangram",
@@ -1256,9 +1375,13 @@ async def test_tangram_uses_marker_genes_when_training_genes_not_given(
     fake_tg.map_cells_to_space = lambda *_a, **_k: SimpleNamespace(
         uns={"training_history": {"main_loss": [1.0]}}
     )
-    fake_tg.project_cell_annotations = lambda _ad_map, adata_sp, annotation: adata_sp.obsm.__setitem__(
-        "tangram_ct_pred",
-        pd.DataFrame({"B": np.ones(adata_sp.n_obs, dtype=float)}, index=adata_sp.obs_names),
+    fake_tg.project_cell_annotations = (
+        lambda _ad_map, adata_sp, annotation: adata_sp.obsm.__setitem__(
+            "tangram_ct_pred",
+            pd.DataFrame(
+                {"B": np.ones(adata_sp.n_obs, dtype=float)}, index=adata_sp.obs_names
+            ),
+        )
     )
     monkeypatch.setitem(__import__("sys").modules, "tangram", fake_tg)
 
@@ -1307,9 +1430,13 @@ async def test_tangram_uses_reference_hvgs_when_training_genes_not_provided(
     fake_tg.map_cells_to_space = lambda *_a, **_k: SimpleNamespace(
         uns={"training_history": {"main_loss": [1.0]}}
     )
-    fake_tg.project_cell_annotations = lambda _ad_map, adata_sp, annotation: adata_sp.obsm.__setitem__(
-        "tangram_ct_pred",
-        pd.DataFrame({"B": np.ones(adata_sp.n_obs, dtype=float)}, index=adata_sp.obs_names),
+    fake_tg.project_cell_annotations = (
+        lambda _ad_map, adata_sp, annotation: adata_sp.obsm.__setitem__(
+            "tangram_ct_pred",
+            pd.DataFrame(
+                {"B": np.ones(adata_sp.n_obs, dtype=float)}, index=adata_sp.obs_names
+            ),
+        )
     )
     monkeypatch.setitem(__import__("sys").modules, "tangram", fake_tg)
 
@@ -1352,9 +1479,13 @@ async def test_tangram_stores_validation_scores_on_success(
         uns={"training_history": {"main_loss": [1.0]}}
     )
     fake_tg.compare_spatial_geneexp = lambda *_a, **_k: {"pearson": 0.9}
-    fake_tg.project_cell_annotations = lambda _ad_map, adata_sp, annotation: adata_sp.obsm.__setitem__(
-        "tangram_ct_pred",
-        pd.DataFrame({"B": np.ones(adata_sp.n_obs, dtype=float)}, index=adata_sp.obs_names),
+    fake_tg.project_cell_annotations = (
+        lambda _ad_map, adata_sp, annotation: adata_sp.obsm.__setitem__(
+            "tangram_ct_pred",
+            pd.DataFrame(
+                {"B": np.ones(adata_sp.n_obs, dtype=float)}, index=adata_sp.obs_names
+            ),
+        )
     )
     monkeypatch.setitem(__import__("sys").modules, "tangram", fake_tg)
 
@@ -1384,7 +1515,7 @@ async def test_tangram_stores_validation_scores_on_success(
 
 
 @pytest.mark.asyncio
-async def test_tangram_warns_when_cell_type_key_missing_then_fails_without_predictions(
+async def test_tangram_validates_cell_type_key_before_mapping(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
@@ -1393,9 +1524,14 @@ async def test_tangram_warns_when_cell_type_key_missing_then_fails_without_predi
 
     fake_tg = ModuleType("tangram")
     fake_tg.pp_adatas = lambda *_a, **_k: None
-    fake_tg.map_cells_to_space = lambda *_a, **_k: SimpleNamespace(
-        uns={"training_history": {"main_loss": [1.0]}}
-    )
+    mapping_calls = 0
+
+    def _map_cells_to_space(*_args, **_kwargs):
+        nonlocal mapping_calls
+        mapping_calls += 1
+        return SimpleNamespace(uns={"training_history": {"main_loss": [1.0]}})
+
+    fake_tg.map_cells_to_space = _map_cells_to_space
     monkeypatch.setitem(__import__("sys").modules, "tangram", fake_tg)
 
     async def _no_dupes(*_args, **_kwargs):
@@ -1406,8 +1542,9 @@ async def test_tangram_warns_when_cell_type_key_missing_then_fails_without_predi
     monkeypatch.setattr(ann, "get_device", lambda prefer_gpu=False: "cpu")
     monkeypatch.setattr(ann, "shallow_copy_adata", lambda x: x)
 
-    ctx = DummyWarnCtx()
-    with pytest.raises(ProcessingError, match="no cell type predictions"):
+    with pytest.raises(
+        ParameterError, match="Cell type column 'missing_key' not found"
+    ):
         await ann._annotate_with_tangram(
             adata,
             AnnotationParameters(
@@ -1415,14 +1552,13 @@ async def test_tangram_warns_when_cell_type_key_missing_then_fails_without_predi
                 cell_type_key="missing_key",
                 training_genes=["gene_0"],
             ),
-            ctx,
+            DummyWarnCtx(),
             "cell_type_tangram",
             "confidence_tangram",
             reference_adata=ref,
         )
 
-    assert any("Cell type column 'missing_key' not found" in msg for msg in ctx.warnings)
-    assert any("Could not project cell annotations" in msg for msg in ctx.warnings)
+    assert mapping_calls == 0
 
 
 @pytest.mark.asyncio
@@ -1444,7 +1580,9 @@ async def test_scanvi_raises_on_insufficient_gene_overlap(
     with pytest.raises(DataError, match="Insufficient gene overlap"):
         await ann._annotate_with_scanvi(
             adata,
-            AnnotationParameters(method="scanvi", reference_data_id="r", cell_type_key="ctype"),
+            AnnotationParameters(
+                method="scanvi", reference_data_id="r", cell_type_key="ctype"
+            ),
             DummyWarnCtx(),
             "cell_type_scanvi",
             "confidence_scanvi",

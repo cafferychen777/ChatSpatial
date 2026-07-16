@@ -642,9 +642,7 @@ class AnnotationParameters(BaseModel):
     training_genes: Optional[list[str]] = (
         None  # For Tangram method - genes to use for mapping
     )
-    n_epochs: int = (
-        100  # For Tangram/ScanVI methods - number of training epochs (reduced for faster training)
-    )
+    n_epochs: int = 100  # For Tangram/ScanVI methods - number of training epochs (reduced for faster training)
     tangram_mode: Literal["cells", "clusters"] = (
         "cells"  # Tangram mapping mode: 'cells' (cell-level) or 'clusters' (cluster-level)
     )
@@ -899,7 +897,7 @@ class SpatialStatisticsParameters(BaseModel):
     )
     local_join_count_alpha: Annotated[float, Field(gt=0.0, le=1.0)] = Field(
         default=0.05,
-        description=("Significance level for Local Join Count " "(default: 0.05)."),
+        description=("Significance level for Local Join Count (default: 0.05)."),
     )
 
     # Co-occurrence specific parameters
@@ -998,12 +996,12 @@ class TrajectoryParameters(BaseModel):
         vk, ck = self.cellrank_kernel_weights
         if vk < 0 or ck < 0:
             raise ValueError(
-                f"cellrank_kernel_weights must be non-negative, " f"got ({vk}, {ck})"
+                f"cellrank_kernel_weights must be non-negative, got ({vk}, {ck})"
             )
         total = vk + ck
         if total <= 0:
             raise ValueError(
-                f"cellrank_kernel_weights must sum to > 0, " f"got ({vk}, {ck})"
+                f"cellrank_kernel_weights must sum to > 0, got ({vk}, {ck})"
             )
         # Normalize to sum to 1 if they don't already
         if abs(total - 1.0) > 1e-6:
@@ -1590,7 +1588,14 @@ class CellCommunicationParameters(BaseModel):
     cellphonedb_spatial_radius: Optional[float] = Field(
         default=None, gt=0.0, description="Spatial radius for microenvironments."
     )
-    cellphonedb_debug_seed: Optional[int] = None
+    cellphonedb_debug_seed: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Optional CellPhoneDB testing seed. Enabling it forces single-threaded "
+            "permutations because the upstream seed contract is single-thread only."
+        ),
+    )
 
     # Multiple testing correction for CellPhoneDB
     # When using minimum p-value across multiple cell type pairs, correction is needed

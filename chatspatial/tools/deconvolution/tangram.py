@@ -10,8 +10,9 @@ from typing import Any
 
 import pandas as pd
 
+from ...utils.dependency_manager import require
 from ...utils.device_utils import get_device
-from ...utils.exceptions import DependencyError, ProcessingError
+from ...utils.exceptions import ChatSpatialError, ProcessingError
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
@@ -36,13 +37,7 @@ def deconvolve(
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
     """
-    # Check for tangram package (installed as tangram-sc, imported as tangram)
-    try:
-        import tangram as tg
-    except ImportError as e:
-        raise DependencyError(
-            "tangram-sc is required for Tangram. Install with: pip install tangram-sc"
-        ) from e
+    tg = require("tangram", feature="Tangram deconvolution")
 
     try:
         # Data already copied in prepare_deconvolution
@@ -166,7 +161,7 @@ def deconvolve(
 
         return proportions, stats
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
-        if isinstance(e, (DependencyError, ProcessingError)):
-            raise
         raise ProcessingError(f"Tangram deconvolution failed: {e}") from e

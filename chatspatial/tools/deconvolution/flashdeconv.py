@@ -9,8 +9,8 @@ from typing import Any
 
 import pandas as pd
 
-from ...utils.dependency_manager import is_available
-from ...utils.exceptions import DependencyError, ProcessingError
+from ...utils.dependency_manager import require
+from ...utils.exceptions import ChatSpatialError, ProcessingError
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
@@ -40,14 +40,9 @@ def deconvolve(
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
     """
-    if not is_available("flashdeconv"):
-        raise DependencyError(
-            "FlashDeconv is not available. Install with: pip install flashdeconv"
-        )
+    fd = require("flashdeconv", feature="FlashDeconv deconvolution")
 
     try:
-        import flashdeconv as fd
-
         # Data already copied in prepare_deconvolution
         adata_st = data.spatial
         reference = data.reference
@@ -93,7 +88,7 @@ def deconvolve(
 
         return proportions, stats
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
-        if isinstance(e, (DependencyError, ProcessingError)):
-            raise
         raise ProcessingError(f"FlashDeconv deconvolution failed: {e}") from e

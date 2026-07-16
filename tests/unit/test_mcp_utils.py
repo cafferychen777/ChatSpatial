@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from chatspatial.models.analysis import PreprocessingResult
-from chatspatial.utils.exceptions import DependencyError, ParameterError, ProcessingError
+from chatspatial.utils.exceptions import (
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 from chatspatial.utils.mcp_utils import mcp_tool_error_handler, suppress_output
 
 
@@ -69,3 +75,20 @@ def test_suppress_output_discards_large_output(capsys: pytest.CaptureFixture[str
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == ""
+
+
+def test_suppress_output_restores_logging_when_redirection_setup_fails(monkeypatch):
+    root_logger = logging.getLogger()
+    original_level = root_logger.level
+    root_logger.setLevel(logging.WARNING)
+    monkeypatch.setattr(
+        "builtins.open",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("open failed")),
+    )
+
+    try:
+        with pytest.raises(OSError, match="open failed"), suppress_output():
+            pass
+        assert root_logger.level == logging.WARNING
+    finally:
+        root_logger.setLevel(original_level)

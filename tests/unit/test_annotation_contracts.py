@@ -261,11 +261,6 @@ async def test_annotate_with_scanvi_requires_reference_data_id(
 async def test_annotate_with_cellassign_requires_marker_genes(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    monkeypatch.setattr(ann, "validate_scvi_tools", lambda *_args, **_kwargs: None)
-    fake_scvi_external = ModuleType("scvi.external")
-    fake_scvi_external.CellAssign = object
-    monkeypatch.setitem(__import__("sys").modules, "scvi.external", fake_scvi_external)
-
     ctx = DummyCtx({"d1": minimal_spatial_adata.copy()})
     with pytest.raises(ParameterError, match="CellAssign requires marker genes"):
         await ann._annotate_with_cellassign(
@@ -395,16 +390,16 @@ async def test_annotate_with_singler_custom_reference_success_deterministic_orde
     monkeypatch.setattr(
         ann,
         "require",
-        lambda name, *_args, **_kwargs: fake_singler
-        if name == "singler"
-        else object(),
+        lambda name, *_args, **_kwargs: fake_singler if name == "singler" else object(),
     )
-    monkeypatch.setattr(ann, "is_available", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(ann, "get", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata, prefer_complete_genes=False: SimpleNamespace(X=_adata.X, is_integer_counts=True),
+        lambda _adata, prefer_complete_genes=False: SimpleNamespace(
+            X=_adata.X, is_integer_counts=True
+        ),
     )
 
     ctx = DummyWarnCtx({"q": adata, "r": ref})
@@ -512,6 +507,50 @@ async def test_annotate_with_tangram_raises_when_no_predictions_generated(
     monkeypatch.setattr(ann, "shallow_copy_adata", lambda x: x)
 
     with pytest.raises(ProcessingError, match="no cell type predictions"):
+        await ann._annotate_with_tangram(
+            adata,
+            AnnotationParameters(
+                method="tangram",
+                reference_data_id="r",
+                cell_type_key="ctype",
+                training_genes=["gene_0", "gene_1"],
+            ),
+            DummyWarnCtx({"q": adata, "r": ref}),
+            "cell_type_tangram",
+            "confidence_tangram",
+            reference_adata=ref,
+        )
+
+
+@pytest.mark.asyncio
+async def test_annotate_with_tangram_treats_projection_as_core_step(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    ref = minimal_spatial_adata.copy()
+    ref.obs["ctype"] = pd.Categorical(["B"] * ref.n_obs)
+
+    fake_tg = ModuleType("tangram")
+    fake_tg.pp_adatas = lambda *_args, **_kwargs: None
+    fake_tg.map_cells_to_space = lambda *_args, **_kwargs: SimpleNamespace(
+        uns={"training_history": {"main_loss": [1.0]}}
+    )
+    fake_tg.project_cell_annotations = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        RuntimeError("projection boom")
+    )
+
+    async def _no_dupes(*_args, **_kwargs):
+        return 0
+
+    monkeypatch.setattr(ann, "require", lambda *_args, **_kwargs: fake_tg)
+    monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
+    monkeypatch.setattr(ann, "get_device", lambda prefer_gpu=False: "cpu")
+    monkeypatch.setattr(ann, "shallow_copy_adata", lambda x: x)
+
+    with pytest.raises(
+        ProcessingError,
+        match="Tangram cell annotation projection failed: projection boom",
+    ):
         await ann._annotate_with_tangram(
             adata,
             AnnotationParameters(
@@ -646,7 +685,11 @@ async def test_annotate_with_cellassign_probability_output_success(
     fake_scvi_external.CellAssign = _FakeCellAssign
     monkeypatch.setitem(__import__("sys").modules, "scvi.external", fake_scvi_external)
 
-    monkeypatch.setattr(ann, "validate_scvi_tools", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        ann,
+        "validate_scvi_tools",
+        lambda *_args, **_kwargs: SimpleNamespace(external=fake_scvi_external),
+    )
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
@@ -684,7 +727,11 @@ async def test_annotate_with_cellassign_raises_when_all_markers_missing(
 ):
     adata = minimal_spatial_adata.copy()
 
-    monkeypatch.setattr(ann, "validate_scvi_tools", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        ann,
+        "validate_scvi_tools",
+        lambda *_args, **_kwargs: SimpleNamespace(external=fake_scvi_external),
+    )
     fake_scvi_external = ModuleType("scvi.external")
     fake_scvi_external.CellAssign = object
     fake_scvi_pkg = ModuleType("scvi")
@@ -723,12 +770,14 @@ async def test_annotate_with_singler_raises_when_no_reference_available(
     adata = minimal_spatial_adata.copy()
 
     monkeypatch.setattr(ann, "require", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(ann, "is_available", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(ann, "get", lambda *_args, **_kwargs: None)
     monkeypatch.setitem(__import__("sys").modules, "singler", ModuleType("singler"))
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata, prefer_complete_genes=False: SimpleNamespace(X=_adata.X, is_integer_counts=True),
+        lambda _adata, prefer_complete_genes=False: SimpleNamespace(
+            X=_adata.X, is_integer_counts=True
+        ),
     )
 
     with pytest.raises(DataNotFoundError, match="No reference data"):
@@ -754,14 +803,16 @@ async def test_annotate_with_singler_raises_on_insufficient_gene_overlap(
         return 0
 
     monkeypatch.setattr(ann, "require", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(ann, "is_available", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(ann, "get", lambda *_args, **_kwargs: None)
     monkeypatch.setitem(__import__("sys").modules, "singler", ModuleType("singler"))
     monkeypatch.setattr(ann, "ensure_unique_var_names_async", _no_dupes)
     monkeypatch.setattr(ann, "find_common_genes", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata, prefer_complete_genes=False: SimpleNamespace(X=_adata.X, is_integer_counts=True),
+        lambda _adata, prefer_complete_genes=False: SimpleNamespace(
+            X=_adata.X, is_integer_counts=True
+        ),
     )
 
     with pytest.raises(DataError, match="Insufficient gene overlap"):

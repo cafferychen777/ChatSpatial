@@ -57,15 +57,17 @@ def suppress_output():
     old_level = logging.getLogger().level
     logging.getLogger().setLevel(logging.ERROR)
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-
-        try:
-            with open(os.devnull, "w") as devnull:
-                with redirect_stdout(devnull), redirect_stderr(devnull):
-                    yield
-        finally:
-            logging.getLogger().setLevel(old_level)
+    try:
+        with (
+            warnings.catch_warnings(),
+            open(os.devnull, "w") as devnull,
+            redirect_stdout(devnull),
+            redirect_stderr(devnull),
+        ):
+            warnings.simplefilter("ignore")
+            yield
+    finally:
+        logging.getLogger().setLevel(old_level)
 
 
 # =============================================================================

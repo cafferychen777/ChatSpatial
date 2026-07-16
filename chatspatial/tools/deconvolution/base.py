@@ -2,7 +2,7 @@
 Base utilities for deconvolution methods.
 
 Design Philosophy:
-- Immutable data container (frozen dataclass) for prepared data
+- Fixed field bindings around isolated, method-local AnnData workspaces
 - Method registry with declarative configuration (MethodConfig)
 - Single function API for the common case
 - Hook pattern for method-specific preprocessing (e.g., cell2location)
@@ -118,16 +118,17 @@ class MethodConfig:
 
 
 # =============================================================================
-# Immutable Data Container
+# Prepared Data Container
 # =============================================================================
 
 
 @dataclass(frozen=True)
 class PreparedDeconvolutionData:
-    """Immutable container for prepared deconvolution data.
+    """Prepared deconvolution inputs with immutable field bindings.
 
-    All fields are populated by prepare_deconvolution() and cannot be modified.
-    This eliminates state machine complexity and makes data flow explicit.
+    The frozen dataclass prevents methods from replacing fields. The contained
+    AnnData objects are independent working copies and intentionally remain
+    mutable because third-party backends add annotations and coerce dtypes.
 
     Attributes:
         spatial: Spatial AnnData subset to common genes (raw counts)

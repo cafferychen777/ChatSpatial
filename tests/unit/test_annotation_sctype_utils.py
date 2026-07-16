@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections import OrderedDict
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -13,6 +13,7 @@ import pytest
 
 from chatspatial.models.data import AnnotationParameters
 from chatspatial.tools import annotation as ann
+from chatspatial.utils.dependency_manager import REnvironment
 from chatspatial.utils.exceptions import DataError
 
 
@@ -42,36 +43,34 @@ class _FakeConverter:
         return self
 
 
-def _install_fake_robjects(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_conversion = ModuleType("conversion")
-    fake_conversion.localconverter = lambda _converter: _FakeLocalConverter()
-    fake_robjects_mod = ModuleType("rpy2.robjects")
-    fake_robjects_mod.conversion = fake_conversion
-    monkeypatch.setitem(__import__("sys").modules, "rpy2.robjects", fake_robjects_mod)
-
-
 def _mock_validate_r_environment(
     monkeypatch: pytest.MonkeyPatch,
     r_obj: object,
     *,
     converter: object | None = None,
 ) -> None:
-    _install_fake_robjects(monkeypatch)
-    robjects = SimpleNamespace(r=r_obj)
-    openrlib = SimpleNamespace(rlock=_FakeRLock())
+    base_converter = converter or _FakeConverter()
+    robjects = SimpleNamespace(
+        r=r_obj,
+        default_converter=base_converter,
+        StrVector=lambda values: list(values),
+    )
+    conversion = SimpleNamespace(
+        localconverter=lambda _converter: _FakeLocalConverter()
+    )
+    environment = REnvironment(
+        robjects=robjects,
+        pandas2ri=SimpleNamespace(converter=base_converter),
+        numpy2ri=SimpleNamespace(converter=base_converter),
+        packages=SimpleNamespace(importr=lambda _package: object()),
+        conversion=conversion,
+        openrlib=SimpleNamespace(rlock=_FakeRLock()),
+        anndata2ri=SimpleNamespace(converter=base_converter),
+    )
     monkeypatch.setattr(
         ann,
         "validate_r_environment",
-        lambda _ctx: (
-            robjects,
-            None,
-            None,
-            None,
-            None,
-            converter or object(),
-            openrlib,
-            None,
-        ),
+        lambda _ctx, **_kwargs: environment,
     )
 
 
@@ -362,31 +361,22 @@ def test_convert_custom_markers_normalizes_and_filters(monkeypatch: pytest.Monke
                 return lambda **kwargs: kwargs
             raise KeyError(name)
 
-    robjects = type(
-        "RObj",
-        (),
-        {
-            "default_converter": _Conv(),
-            "StrVector": lambda self, xs: list(xs),
-            "r": _R(),
-        },
-    )()
-    pandas2ri = type("P2", (), {"converter": _Conv()})()
-    openrlib = type("OL", (), {"rlock": _Lock()})()
-
-    monkeypatch.setattr(
-        ann,
-        "validate_r_environment",
-        lambda _ctx: (
-            robjects,
-            pandas2ri,
-            None,
-            None,
-            lambda _c: _LCtx(),
-            None,
-            openrlib,
-            None,
+    converter = _Conv()
+    environment = REnvironment(
+        robjects=SimpleNamespace(
+            default_converter=converter,
+            StrVector=lambda values: list(values),
+            r=_R(),
         ),
+        pandas2ri=SimpleNamespace(converter=converter),
+        numpy2ri=SimpleNamespace(converter=converter),
+        packages=SimpleNamespace(importr=lambda _package: object()),
+        conversion=SimpleNamespace(localconverter=lambda _converter: _LCtx()),
+        openrlib=SimpleNamespace(rlock=_Lock()),
+        anndata2ri=None,
+    )
+    monkeypatch.setattr(
+        ann, "validate_r_environment", lambda _ctx, **_kwargs: environment
     )
 
     markers = {
@@ -429,9 +419,7 @@ def test_load_sctype_functions_rejects_remote_by_default(
     monkeypatch.delenv("CHATSPATIAL_ALLOW_REMOTE_R_SOURCE", raising=False)
     monkeypatch.delenv("CHATSPATIAL_SCTYPE_R_DIR", raising=False)
 
-    with pytest.raises(
-        ann.ParameterError, match="sctype_allow_remote=true"
-    ):
+    with pytest.raises(ann.ParameterError, match="sctype_allow_remote=true"):
         ann._load_sctype_functions(DummyCtx())
 
 
@@ -515,9 +503,7 @@ def test_prepare_sctype_genesets_loads_database_and_returns_gs_list(
 
 
 def test_prepare_sctype_genesets_rejects_remote_db_by_default():
-    with pytest.raises(
-        ann.ParameterError, match="sctype_allow_remote=true"
-    ):
+    with pytest.raises(ann.ParameterError, match="sctype_allow_remote=true"):
         ann._prepare_sctype_genesets(
             AnnotationParameters(method="sctype", sctype_tissue="Brain"),
             DummyCtx(),
@@ -597,28 +583,20 @@ def test_run_sctype_scoring_converts_r_matrix_to_dataframe(
                 return np.array([[1.0, 0.2], [0.1, 0.9]])
             raise KeyError(name)
 
-    fake_conversion = ModuleType("conversion")
-    fake_conversion.localconverter = lambda _converter: _LCtx()
-    fake_robjects_mod = ModuleType("rpy2.robjects")
-    fake_robjects_mod.conversion = fake_conversion
-    monkeypatch.setitem(__import__("sys").modules, "rpy2.robjects", fake_robjects_mod)
-
-    robjects = SimpleNamespace(r=_R())
     converter = _Conv()
-    openrlib = SimpleNamespace(rlock=_Lock())
+    environment = REnvironment(
+        robjects=SimpleNamespace(r=_R(), default_converter=converter),
+        pandas2ri=SimpleNamespace(converter=converter),
+        numpy2ri=SimpleNamespace(converter=converter),
+        packages=SimpleNamespace(importr=lambda _package: object()),
+        conversion=SimpleNamespace(localconverter=lambda _converter: _LCtx()),
+        openrlib=SimpleNamespace(rlock=_Lock()),
+        anndata2ri=SimpleNamespace(converter=converter),
+    )
     monkeypatch.setattr(
         ann,
         "validate_r_environment",
-        lambda _ctx: (
-            robjects,
-            SimpleNamespace(converter=converter),
-            SimpleNamespace(converter=converter),
-            None,
-            None,
-            converter,
-            openrlib,
-            SimpleNamespace(converter=converter),
-        ),
+        lambda _ctx, **_kwargs: environment,
     )
 
     out = ann._run_sctype_scoring(
@@ -676,28 +654,20 @@ def test_run_sctype_scoring_preserves_dataframe_and_relabels_axes(
                 )
             raise KeyError(name)
 
-    fake_conversion = ModuleType("conversion")
-    fake_conversion.localconverter = lambda _converter: _LCtx()
-    fake_robjects_mod = ModuleType("rpy2.robjects")
-    fake_robjects_mod.conversion = fake_conversion
-    monkeypatch.setitem(__import__("sys").modules, "rpy2.robjects", fake_robjects_mod)
-
-    robjects = SimpleNamespace(r=_R())
     converter = _Conv()
-    openrlib = SimpleNamespace(rlock=_Lock())
+    environment = REnvironment(
+        robjects=SimpleNamespace(r=_R(), default_converter=converter),
+        pandas2ri=SimpleNamespace(converter=converter),
+        numpy2ri=SimpleNamespace(converter=converter),
+        packages=SimpleNamespace(importr=lambda _package: object()),
+        conversion=SimpleNamespace(localconverter=lambda _converter: _LCtx()),
+        openrlib=SimpleNamespace(rlock=_Lock()),
+        anndata2ri=SimpleNamespace(converter=converter),
+    )
     monkeypatch.setattr(
         ann,
         "validate_r_environment",
-        lambda _ctx: (
-            robjects,
-            SimpleNamespace(converter=converter),
-            SimpleNamespace(converter=converter),
-            None,
-            None,
-            converter,
-            openrlib,
-            SimpleNamespace(converter=converter),
-        ),
+        lambda _ctx, **_kwargs: environment,
     )
 
     out = ann._run_sctype_scoring(

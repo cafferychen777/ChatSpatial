@@ -12,8 +12,8 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
-from ...utils.dependency_manager import validate_r_package
-from ...utils.exceptions import DataError, ProcessingError
+from ...utils.dependency_manager import validate_r_environment
+from ...utils.exceptions import ChatSpatialError, DataError, ProcessingError
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
@@ -40,28 +40,9 @@ def deconvolve(
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
     """
-    import anndata2ri
-    import rpy2.robjects as ro
-    from rpy2.rinterface_lib import openrlib
-    from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
-
     ctx = data.ctx
 
-    # Validate R package
-    validate_r_package(
-        "CARD",
-        ctx,
-        install_cmd="devtools::install_github('YingMa0107/CARD')",
-    )
-
     try:
-        r_converter = (
-            default_converter
-            + anndata2ri.converter
-            + pandas2ri.converter
-            + numpy2ri.converter
-        )
-
         # Data already copied in prepare_deconvolution
         spatial_data = data.spatial
         reference_data = data.reference
@@ -88,31 +69,38 @@ def deconvolve(
         else:
             sc_meta["sampleInfo"] = "sample1"
 
-        with openrlib.rlock:
-            with conversion.localconverter(r_converter):
-                ro.r("library(CARD)")
+        r_env = validate_r_environment(
+            ctx,
+            required_packages=["CARD"],
+            require_anndata2ri=True,
+            package_install_commands={
+                "CARD": "devtools::install_github('YingMa0107/CARD')"
+            },
+        )
+        ro = r_env.robjects
 
-                ro.globalenv["sc_count"] = reference_data.X.T
-                ro.globalenv["spatial_count"] = spatial_data.X.T
+        with r_env.conversion_context(anndata=True, pandas=True, numpy=True):
+            ro.globalenv["sc_count"] = reference_data.X.T
+            ro.globalenv["spatial_count"] = spatial_data.X.T
 
-                ro.globalenv["gene_names_ref"] = ro.StrVector(reference_data.var_names)
-                ro.globalenv["cell_names"] = ro.StrVector(reference_data.obs_names)
-                ro.globalenv["gene_names_spatial"] = ro.StrVector(spatial_data.var_names)
-                ro.globalenv["spot_names"] = ro.StrVector(spatial_data.obs_names)
+            ro.globalenv["gene_names_ref"] = ro.StrVector(reference_data.var_names)
+            ro.globalenv["cell_names"] = ro.StrVector(reference_data.obs_names)
+            ro.globalenv["gene_names_spatial"] = ro.StrVector(spatial_data.var_names)
+            ro.globalenv["spot_names"] = ro.StrVector(spatial_data.obs_names)
 
-                ro.r("""
+            ro.r("""
                     rownames(sc_count) <- gene_names_ref
                     colnames(sc_count) <- cell_names
                     rownames(spatial_count) <- gene_names_spatial
                     colnames(spatial_count) <- spot_names
                 """)
 
-                ro.globalenv["sc_meta"] = ro.conversion.py2rpy(sc_meta)
-                ro.globalenv["spatial_location"] = ro.conversion.py2rpy(spatial_location)
-                ro.globalenv["minCountGene"] = minCountGene
-                ro.globalenv["minCountSpot"] = minCountSpot
+            ro.globalenv["sc_meta"] = ro.conversion.py2rpy(sc_meta)
+            ro.globalenv["spatial_location"] = ro.conversion.py2rpy(spatial_location)
+            ro.globalenv["minCountGene"] = minCountGene
+            ro.globalenv["minCountSpot"] = minCountSpot
 
-                ro.r("""
+            ro.r("""
                     capture.output(
                         CARD_obj <- createCARDObject(
                             sc_count = sc_count,
@@ -133,23 +121,22 @@ def deconvolve(
                     )
                 """)
 
-                row_names = list(ro.r("rownames(CARD_obj@Proportion_CARD)"))
-                col_names = list(ro.r("colnames(CARD_obj@Proportion_CARD)"))
-                proportions_r = ro.r("CARD_obj@Proportion_CARD")
-                proportions_array = np.array(proportions_r)
+            row_names = list(ro.r("rownames(CARD_obj@Proportion_CARD)"))
+            col_names = list(ro.r("colnames(CARD_obj@Proportion_CARD)"))
+            proportions_r = ro.r("CARD_obj@Proportion_CARD")
+            proportions_array = np.array(proportions_r)
 
-                proportions = pd.DataFrame(
-                    proportions_array, index=row_names, columns=col_names
-                )
+            proportions = pd.DataFrame(
+                proportions_array, index=row_names, columns=col_names
+            )
 
         # Optional imputation
         imputed_proportions = None
         imputed_coordinates = None
 
         if imputation:
-            with openrlib.rlock:
-                with conversion.localconverter(r_converter):
-                    ro.r(f"""
+            with r_env.conversion_context(anndata=True, pandas=True, numpy=True):
+                ro.r(f"""
                         capture.output(
                             CARD_impute <- CARD.imputation(
                                 CARD_object = CARD_obj,
@@ -158,26 +145,26 @@ def deconvolve(
                             ),
                             file = "/dev/null"
                         )
-                    """)
+                """)
 
-                    imputed_row_names = list(ro.r("rownames(CARD_impute@refined_prop)"))
-                    imputed_col_names = list(ro.r("colnames(CARD_impute@refined_prop)"))
-                    imputed_proportions_r = ro.r("CARD_impute@refined_prop")
-                    imputed_proportions_array = np.array(imputed_proportions_r)
+                imputed_row_names = list(ro.r("rownames(CARD_impute@refined_prop)"))
+                imputed_col_names = list(ro.r("colnames(CARD_impute@refined_prop)"))
+                imputed_proportions_r = ro.r("CARD_impute@refined_prop")
+                imputed_proportions_array = np.array(imputed_proportions_r)
 
-                    coords_list = []
-                    for name in imputed_row_names:
-                        parts = name.split("x")
-                        coords_list.append([float(parts[0]), float(parts[1])])
+                coords_list = []
+                for name in imputed_row_names:
+                    parts = name.split("x")
+                    coords_list.append([float(parts[0]), float(parts[1])])
 
-                    imputed_proportions = pd.DataFrame(
-                        imputed_proportions_array,
-                        index=imputed_row_names,
-                        columns=imputed_col_names,
-                    )
-                    imputed_coordinates = pd.DataFrame(
-                        coords_list, index=imputed_row_names, columns=["x", "y"]
-                    )
+                imputed_proportions = pd.DataFrame(
+                    imputed_proportions_array,
+                    index=imputed_row_names,
+                    columns=imputed_col_names,
+                )
+                imputed_coordinates = pd.DataFrame(
+                    coords_list, index=imputed_row_names, columns=["x", "y"]
+                )
 
         # Create statistics
         stats = create_deconvolution_stats(
@@ -217,17 +204,16 @@ def deconvolve(
         if imputation:
             cleanup_vars.append("CARD_impute")
 
-        with openrlib.rlock:
-            with conversion.localconverter(r_converter):
-                ro.r(f"""
-                    rm(list = c({', '.join(f'"{v}"' for v in cleanup_vars)}),
+        with r_env.conversion_context(anndata=True, pandas=True, numpy=True):
+            ro.r(f"""
+                    rm(list = c({", ".join(f'"{v}"' for v in cleanup_vars)}),
                        envir = .GlobalEnv)
                     gc()
-                """)
+            """)
 
         return proportions, stats
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
-        if isinstance(e, (DataError, ProcessingError)):
-            raise
         raise ProcessingError(f"CARD deconvolution failed: {e}") from e

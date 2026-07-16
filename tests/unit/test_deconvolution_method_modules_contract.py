@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import builtins
 from contextlib import nullcontext
 from dataclasses import replace
 from types import ModuleType, SimpleNamespace
@@ -45,9 +44,65 @@ def _prepared_data(minimal_spatial_adata, *, n_types: int = 2) -> PreparedDeconv
     )
 
 
+def _patch_required_dependency(
+    monkeypatch: pytest.MonkeyPatch,
+    target_module: object,
+    dependency_name: str,
+    dependency: object,
+) -> None:
+    def _require(requested_name: str, *_args, **_kwargs):
+        if requested_name != dependency_name:
+            raise AssertionError(f"Unexpected dependency request: {requested_name}")
+        return dependency
+
+    monkeypatch.setattr(target_module, "require", _require)
+
+
+def _patch_destvi_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+    scvi_module: object,
+) -> None:
+    dependencies = {"scvi": scvi_module, "torch": torch}
+
+    def _require(requested_name: str, *_args, **_kwargs):
+        try:
+            return dependencies[requested_name]
+        except KeyError as exc:
+            raise AssertionError(
+                f"Unexpected dependency request: {requested_name}"
+            ) from exc
+
+    monkeypatch.setattr(destvi_module, "require", _require)
+
+
+def _patch_required_module(
+    monkeypatch: pytest.MonkeyPatch,
+    target_module: object,
+    module_name: str,
+    module: object,
+) -> None:
+    def _require_module(
+        _dependency_name: str,
+        requested_module: str,
+        *_args,
+        **_kwargs,
+    ):
+        if requested_module != module_name:
+            raise AssertionError(f"Unexpected module request: {requested_module}")
+        return module
+
+    monkeypatch.setattr(target_module, "require_module", _require_module)
+
+
 def test_flashdeconv_dependency_error(minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch):
     data = _prepared_data(minimal_spatial_adata)
-    monkeypatch.setattr(flash_module, "is_available", lambda *_: False)
+    monkeypatch.setattr(
+        flash_module,
+        "require",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            DependencyError("FlashDeconv is not available")
+        ),
+    )
     with pytest.raises(DependencyError, match="FlashDeconv is not available"):
         flash_module.deconvolve(data)
 
@@ -56,14 +111,13 @@ def test_flashdeconv_success_with_fake_backend(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     data = _prepared_data(minimal_spatial_adata)
-    monkeypatch.setattr(flash_module, "is_available", lambda *_: True)
 
     def _fake_run(adata_st, _reference, **_kwargs):
         adata_st.obsm["flashdeconv"] = np.tile(np.array([0.7, 0.3]), (adata_st.n_obs, 1))
 
     fake_mod = ModuleType("flashdeconv")
     fake_mod.tl = SimpleNamespace(deconvolve=_fake_run)
-    monkeypatch.setitem(__import__("sys").modules, "flashdeconv", fake_mod)
+    _patch_required_dependency(monkeypatch, flash_module, "flashdeconv", fake_mod)
 
     proportions, stats = flash_module.deconvolve(data)
     assert proportions.shape == (data.n_spots, 2)
@@ -75,11 +129,10 @@ def test_flashdeconv_missing_output_raises_processing_error(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     data = _prepared_data(minimal_spatial_adata)
-    monkeypatch.setattr(flash_module, "is_available", lambda *_: True)
 
     fake_mod = ModuleType("flashdeconv")
     fake_mod.tl = SimpleNamespace(deconvolve=lambda *_args, **_kwargs: None)
-    monkeypatch.setitem(__import__("sys").modules, "flashdeconv", fake_mod)
+    _patch_required_dependency(monkeypatch, flash_module, "flashdeconv", fake_mod)
 
     with pytest.raises(ProcessingError, match="did not produce output"):
         flash_module.deconvolve(data)
@@ -89,7 +142,6 @@ def test_flashdeconv_dataframe_output_uses_spatial_observation_labels(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     data = _prepared_data(minimal_spatial_adata)
-    monkeypatch.setattr(flash_module, "is_available", lambda *_: True)
 
     def _fake_run(adata_st, _reference, **_kwargs):
         adata_st.obsm["flashdeconv"] = pd.DataFrame(
@@ -100,7 +152,7 @@ def test_flashdeconv_dataframe_output_uses_spatial_observation_labels(
 
     fake_mod = ModuleType("flashdeconv")
     fake_mod.tl = SimpleNamespace(deconvolve=_fake_run)
-    monkeypatch.setitem(__import__("sys").modules, "flashdeconv", fake_mod)
+    _patch_required_dependency(monkeypatch, flash_module, "flashdeconv", fake_mod)
 
     proportions, _stats = flash_module.deconvolve(data)
     assert list(proportions.index) == list(data.spatial.obs_names)
@@ -110,14 +162,13 @@ def test_flashdeconv_wraps_unexpected_backend_errors(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     data = _prepared_data(minimal_spatial_adata)
-    monkeypatch.setattr(flash_module, "is_available", lambda *_: True)
 
     def _fake_run(*_args, **_kwargs):
         raise RuntimeError("backend crashed")
 
     fake_mod = ModuleType("flashdeconv")
     fake_mod.tl = SimpleNamespace(deconvolve=_fake_run)
-    monkeypatch.setitem(__import__("sys").modules, "flashdeconv", fake_mod)
+    _patch_required_dependency(monkeypatch, flash_module, "flashdeconv", fake_mod)
 
     with pytest.raises(ProcessingError, match="FlashDeconv deconvolution failed"):
         flash_module.deconvolve(data)
@@ -127,14 +178,13 @@ def test_tangram_dependency_error_is_wrapped(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     data = _prepared_data(minimal_spatial_adata)
-    orig_import = builtins.__import__
-
-    def _fake_import(name, *args, **kwargs):
-        if name == "tangram":
-            raise ImportError("missing tangram")
-        return orig_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", _fake_import)
+    monkeypatch.setattr(
+        tangram_module,
+        "require",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            DependencyError("tangram-sc is required")
+        ),
+    )
     with pytest.raises(DependencyError, match="tangram-sc is required"):
         tangram_module.deconvolve(data)
 
@@ -162,7 +212,7 @@ def test_tangram_success_with_fake_module(
     fake_mod = ModuleType("tangram")
     fake_mod.pp_adatas = _pp_adatas
     fake_mod.map_cells_to_space = _map_cells_to_space
-    monkeypatch.setitem(__import__("sys").modules, "tangram", fake_mod)
+    _patch_required_dependency(monkeypatch, tangram_module, "tangram", fake_mod)
 
     proportions, stats = tangram_module.deconvolve(data, mode="clusters", n_epochs=5)
     assert proportions.shape == (data.n_spots, 2)
@@ -196,7 +246,7 @@ def test_tangram_cells_mode_uses_fallback_cell_type_column(
     fake_mod = ModuleType("tangram")
     fake_mod.pp_adatas = _pp_adatas
     fake_mod.map_cells_to_space = _map_cells_to_space
-    monkeypatch.setitem(__import__("sys").modules, "tangram", fake_mod)
+    _patch_required_dependency(monkeypatch, tangram_module, "tangram", fake_mod)
     monkeypatch.setattr(tangram_module, "get_device", lambda **_kwargs: "cpu")
 
     proportions, stats = tangram_module.deconvolve(data, mode="cells", n_epochs=3)
@@ -219,7 +269,7 @@ def test_tangram_cluster_mode_rejects_cell_level_mapping_shape(
     fake_mod.map_cells_to_space = lambda ref_data, spatial_data, **_k: _Map(
         np.ones((ref_data.n_obs, spatial_data.n_obs), dtype=float)
     )
-    monkeypatch.setitem(__import__("sys").modules, "tangram", fake_mod)
+    _patch_required_dependency(monkeypatch, tangram_module, "tangram", fake_mod)
 
     with pytest.raises(ProcessingError, match="Unexpected Tangram cluster mapping shape"):
         tangram_module.deconvolve(data, mode="clusters", n_epochs=5)
@@ -237,7 +287,7 @@ def test_tangram_wraps_unexpected_errors(minimal_spatial_adata, monkeypatch: pyt
     fake_mod = ModuleType("tangram")
     fake_mod.pp_adatas = _pp_adatas
     fake_mod.map_cells_to_space = _map_cells_to_space
-    monkeypatch.setitem(__import__("sys").modules, "tangram", fake_mod)
+    _patch_required_dependency(monkeypatch, tangram_module, "tangram", fake_mod)
 
     with pytest.raises(ProcessingError, match="Tangram deconvolution failed"):
         tangram_module.deconvolve(data, mode="cells")
@@ -258,7 +308,7 @@ def test_tangram_preserves_processing_error_from_internal_checks(
     fake_mod.map_cells_to_space = lambda _ref_data, spatial_data, **_k: _Map(
         np.ones((2, spatial_data.n_obs), dtype=float)
     )
-    monkeypatch.setitem(__import__("sys").modules, "tangram", fake_mod)
+    _patch_required_dependency(monkeypatch, tangram_module, "tangram", fake_mod)
     monkeypatch.setattr(
         tangram_module,
         "create_deconvolution_stats",
@@ -271,8 +321,14 @@ def test_tangram_preserves_processing_error_from_internal_checks(
 
 def test_destvi_dependency_error(minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch):
     data = _prepared_data(minimal_spatial_adata)
-    monkeypatch.setattr(destvi_module, "is_available", lambda *_: False)
-    with pytest.raises(DependencyError, match="scvi-tools is required"):
+    monkeypatch.setattr(
+        destvi_module,
+        "require",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            DependencyError("scvi is required for DestVI deconvolution")
+        ),
+    )
+    with pytest.raises(DependencyError, match="scvi is required"):
         destvi_module.deconvolve(data)
 
 
@@ -280,8 +336,13 @@ def test_destvi_validates_minimum_cell_types(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     data = _prepared_data(minimal_spatial_adata, n_types=1)
-    monkeypatch.setattr(destvi_module, "is_available", lambda *_: True)
-    monkeypatch.setitem(__import__("sys").modules, "scvi", ModuleType("scvi"))
+    monkeypatch.setattr(
+        destvi_module,
+        "require",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Dependency should not load before data validation")
+        ),
+    )
 
     with pytest.raises(DataError, match="at least 2 cell types"):
         destvi_module.deconvolve(data)
@@ -291,7 +352,6 @@ def test_destvi_success_with_fake_scvi(minimal_spatial_adata, monkeypatch: pytes
     data = _prepared_data(minimal_spatial_adata)
     data.spatial.X = data.spatial.X.astype(np.float64)
     data.reference.X = data.reference.X.astype(np.int64)
-    monkeypatch.setattr(destvi_module, "is_available", lambda *_: True)
 
     train_calls: list[dict[str, object]] = []
 
@@ -343,7 +403,7 @@ def test_destvi_success_with_fake_scvi(minimal_spatial_adata, monkeypatch: pytes
 
     fake_scvi = ModuleType("scvi")
     fake_scvi.model = SimpleNamespace(CondSCVI=FakeCondSCVI, DestVI=FakeDestVI)
-    monkeypatch.setitem(__import__("sys").modules, "scvi", fake_scvi)
+    _patch_destvi_dependencies(monkeypatch, fake_scvi)
 
     proportions, stats = destvi_module.deconvolve(data, n_epochs=20, use_gpu=False)
     assert proportions.shape == (data.n_spots, 2)
@@ -360,7 +420,6 @@ def test_destvi_raises_processing_error_for_invalid_proportion_shape(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     data = _prepared_data(minimal_spatial_adata)
-    monkeypatch.setattr(destvi_module, "is_available", lambda *_: True)
 
     class FakeCondSCVI:
         @staticmethod
@@ -390,7 +449,7 @@ def test_destvi_raises_processing_error_for_invalid_proportion_shape(
 
     fake_scvi = ModuleType("scvi")
     fake_scvi.model = SimpleNamespace(CondSCVI=FakeCondSCVI, DestVI=FakeDestVI)
-    monkeypatch.setitem(__import__("sys").modules, "scvi", fake_scvi)
+    _patch_destvi_dependencies(monkeypatch, fake_scvi)
 
     with pytest.raises(ProcessingError, match="Failed to extract valid proportions from DestVI"):
         destvi_module.deconvolve(data)
@@ -400,7 +459,6 @@ def test_destvi_wraps_unexpected_runtime_errors(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     data = _prepared_data(minimal_spatial_adata)
-    monkeypatch.setattr(destvi_module, "is_available", lambda *_: True)
 
     class FakeCondSCVI:
         @staticmethod
@@ -430,7 +488,7 @@ def test_destvi_wraps_unexpected_runtime_errors(
 
     fake_scvi = ModuleType("scvi")
     fake_scvi.model = SimpleNamespace(CondSCVI=FakeCondSCVI, DestVI=FakeDestVI)
-    monkeypatch.setitem(__import__("sys").modules, "scvi", fake_scvi)
+    _patch_destvi_dependencies(monkeypatch, fake_scvi)
 
     with pytest.raises(ProcessingError, match="DestVI deconvolution failed: condscvi failed"):
         destvi_module.deconvolve(data)
@@ -470,12 +528,12 @@ def test_stereoscope_success_with_fake_scvi_external(
         def get_proportions(self):
             return np.tile(np.array([0.8, 0.2]), (self._n, 1))
 
-    scvi_mod = ModuleType("scvi")
     external_mod = ModuleType("scvi.external")
     external_mod.RNAStereoscope = FakeRNAStereoscope
     external_mod.SpatialStereoscope = FakeSpatialStereoscope
-    monkeypatch.setitem(__import__("sys").modules, "scvi", scvi_mod)
-    monkeypatch.setitem(__import__("sys").modules, "scvi.external", external_mod)
+    _patch_required_module(
+        monkeypatch, stereo_module, "scvi.external", external_mod
+    )
 
     proportions, stats = stereo_module.deconvolve(data, n_epochs=100, use_gpu=False)
     assert proportions.shape == (data.n_spots, 2)
@@ -521,12 +579,12 @@ def test_stereoscope_default_epochs_and_gpu_kwargs(
         def get_proportions(self):
             return np.tile(np.array([0.7, 0.3]), (self._n, 1))
 
-    scvi_mod = ModuleType("scvi")
     external_mod = ModuleType("scvi.external")
     external_mod.RNAStereoscope = FakeRNAStereoscope
     external_mod.SpatialStereoscope = FakeSpatialStereoscope
-    monkeypatch.setitem(__import__("sys").modules, "scvi", scvi_mod)
-    monkeypatch.setitem(__import__("sys").modules, "scvi.external", external_mod)
+    _patch_required_module(
+        monkeypatch, stereo_module, "scvi.external", external_mod
+    )
 
     proportions, stats = stereo_module.deconvolve(data, n_epochs=150000, use_gpu=True)
     assert proportions.shape == (data.n_spots, 2)
@@ -568,12 +626,12 @@ def test_stereoscope_wraps_unexpected_errors(
         def from_rna_model(cls, _spatial_data, _rna_model):
             raise RuntimeError("spatial model failed")
 
-    scvi_mod = ModuleType("scvi")
     external_mod = ModuleType("scvi.external")
     external_mod.RNAStereoscope = FakeRNAStereoscope
     external_mod.SpatialStereoscope = FakeSpatialStereoscope
-    monkeypatch.setitem(__import__("sys").modules, "scvi", scvi_mod)
-    monkeypatch.setitem(__import__("sys").modules, "scvi.external", external_mod)
+    _patch_required_module(
+        monkeypatch, stereo_module, "scvi.external", external_mod
+    )
 
     with pytest.raises(ProcessingError, match="Stereoscope deconvolution failed"):
         stereo_module.deconvolve(data, n_epochs=10, use_gpu=False)
@@ -613,12 +671,12 @@ def test_stereoscope_preserves_processing_error_from_internal_checks(
         def get_proportions(self):
             return np.tile(np.array([0.8, 0.2]), (self._n, 1))
 
-    scvi_mod = ModuleType("scvi")
     external_mod = ModuleType("scvi.external")
     external_mod.RNAStereoscope = FakeRNAStereoscope
     external_mod.SpatialStereoscope = FakeSpatialStereoscope
-    monkeypatch.setitem(__import__("sys").modules, "scvi", scvi_mod)
-    monkeypatch.setitem(__import__("sys").modules, "scvi.external", external_mod)
+    _patch_required_module(
+        monkeypatch, stereo_module, "scvi.external", external_mod
+    )
     monkeypatch.setattr(
         stereo_module,
         "create_deconvolution_stats",
@@ -757,13 +815,11 @@ async def test_cell2location_apply_gene_filtering_uses_filter_and_subsets(
         return mask
 
     filtering_mod.filter_genes = _filter_genes
-
-    cell2location_mod = ModuleType("cell2location")
-    utils_mod = ModuleType("cell2location.utils")
-    monkeypatch.setitem(__import__("sys").modules, "cell2location", cell2location_mod)
-    monkeypatch.setitem(__import__("sys").modules, "cell2location.utils", utils_mod)
-    monkeypatch.setitem(
-        __import__("sys").modules, "cell2location.utils.filtering", filtering_mod
+    _patch_required_module(
+        monkeypatch,
+        c2l_module,
+        "cell2location.utils.filtering",
+        filtering_mod,
     )
 
     out = await c2l_module.apply_gene_filtering(adata, ctx)
@@ -844,7 +900,6 @@ def test_cell2location_deconvolve_success_with_fake_models(
     data = _prepared_data(minimal_spatial_adata)
     data.reference.obs.loc[data.reference.obs_names[0], "cell_type"] = np.nan
 
-    monkeypatch.setattr(c2l_module, "require", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(c2l_module, "get_device", lambda **_kwargs: "cpu")
     monkeypatch.setattr(c2l_module, "get_accelerator", lambda **_kwargs: "cpu")
     monkeypatch.setattr(c2l_module, "suppress_output", nullcontext)
@@ -895,12 +950,12 @@ def test_cell2location_deconvolve_success_with_fake_models(
             )
             return sp
 
-    cell2location_pkg = ModuleType("cell2location")
     models_mod = ModuleType("cell2location.models")
     models_mod.Cell2location = _FakeCell2location
     models_mod.RegressionModel = _FakeRegressionModel
-    monkeypatch.setitem(__import__("sys").modules, "cell2location", cell2location_pkg)
-    monkeypatch.setitem(__import__("sys").modules, "cell2location.models", models_mod)
+    _patch_required_module(
+        monkeypatch, c2l_module, "cell2location.models", models_mod
+    )
 
     with pytest.warns(UserWarning) as record:
         proportions, stats = c2l_module.deconvolve(data, n_epochs=5, ref_model_epochs=5)
@@ -921,7 +976,6 @@ def test_cell2location_deconvolve_casts_ref_and_spatial_to_float32(
     data.reference.X = data.reference.X.astype(np.int64)
     data.spatial.X = data.spatial.X.astype(np.float64)
 
-    monkeypatch.setattr(c2l_module, "require", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(c2l_module, "get_device", lambda **_kwargs: "cpu")
     monkeypatch.setattr(c2l_module, "get_accelerator", lambda **_kwargs: "cpu")
     monkeypatch.setattr(c2l_module, "suppress_output", nullcontext)
@@ -966,12 +1020,12 @@ def test_cell2location_deconvolve_casts_ref_and_spatial_to_float32(
             sp.obsm["q05_cell_abundance_w_sf"] = np.tile([0.5, 0.5], (sp.n_obs, 1))
             return sp
 
-    cell2location_pkg = ModuleType("cell2location")
     models_mod = ModuleType("cell2location.models")
     models_mod.Cell2location = _FakeCell2location
     models_mod.RegressionModel = _FakeRegressionModel
-    monkeypatch.setitem(__import__("sys").modules, "cell2location", cell2location_pkg)
-    monkeypatch.setitem(__import__("sys").modules, "cell2location.models", models_mod)
+    _patch_required_module(
+        monkeypatch, c2l_module, "cell2location.models", models_mod
+    )
 
     proportions, stats = c2l_module.deconvolve(data, n_epochs=2, ref_model_epochs=2)
     assert proportions.shape == (data.n_spots, 2)
@@ -983,7 +1037,6 @@ def test_cell2location_deconvolve_passthrough_data_error(
 ):
     data = _prepared_data(minimal_spatial_adata)
 
-    monkeypatch.setattr(c2l_module, "require", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(c2l_module, "get_device", lambda **_kwargs: "cpu")
     monkeypatch.setattr(c2l_module, "get_accelerator", lambda **_kwargs: "cpu")
 
@@ -997,12 +1050,12 @@ def test_cell2location_deconvolve_passthrough_data_error(
         def setup_anndata(*_args, **_kwargs):
             return None
 
-    cell2location_pkg = ModuleType("cell2location")
     models_mod = ModuleType("cell2location.models")
     models_mod.Cell2location = _FakeCell2location
     models_mod.RegressionModel = _FakeRegressionModel
-    monkeypatch.setitem(__import__("sys").modules, "cell2location", cell2location_pkg)
-    monkeypatch.setitem(__import__("sys").modules, "cell2location.models", models_mod)
+    _patch_required_module(
+        monkeypatch, c2l_module, "cell2location.models", models_mod
+    )
 
     with pytest.raises(DataError, match="invalid reference"):
         c2l_module.deconvolve(data)
@@ -1013,19 +1066,18 @@ def test_cell2location_deconvolve_wraps_unexpected_errors(
 ):
     data = _prepared_data(minimal_spatial_adata)
 
-    monkeypatch.setattr(c2l_module, "require", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         c2l_module,
         "get_device",
         lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("broken env")),
     )
 
-    cell2location_pkg = ModuleType("cell2location")
     models_mod = ModuleType("cell2location.models")
     models_mod.Cell2location = object
     models_mod.RegressionModel = object
-    monkeypatch.setitem(__import__("sys").modules, "cell2location", cell2location_pkg)
-    monkeypatch.setitem(__import__("sys").modules, "cell2location.models", models_mod)
+    _patch_required_module(
+        monkeypatch, c2l_module, "cell2location.models", models_mod
+    )
 
     with pytest.raises(ProcessingError, match="Cell2location deconvolution failed"):
         c2l_module.deconvolve(data)

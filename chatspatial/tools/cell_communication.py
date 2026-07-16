@@ -35,6 +35,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
@@ -50,7 +51,7 @@ from ..utils.adata_utils import (
     to_dense,
 )
 from ..utils.compute import top_n_desc_indices
-from ..utils.dependency_manager import require, validate_r_package
+from ..utils.dependency_manager import require, require_module, validate_r_environment
 from ..utils.exceptions import (
     ChatSpatialError,
     DataCompatibilityError,
@@ -59,6 +60,7 @@ from ..utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
+from ..utils.statistics import adjust_pvalues
 
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
@@ -462,21 +464,15 @@ async def _run_ccc_analysis(
 ) -> CCCStorage:
     """Run CCC analysis and return unified storage structure."""
     if params.method == "liana":
-        require("liana", ctx, feature="LIANA+ cell communication analysis")
         return await _analyze_communication_liana(adata, params, ctx)
 
     elif params.method == "cellphonedb":
-        require("cellphonedb", ctx, feature="CellPhoneDB cell communication analysis")
         return await _analyze_communication_cellphonedb(adata, params, ctx)
 
     elif params.method == "cellchat_r":
-        validate_r_package(
-            "CellChat", ctx, install_cmd="devtools::install_github('jinworks/CellChat')"
-        )
         return _analyze_communication_cellchat_r(adata, params, ctx)
 
     elif params.method == "fastccc":
-        require("fastccc", ctx, feature="FastCCC cell communication analysis")
         return await _analyze_communication_fastccc(adata, params, ctx)
 
     else:
@@ -579,8 +575,7 @@ async def _analyze_communication_liana(
     Returns:
         CCCStorage with unified results structure
     """
-    require("liana")
-    import liana as li  # noqa: F401
+    li = require("liana", ctx, feature="LIANA+ cell communication analysis")
 
     try:
         # Ensure spatial connectivity is computed for spatial analysis
@@ -589,7 +584,7 @@ async def _analyze_communication_liana(
             and "spatial_connectivities" not in adata.obsp
         ):
             bandwidth = params.liana_bandwidth or (300 if adata.n_obs > 3000 else 200)
-            sq = require("squidpy", feature="LIANA+ spatial neighbor graph")
+            sq = require("squidpy", ctx, feature="LIANA+ spatial neighbor graph")
 
             sq.gr.spatial_neighbors(
                 adata,
@@ -610,9 +605,9 @@ async def _analyze_communication_liana(
         has_clusters = params.cell_type_key in adata.obs.columns
 
         if has_clusters and not params.perform_spatial_analysis:
-            return _run_liana_cluster_analysis(adata, params, ctx)
+            return _run_liana_cluster_analysis(adata, params, ctx, li)
         else:
-            return _run_liana_spatial_analysis(adata, params, ctx)
+            return _run_liana_spatial_analysis(adata, params, ctx, li)
 
     except ChatSpatialError:
         raise
@@ -641,15 +636,16 @@ def _get_liana_resource_name(species: str, resource_preference: str) -> str:
 
 
 def _run_liana_cluster_analysis(
-    adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
+    adata: Any,
+    params: CellCommunicationParameters,
+    ctx: "ToolContext",
+    li: Any,
 ) -> CCCStorage:
     """Run LIANA+ cluster-based analysis.
 
     Returns:
         CCCStorage with unified results structure
     """
-    import liana as li
-
     groupby_col = params.cell_type_key
     validate_obs_column(adata, groupby_col, "Cell type")
 
@@ -720,16 +716,16 @@ def _run_liana_cluster_analysis(
 
 
 def _run_liana_spatial_analysis(
-    adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
+    adata: Any,
+    params: CellCommunicationParameters,
+    ctx: "ToolContext",
+    li: Any,
 ) -> CCCStorage:
     """Run LIANA+ spatial bivariate analysis.
 
     Returns:
         CCCStorage with unified results structure
     """
-    import liana as li
-    from statsmodels.stats.multitest import multipletests
-
     resource_name = _get_liana_resource_name(params.species, params.liana_resource)
     n_perms = params.liana_n_perms
     nz_prop = params.liana_nz_prop
@@ -760,8 +756,12 @@ def _run_liana_spatial_analysis(
     reject = np.zeros(len(pvals), dtype=bool)
     pvals_corrected = np.full(len(pvals), np.nan)
     if valid_mask.any():
-        reject[valid_mask], pvals_corrected[valid_mask], _, _ = multipletests(
-            pvals[valid_mask], alpha=alpha, method="fdr_bh"
+        reject, pvals_corrected = adjust_pvalues(
+            pvals,
+            alpha=alpha,
+            method="fdr_bh",
+            ctx=ctx,
+            feature="LIANA spatial interaction p-value correction",
         )
     n_significant = int(reject.sum())
 
@@ -811,19 +811,24 @@ def _run_liana_spatial_analysis(
 
 def _ensure_cellphonedb_database(output_dir: str, ctx: "ToolContext") -> str:
     """Ensure CellPhoneDB database is available, download if not exists"""
-    # Use centralized dependency manager for consistent error handling
-    require("cellphonedb", feature="CellPhoneDB database management")
     import os
-    import ssl
-
-    import certifi
-    from cellphonedb.utils import db_utils
 
     # Check if database file already exists
     db_path = os.path.join(output_dir, "cellphonedb.zip")
 
     if os.path.exists(db_path):
         return db_path
+
+    import ssl
+
+    import certifi
+
+    db_utils = require_module(
+        "cellphonedb",
+        "cellphonedb.utils.db_utils",
+        ctx,
+        feature="CellPhoneDB database management",
+    )
 
     # Fix macOS SSL certificate issue: patch urllib to use certifi certificates
     # CellPhoneDB uses urllib.request.urlopen which fails on macOS without this fix
@@ -866,33 +871,31 @@ async def _analyze_communication_cellphonedb(
     Returns:
         CCCStorage with unified results structure
     """
-    # Use centralized dependency manager for consistent error handling
-    require("cellphonedb", feature="CellPhoneDB cell communication analysis")
+    # CellPhoneDB is human-only; validate this before loading optional modules.
+    if params.species != "human":
+        raise ParameterError(
+            f"CellPhoneDB only supports human data. "
+            f"Your data species: '{params.species}'. "
+            f"For {params.species} data, please use:\n"
+            f"  - method='liana' with liana_resource='mouseconsensus' (for mouse)\n"
+            f"  - method='cellchat_r' (has built-in mouse/human databases)"
+        )
+
     import os
     import tempfile
 
-    from cellphonedb.src.core.methods import cpdb_statistical_analysis_method
+    cpdb_statistical_analysis_method = require_module(
+        "cellphonedb",
+        "cellphonedb.src.core.methods.cpdb_statistical_analysis_method",
+        ctx,
+        feature="CellPhoneDB cell communication analysis",
+    )
 
+    microenvs_file: str | None = None
     try:
         import time
 
         start_time = time.time()
-
-        # Initialize for finally block cleanup
-        microenvs_file = None
-
-        # Species check: CellPhoneDB is human-only
-        # Reference: https://github.com/ventolab/cellphonedb
-        # "CellphoneDB is a publicly available repository of HUMAN curated
-        # receptors, ligands and their interactions"
-        if params.species != "human":
-            raise ParameterError(
-                f"CellPhoneDB only supports human data. "
-                f"Your data species: '{params.species}'. "
-                f"For {params.species} data, please use:\n"
-                f"  - method='liana' with liana_resource='mouseconsensus' (for mouse)\n"
-                f"  - method='cellchat_r' (has built-in mouse/human databases)"
-            )
 
         # Use cell_type_key from params (required field, no auto-detect)
         cell_type_col = params.cell_type_key
@@ -922,21 +925,18 @@ async def _analyze_communication_cellphonedb(
         # Create microenvironments file if spatial data is available and requested
         if (
             params.cellphonedb_use_microenvironments
-            and "spatial" in adata_for_analysis.obsm
+            and get_spatial_key(adata_for_analysis) is not None
         ):
             microenvs_file = await _create_microenvironments_file(
                 adata_for_analysis, params, ctx
             )
 
-        # Set random seed for reproducibility
-        debug_seed = (
-            params.cellphonedb_debug_seed
-            if params.cellphonedb_debug_seed is not None
-            else 42
-        )
-        # Isolate CellPhoneDB's RNG from global state
-        _rng_state = np.random.get_state()
-        np.random.seed(debug_seed)
+        # CellPhoneDB documents debug_seed as a single-threaded testing option
+        # and mutates NumPy's process-global legacy RNG when it is enabled.
+        # Leave it disabled by default and restore the caller's RNG state only
+        # when the user explicitly opts into that upstream behavior.
+        debug_seed = params.cellphonedb_debug_seed
+        rng_state = np.random.get_state() if debug_seed is not None else None
 
         # Run CellPhoneDB statistical analysis
         try:
@@ -979,20 +979,23 @@ async def _analyze_communication_cellphonedb(
                 # Run the analysis using CellPhoneDB v5 API
                 try:
                     # STRICT: CellPhoneDB v5 ONLY
-                    result = cpdb_statistical_analysis_method.call(
-                        cpdb_file_path=db_path,
-                        meta_file_path=meta_file,
-                        counts_file_path=counts_file,
-                        counts_data="hgnc_symbol",
-                        threshold=params.cellphonedb_threshold,
-                        result_precision=(params.cellphonedb_result_precision),
-                        pvalue=params.cellphonedb_pvalue,
-                        iterations=params.cellphonedb_iterations,
-                        debug_seed=debug_seed,
-                        output_path=temp_dir,
-                        microenvs_file_path=microenvs_file,
-                        score_interactions=False,
-                    )
+                    call_kwargs = {
+                        "cpdb_file_path": db_path,
+                        "meta_file_path": meta_file,
+                        "counts_file_path": counts_file,
+                        "counts_data": "hgnc_symbol",
+                        "threshold": params.cellphonedb_threshold,
+                        "result_precision": params.cellphonedb_result_precision,
+                        "pvalue": params.cellphonedb_pvalue,
+                        "iterations": params.cellphonedb_iterations,
+                        "output_path": temp_dir,
+                        "microenvs_file_path": microenvs_file,
+                        "score_interactions": False,
+                    }
+                    if debug_seed is not None:
+                        call_kwargs.update(debug_seed=debug_seed, threads=1)
+
+                    result = cpdb_statistical_analysis_method.call(**call_kwargs)
                 except KeyError as key_error:
                     raise ProcessingError(
                         f"CellPhoneDB found no L-R interactions. "
@@ -1033,7 +1036,8 @@ async def _analyze_communication_cellphonedb(
                 significant_means = result.get("significant_means")
                 # Results stored in unified CCCStorage.method_data
         finally:
-            np.random.set_state(_rng_state)
+            if rng_state is not None:
+                np.random.set_state(rng_state)
 
         # Calculate statistics
         n_lr_pairs = (
@@ -1067,9 +1071,7 @@ async def _analyze_communication_cellphonedb(
             try:
                 pval_array = pvalues[ct_pair_cols].values.astype(float)
             except (ValueError, TypeError) as exc:
-                raise ProcessingError(
-                    "CellPhoneDB p-values are not numeric."
-                ) from exc
+                raise ProcessingError("CellPhoneDB p-values are not numeric.") from exc
         else:
             # Fallback: use numeric columns (may include metadata)
             pval_array = pvalues.select_dtypes(include=[np.number]).values
@@ -1096,8 +1098,6 @@ async def _analyze_communication_cellphonedb(
         else:
             # CORRECT APPROACH: For each L-R pair, correct its cell type pair p-values
             # Then check if ANY cell type pair remains significant after correction
-            from statsmodels.stats.multitest import multipletests
-
             mask = np.zeros(n_lr_pairs_total, dtype=bool)
             min_pvals_corrected = np.ones(
                 n_lr_pairs_total
@@ -1128,12 +1128,12 @@ async def _analyze_communication_cellphonedb(
                     reject_this_lr = pvals_valid < threshold
                     pvals_corrected_valid = pvals_valid.copy()
                 else:
-                    reject_this_lr, pvals_corrected_valid, _, _ = multipletests(
+                    reject_this_lr, pvals_corrected_valid = adjust_pvalues(
                         pvals_valid,
                         alpha=threshold,
                         method=correction_method,
-                        is_sorted=False,
-                        returnsorted=False,
+                        ctx=ctx,
+                        feature="CellPhoneDB interaction p-value correction",
                     )
 
                 # This L-R pair is significant if ANY cell type pair
@@ -1242,15 +1242,20 @@ async def _analyze_communication_cellphonedb(
         # Cleanup: Remove temporary microenvironments file if created
         if microenvs_file is not None:
             try:
-                os.remove(microenvs_file)
-            except OSError:
-                pass  # Cleanup failure is not critical
+                Path(microenvs_file).unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                logger.debug(
+                    "Failed to remove microenvironments file %s: %s",
+                    microenvs_file,
+                    cleanup_error,
+                )
 
 
 async def _create_microenvironments_file(
     adata: Any, params: CellCommunicationParameters, ctx: "ToolContext"
 ) -> Optional[str]:
-    """Create microenvironments file for CellPhoneDB spatial analysis"""
+    """Create a caller-owned CellPhoneDB microenvironments file."""
+    temp_path: str | None = None
     try:
         import tempfile
 
@@ -1261,6 +1266,12 @@ async def _create_microenvironments_file(
             return None
 
         spatial_coords = adata.obsm[spatial_key]
+        validate_obs_column(adata, params.cell_type_key, "Cell type")
+        if len(spatial_coords) < 2:
+            await ctx.warning(
+                "CellPhoneDB microenvironments require at least two observations."
+            )
+            return None
 
         # Determine spatial radius
         if params.cellphonedb_spatial_radius is not None:
@@ -1268,18 +1279,19 @@ async def _create_microenvironments_file(
         else:
             # Auto-determine radius based on data density
             # Use median distance to 5th nearest neighbor as a heuristic
-            nn = NearestNeighbors(n_neighbors=6)
+            n_neighbors = min(6, len(spatial_coords))
+            nn = NearestNeighbors(n_neighbors=n_neighbors)
             nn.fit(spatial_coords)
             distances, _ = nn.kneighbors(spatial_coords)
-            radius = np.median(distances[:, 5]) * 2  # 5th neighbor (0-indexed), doubled
+            radius = max(
+                float(np.median(distances[:, -1]) * 2),
+                float(np.finfo(float).eps),
+            )
 
         # Find spatial neighbors for each cell
         nn = NearestNeighbors(radius=radius)
         nn.fit(spatial_coords)
         neighbor_matrix = nn.radius_neighbors_graph(spatial_coords)
-
-        # Create microenvironments using cell types
-        validate_obs_column(adata, params.cell_type_key, "Cell type")
 
         cell_types = adata.obs[params.cell_type_key].values
 
@@ -1313,25 +1325,41 @@ async def _create_microenvironments_file(
                     cell_type_to_microenv[ct].add(microenv_name)
 
         # Create final microenvironments list (cell_type, microenvironment)
-        microenvs = []
+        microenvs: list[tuple[Any, str]] = []
         for cell_type, microenv_set in cell_type_to_microenv.items():
-            for microenv in microenv_set:
-                microenvs.append([cell_type, microenv])
+            microenvs.extend((cell_type, microenv) for microenv in microenv_set)
 
-        # Save to temporary file with CORRECT format for CellPhoneDB
-        temp_file = tempfile.NamedTemporaryFile(
-            mode="w", delete=False, suffix="_microenvironments.txt"
-        )
-        temp_file.write("cell_type\tmicroenvironment\n")  # FIXED: Correct header
-        for cell_type, microenv in microenvs:
-            temp_file.write(
-                f"{cell_type}\t{microenv}\n"
-            )  # FIXED: cell_type not cell barcode
-        temp_file.close()
+        if not microenvs:
+            await ctx.warning(
+                "No mixed cell-type neighborhoods were found; "
+                "continuing without CellPhoneDB microenvironments."
+            )
+            return None
 
-        return temp_file.name
+        # Save the CellPhoneDB two-column microenvironment format.
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            delete=False,
+            suffix="_microenvironments.txt",
+        ) as temp_file:
+            temp_path = temp_file.name
+            temp_file.write("cell_type\tmicroenvironment\n")
+            for cell_type, microenv in microenvs:
+                temp_file.write(f"{cell_type}\t{microenv}\n")
+
+        return temp_path
 
     except Exception as e:
+        if temp_path is not None:
+            try:
+                Path(temp_path).unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                logger.debug(
+                    "Failed to remove incomplete microenvironments file %s: %s",
+                    temp_path,
+                    cleanup_error,
+                )
         await ctx.warning(f"Failed to create microenvironments file: {e}")
         return None
 
@@ -1348,11 +1376,6 @@ def _analyze_communication_cellchat_r(
     Returns:
         CCCStorage with unified results structure
     """
-    import pandas as pd
-    import rpy2.robjects as ro
-    from rpy2.robjects import numpy2ri, pandas2ri
-    from rpy2.robjects.conversion import localconverter
-
     try:
         import time
 
@@ -1383,13 +1406,17 @@ def _analyze_communication_cellchat_r(
                 "Clamping to zero for CellChat compatibility."
             )
 
-        # Run CellChat in R - start early to get gene list for pre-filtering
-        with localconverter(
-            ro.default_converter + pandas2ri.converter + numpy2ri.converter
-        ):
-            # Load CellChat
-            ro.r("library(CellChat)")
+        r_env = validate_r_environment(
+            ctx,
+            required_packages=["CellChat"],
+            package_install_commands={
+                "CellChat": "devtools::install_github('jinworks/CellChat')"
+            },
+        )
+        ro = r_env.robjects
 
+        # Run CellChat in R - start early to get gene list for pre-filtering
+        with r_env.conversion_context(pandas=True, numpy=True):
             # Set species-specific database
             species_db_map = {
                 "human": "CellChatDB.human",
@@ -1695,6 +1722,8 @@ def _analyze_communication_cellchat_r(
             },
         )
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(f"CellChat R analysis failed: {e}") from e
 
@@ -1740,11 +1769,11 @@ async def _analyze_communication_fastccc(
                 f"  - method='cellchat_r' (has built-in mouse/human databases)"
             )
 
-        # Import FastCCC
+        fastccc = require("fastccc", ctx, feature="FastCCC cell communication analysis")
         if params.fastccc_use_cauchy:
-            from fastccc import Cauchy_combination_of_statistical_analysis_methods
+            cauchy_analysis = fastccc.Cauchy_combination_of_statistical_analysis_methods
         else:
-            from fastccc import statistical_analysis_method
+            statistical_analysis = fastccc.statistical_analysis_method
 
         # Validate cell type column
         validate_obs_column(adata, params.cell_type_key, "Cell type")
@@ -1825,7 +1854,7 @@ async def _analyze_communication_fastccc(
             if params.fastccc_use_cauchy:
                 # Cauchy combination method (more robust, multiple parameter combinations)
                 # Note: This function saves results to files and returns None
-                Cauchy_combination_of_statistical_analysis_methods(
+                cauchy_analysis(
                     database_file_path=database_dir,
                     celltype_file_path=None,  # Using meta_key instead
                     counts_file_path=counts_file,
@@ -1881,20 +1910,18 @@ async def _analyze_communication_fastccc(
 
             else:
                 # Single method (faster)
-                interactions_strength, pvalues, percentages = (
-                    statistical_analysis_method(
-                        database_file_path=database_dir,
-                        celltype_file_path=None,  # Using meta_key instead
-                        counts_file_path=counts_file,
-                        convert_type="hgnc_symbol",
-                        single_unit_summary=params.fastccc_single_unit_summary,
-                        complex_aggregation=params.fastccc_complex_aggregation,
-                        LR_combination=params.fastccc_lr_combination,
-                        min_percentile=params.fastccc_min_percentile,
-                        save_path=output_dir,
-                        meta_key=params.cell_type_key,
-                        use_DEG=params.fastccc_use_deg,
-                    )
+                interactions_strength, pvalues, percentages = statistical_analysis(
+                    database_file_path=database_dir,
+                    celltype_file_path=None,  # Using meta_key instead
+                    counts_file_path=counts_file,
+                    convert_type="hgnc_symbol",
+                    single_unit_summary=params.fastccc_single_unit_summary,
+                    complex_aggregation=params.fastccc_complex_aggregation,
+                    LR_combination=params.fastccc_lr_combination,
+                    min_percentile=params.fastccc_min_percentile,
+                    save_path=output_dir,
+                    meta_key=params.cell_type_key,
+                    use_DEG=params.fastccc_use_deg,
                 )
 
         # Process results
@@ -1908,8 +1935,6 @@ async def _analyze_communication_fastccc(
         # Count significant pairs (with multiple-testing correction)
         threshold = params.fastccc_pvalue_threshold
         if pvalues is not None and hasattr(pvalues, "values"):
-            from statsmodels.stats.multitest import multipletests
-
             # Get minimum p-value across cell type pair columns only.
             # Filter by "|" separator to exclude any numeric metadata columns.
             ct_pair_cols = [
@@ -1928,11 +1953,12 @@ async def _analyze_communication_fastccc(
                 corrected_min = np.minimum(min_pvals * n_ct_pairs, 1.0)
                 valid_mask = ~np.isnan(corrected_min)
                 if valid_mask.any():
-                    reject = np.zeros(len(corrected_min), dtype=bool)
-                    reject[valid_mask], _, _, _ = multipletests(
-                        corrected_min[valid_mask],
+                    reject, _ = adjust_pvalues(
+                        corrected_min,
                         alpha=threshold,
                         method="fdr_bh",
+                        ctx=ctx,
+                        feature="FastCCC interaction p-value correction",
                     )
                     n_significant_pairs = int(reject.sum())
                 else:

@@ -4,6 +4,7 @@ Copy Number Variation (CNV) analysis tools for spatial transcriptomics data.
 
 import glob
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -14,11 +15,11 @@ from ..models.analysis import CNVResult
 from ..models.data import CNVParameters
 from ..utils import validate_obs_column
 from ..utils.adata_utils import store_analysis_metadata
-from ..utils.dependency_manager import require
+from ..utils.dependency_manager import require, validate_r_environment
 from ..utils.exceptions import (
+    ChatSpatialError,
     DataCompatibilityError,
     DataNotFoundError,
-    DependencyError,
     ParameterError,
     ProcessingError,
 )
@@ -44,6 +45,17 @@ _NUMBAT_ALLELE_COLUMNS = (
     "GT",
 )
 _NUMBAT_CLONE_COLUMNS = ("cell", "clone_opt", "p_cnv", "compartment_opt")
+
+
+def _resolve_numbat_table_path(
+    out_dir: str, stem: str, iteration: str
+) -> Path | None:
+    """Return a Numbat TSV output path across documented compression variants."""
+    base_path = Path(out_dir) / f"{stem}_{iteration}.tsv"
+    for candidate in (base_path, Path(f"{base_path}.gz")):
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def _build_cnv_key(params: "CNVParameters") -> str:
@@ -73,7 +85,9 @@ def _copy_matrix_data(data):
 
 def _validate_gene_positions(adata: "ad.AnnData") -> None:
     required_position_columns = {"chromosome", "start", "end"}
-    missing_position_columns = sorted(required_position_columns - set(adata.var.columns))
+    missing_position_columns = sorted(
+        required_position_columns - set(adata.var.columns)
+    )
     if missing_position_columns:
         raise DataCompatibilityError(
             "CNV inference requires genomic positions in adata.var. Missing columns: "
@@ -112,9 +126,7 @@ def _expand_gene_aligned_layer(
         )
 
     if sp_sparse.issparse(layer):
-        expanded = sp_sparse.lil_matrix(
-            (n_obs, len(target_genes)), dtype=layer.dtype
-        )
+        expanded = sp_sparse.lil_matrix((n_obs, len(target_genes)), dtype=layer.dtype)
         expanded[:, target_positions] = layer
         return expanded.tocsr()
 
@@ -263,9 +275,7 @@ def _validate_and_align_numbat_outputs(
     genotype_positions = expected_cells.get_indexer(normalized_geno["cell"])
     aligned_genotypes[genotype_positions] = genotype_values
 
-    aligned_clone_post = normalized_clone_post.set_index("cell").reindex(
-        expected_cells
-    )
+    aligned_clone_post = normalized_clone_post.set_index("cell").reindex(expected_cells)
     aligned_clone_post["clone_opt"] = (
         aligned_clone_post["clone_opt"].fillna("unassigned").map(str)
     )
@@ -363,15 +373,15 @@ async def _infer_cnv_infercnvpy(
     """
     _validate_gene_positions(adata)
 
-    # Check if infercnvpy is available using centralized dependency manager
-    require("infercnvpy", ctx, feature="CNV analysis")
-    import infercnvpy as cnv
+    cnv = require("infercnvpy", ctx, feature="CNV analysis")
 
     # Note: adata is already validated in infer_cnv() before dispatch.
     # Build a minimal workspace to avoid copying unrelated layers/obsm/uns.
     adata_cnv = _build_infercnvpy_workspace(adata)
 
-    has_complete_position = adata_cnv.var[["chromosome", "start", "end"]].notna().all(axis=1)
+    has_complete_position = (
+        adata_cnv.var[["chromosome", "start", "end"]].notna().all(axis=1)
+    )
     n_missing_positions = int((~has_complete_position).sum())
     if n_missing_positions:
         await ctx.warning(
@@ -380,9 +390,7 @@ async def _infer_cnv_infercnvpy(
 
     genes_to_keep = has_complete_position
     if params.exclude_chromosomes is not None:
-        genes_to_keep &= ~adata_cnv.var["chromosome"].isin(
-            params.exclude_chromosomes
-        )
+        genes_to_keep &= ~adata_cnv.var["chromosome"].isin(params.exclude_chromosomes)
     if not genes_to_keep.any():
         raise DataCompatibilityError(
             "No genes with usable genomic positions remain after chromosome filtering."
@@ -434,7 +442,6 @@ async def _infer_cnv_infercnvpy(
     elif cnv_score_key == "cnv" and "cnv" in adata_cnv.layers:
         cnv_matrix = adata_cnv.layers["cnv"]
     if cnv_matrix is not None:
-
         # ==================== OPTIMIZED: Compute statistics on sparse matrix ====================
         # Strategy: infercnvpy outputs sparse CSR matrix after noise filtering (Line 448-452)
         #           Noise filtering sets ~87% values to zero, making sparse computation efficient
@@ -623,34 +630,15 @@ def _infer_cnv_numbat(
         CNVResult containing Numbat CNV analysis results
 
     Raises:
-        RuntimeError: If Numbat is not available or allele data is missing
-        ValueError: If dataset or parameters are invalid
+        DependencyError: If the R runtime or Numbat package is unavailable
+        ChatSpatialError: If dataset or parameters are invalid
     """
-    # Lazy import and check for Numbat availability
-    # Note: Numbat requires rpy2 + R + Numbat R package - cannot use centralized manager
-    try:
-        import anndata2ri
-        import rpy2.robjects as ro
-        from rpy2.rinterface_lib import openrlib
-        from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
-
-        # Test if Numbat R package is available
-        ro.r("suppressPackageStartupMessages(library(numbat))")
-    except ImportError as e:
-        raise DependencyError(f"rpy2 not installed: {e}") from e
-    except Exception as e:
-        raise DependencyError(f"Numbat R package unavailable: {e}") from e
-
-    # Note: adata is already retrieved in infer_cnv() before dispatch
-
     # Validate allele data exists
     # Numbat requires long-format allele dataframe (from pileup_and_phase or similar)
     # Check if we have the raw allele dataframe in adata.uns
     if "numbat_allele_data_raw" in adata.uns:
         # Use pre-prepared long-format allele data
-        df_allele = _validate_numbat_allele_data(
-            adata.uns["numbat_allele_data_raw"]
-        )
+        df_allele = _validate_numbat_allele_data(adata.uns["numbat_allele_data_raw"])
 
     else:
         # Fallback: try to use matrix format (less ideal for Numbat)
@@ -687,6 +675,16 @@ def _infer_cnv_numbat(
             f"categories {params.reference_categories}"
         )
 
+    r_env = validate_r_environment(
+        ctx,
+        required_packages=["numbat"],
+        require_anndata2ri=True,
+        package_install_commands={
+            "numbat": "install.packages('numbat', dependencies = TRUE)"
+        },
+    )
+    ro = r_env.robjects
+
     # Create temporary directory for Numbat output
     import os
     import shutil
@@ -695,39 +693,23 @@ def _infer_cnv_numbat(
     out_dir = tempfile.mkdtemp(prefix="numbat_", dir=tempfile.gettempdir())
 
     try:
-        # Use sparkx-style context management for ALL R operations
-        # This prevents "Conversion rules missing" errors in multithreaded/async environments
-        with openrlib.rlock:  # Thread safety lock
-            with conversion.localconverter(
-                default_converter
-                + anndata2ri.converter
-                + pandas2ri.converter
-                + numpy2ri.converter
-            ):
-                # Transfer data to R environment (inside context!)
-                ro.globalenv["count_mat"] = count_mat.T  # R expects genes × cells
-                ro.globalenv["df_allele_python"] = (
-                    df_allele  # Transfer allele dataframe
-                )
-                ro.globalenv["gene_names"] = gene_names
-                ro.globalenv["cell_barcodes"] = cell_barcodes
-                ro.globalenv["ref_indices"] = ref_indices_r
-                ro.globalenv["out_dir"] = out_dir  # Output directory
+        with r_env.conversion_context(anndata=True, pandas=True, numpy=True):
+            ro.globalenv["count_mat"] = count_mat.T  # R expects genes × cells
+            ro.globalenv["df_allele_python"] = df_allele
+            ro.globalenv["gene_names"] = gene_names
+            ro.globalenv["cell_barcodes"] = cell_barcodes
+            ro.globalenv["ref_indices"] = ref_indices_r
+            ro.globalenv["out_dir"] = out_dir
 
-                # Set Numbat parameters (inside context!)
-                ro.globalenv["genome"] = params.numbat_genome
-                ro.globalenv["t_param"] = params.numbat_t
-                ro.globalenv["max_entropy"] = params.numbat_max_entropy
-                ro.globalenv["min_cells"] = params.numbat_min_cells
-                ro.globalenv["ncores"] = params.numbat_ncores
-                ro.globalenv["skip_nj"] = params.numbat_skip_nj
+            ro.globalenv["genome"] = params.numbat_genome
+            ro.globalenv["t_param"] = params.numbat_t
+            ro.globalenv["max_entropy"] = params.numbat_max_entropy
+            ro.globalenv["min_cells"] = params.numbat_min_cells
+            ro.globalenv["ncores"] = params.numbat_ncores
+            ro.globalenv["skip_nj"] = params.numbat_skip_nj
 
-                # Run Numbat via R (inside context!)
-                ro.r(
-                    """
-                    library(numbat)
-                    library(dplyr)
-
+            ro.r(
+                """
                     # Keep count matrix in dgCMatrix/matrix format (do NOT convert to dataframe!)
                     # run_numbat requires dgCMatrix or matrix, not data.frame
                     # Ensure proper row/column names are set
@@ -770,8 +752,8 @@ def _infer_cnv_numbat(
                     }, error = function(e) {
                         stop(paste("Numbat execution failed:", e$message))
                     })
-                    """
-                )
+                """
+            )
 
         # Read results from output files (Numbat saves to TSV files, not R objects)
         # The suffix (e.g., _2) is the iteration number and varies by run.
@@ -796,22 +778,23 @@ def _infer_cnv_numbat(
         clone_post = pd.read_csv(clone_post_file, sep="\t")
 
         # 2. Read genotype matrix (CNV states per segment)
-        geno_file = os.path.join(out_dir, f"geno_{iter_suffix}.tsv")
-        if not os.path.exists(geno_file):
+        geno_file = _resolve_numbat_table_path(out_dir, "geno", iter_suffix)
+        if geno_file is None:
             raise DataNotFoundError(
-                f"Numbat output file not found: {geno_file}\n"
+                "Numbat genotype output not found: "
+                f"geno_{iter_suffix}.tsv or geno_{iter_suffix}.tsv.gz\n"
                 f"Expected output files in: {out_dir}"
             )
 
         geno = pd.read_csv(geno_file, sep="\t")
 
         # 3. Read consensus segments (optional metadata)
-        segs_file = os.path.join(out_dir, f"segs_consensus_{iter_suffix}.tsv")
-        segs = None
-        if os.path.exists(segs_file):
-            segs = pd.read_csv(segs_file, sep="\t")
+        segs_file = _resolve_numbat_table_path(
+            out_dir, "segs_consensus", iter_suffix
+        )
+        segs = pd.read_csv(segs_file, sep="\t") if segs_file is not None else None
 
-    # 4. Check for the final phylogeny tree
+        # 4. Check for the final phylogeny tree
         tree_file = os.path.join(out_dir, f"tree_final_{iter_suffix}.rds")
         has_phylo = os.path.exists(tree_file)
 
@@ -838,9 +821,7 @@ def _infer_cnv_numbat(
         # Convert numpy types to Python native types for H5AD compatibility
         # Use "unassigned" for cells not in Numbat output (distinct from clone IDs)
         adata.obs["numbat_clone"] = aligned_clone_post["clone_opt"].to_numpy()
-        adata.obs["numbat_p_cnv"] = aligned_clone_post["p_cnv"].to_numpy(
-            dtype=float
-        )
+        adata.obs["numbat_p_cnv"] = aligned_clone_post["p_cnv"].to_numpy(dtype=float)
         adata.obs["numbat_compartment"] = aligned_clone_post[
             "compartment_opt"
         ].to_numpy()
@@ -857,11 +838,14 @@ def _infer_cnv_numbat(
             adata.uns["numbat_segments"] = segs_clean
 
         if has_phylo:
-            # Store phylogeny metadata
+            # The RDS lives in the temporary Numbat output directory and is
+            # removed in the finally block. Record what was generated without
+            # publishing a path that is guaranteed to become invalid.
             adata.uns["numbat_phylogeny"] = {
-                "available": True,
-                "tree_file": tree_file,
-                "tree_type": "phylo",
+                "generated": True,
+                "retained": False,
+                "source_filename": os.path.basename(tree_file),
+                "tree_type": "tbl_graph",
             }
 
         # Calculate statistics
@@ -929,6 +913,8 @@ def _infer_cnv_numbat(
         # Export results for reproducibility
         export_analysis_result(adata, data_id, analysis_key)
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
         raise ProcessingError(
             f"Numbat analysis failed: {e}\n"

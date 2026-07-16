@@ -15,30 +15,29 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from ...utils.dependency_manager import validate_r_package
-from ...utils.exceptions import DataError, ParameterError, ProcessingError
+from ...utils.dependency_manager import require_module, validate_r_environment
+from ...utils.exceptions import (
+    ChatSpatialError,
+    DataError,
+    ParameterError,
+    ProcessingError,
+)
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 
 @contextmanager
-def _suppress_r_console():
+def _suppress_r_console(callbacks: Any):
     """Suppress RCTD worker output that bypasses rpy2 console callbacks."""
-    try:
-        import rpy2.rinterface_lib.callbacks as callbacks
-    except ImportError:
-        callbacks = None
-
     old_stdout_fd = os.dup(sys.stdout.fileno())
     old_stderr_fd = os.dup(sys.stderr.fileno())
     devnull_fd = os.open(os.devnull, os.O_WRONLY)
 
-    if callbacks is not None:
-        old_print = callbacks.consolewrite_print
-        old_warnerror = callbacks.consolewrite_warnerror
-        old_level = callbacks.logger.level
-        callbacks.consolewrite_print = lambda _text: None
-        callbacks.consolewrite_warnerror = lambda _text: None
-        callbacks.logger.setLevel(logging.ERROR)
+    old_print = callbacks.consolewrite_print
+    old_warnerror = callbacks.consolewrite_warnerror
+    old_level = callbacks.logger.level
+    callbacks.consolewrite_print = lambda _text: None
+    callbacks.consolewrite_warnerror = lambda _text: None
+    callbacks.logger.setLevel(logging.ERROR)
 
     try:
         os.dup2(devnull_fd, sys.stdout.fileno())
@@ -50,10 +49,9 @@ def _suppress_r_console():
         os.close(old_stdout_fd)
         os.close(old_stderr_fd)
         os.close(devnull_fd)
-        if callbacks is not None:
-            callbacks.consolewrite_print = old_print
-            callbacks.consolewrite_warnerror = old_warnerror
-            callbacks.logger.setLevel(old_level)
+        callbacks.consolewrite_print = old_print
+        callbacks.consolewrite_warnerror = old_warnerror
+        callbacks.logger.setLevel(old_level)
 
 
 def deconvolve(
@@ -77,11 +75,6 @@ def deconvolve(
     Returns:
         Tuple of (proportions DataFrame, statistics dictionary)
     """
-    import anndata2ri
-    import rpy2.robjects as ro
-    from rpy2.rinterface_lib import openrlib
-    from rpy2.robjects import conversion, default_converter, numpy2ri, pandas2ri
-
     ctx = data.ctx
 
     # Validate mode-specific parameters
@@ -91,21 +84,7 @@ def deconvolve(
             f"total cell types ({data.n_cell_types})."
         )
 
-    # Validate R package
-    validate_r_package(
-        "spacexr",
-        ctx,
-        install_cmd="devtools::install_github('dmcable/spacexr', build_vignettes = FALSE)",
-    )
-
     try:
-        r_converter = (
-            default_converter
-            + anndata2ri.converter
-            + pandas2ri.converter
-            + numpy2ri.converter
-        )
-
         # Data already copied in prepare_deconvolution
         spatial_data = data.spatial
         reference_data = data.reference
@@ -167,37 +146,53 @@ def deconvolve(
             name="nUMI",
         )
 
-        with openrlib.rlock:
-            with conversion.localconverter(r_converter):
-                ro.r("library(spacexr)")
+        r_env = validate_r_environment(
+            ctx,
+            required_packages=["spacexr"],
+            require_anndata2ri=True,
+            package_install_commands={
+                "spacexr": (
+                    "devtools::install_github('dmcable/spacexr', "
+                    "build_vignettes = FALSE)"
+                )
+            },
+        )
+        ro = r_env.robjects
+        callbacks = require_module(
+            "rpy2",
+            "rpy2.rinterface_lib.callbacks",
+            ctx,
+            feature="RCTD deconvolution",
+        )
 
-                ro.globalenv["spatial_counts"] = spatial_data.X.T
-                ro.globalenv["reference_counts"] = reference_data.X.T
+        with r_env.conversion_context(anndata=True, pandas=True, numpy=True):
+            ro.globalenv["spatial_counts"] = spatial_data.X.T
+            ro.globalenv["reference_counts"] = reference_data.X.T
 
-                ro.globalenv["gene_names_spatial"] = ro.StrVector(spatial_data.var_names)
-                ro.globalenv["spot_names"] = ro.StrVector(spatial_data.obs_names)
-                ro.globalenv["gene_names_ref"] = ro.StrVector(reference_data.var_names)
-                ro.globalenv["cell_names"] = ro.StrVector(reference_data.obs_names)
+            ro.globalenv["gene_names_spatial"] = ro.StrVector(spatial_data.var_names)
+            ro.globalenv["spot_names"] = ro.StrVector(spatial_data.obs_names)
+            ro.globalenv["gene_names_ref"] = ro.StrVector(reference_data.var_names)
+            ro.globalenv["cell_names"] = ro.StrVector(reference_data.obs_names)
 
-                ro.r("""
+            ro.r("""
                     rownames(spatial_counts) <- gene_names_spatial
                     colnames(spatial_counts) <- spot_names
                     rownames(reference_counts) <- gene_names_ref
                     colnames(reference_counts) <- cell_names
                 """)
 
-                ro.globalenv["coords"] = ro.conversion.py2rpy(coords)
-                ro.globalenv["numi_spatial"] = ro.conversion.py2rpy(spatial_numi)
-                ro.globalenv["cell_types_vec"] = ro.conversion.py2rpy(cell_types_series)
-                ro.globalenv["numi_ref"] = ro.conversion.py2rpy(reference_numi)
-                ro.globalenv["max_cores_val"] = max_cores
-                ro.globalenv["rctd_mode"] = mode
-                ro.globalenv["conf_thresh"] = confidence_threshold
-                ro.globalenv["doub_thresh"] = doublet_threshold
-                ro.globalenv["max_multi_types_val"] = max_multi_types
+            ro.globalenv["coords"] = ro.conversion.py2rpy(coords)
+            ro.globalenv["numi_spatial"] = ro.conversion.py2rpy(spatial_numi)
+            ro.globalenv["cell_types_vec"] = ro.conversion.py2rpy(cell_types_series)
+            ro.globalenv["numi_ref"] = ro.conversion.py2rpy(reference_numi)
+            ro.globalenv["max_cores_val"] = max_cores
+            ro.globalenv["rctd_mode"] = mode
+            ro.globalenv["conf_thresh"] = confidence_threshold
+            ro.globalenv["doub_thresh"] = doublet_threshold
+            ro.globalenv["max_multi_types_val"] = max_multi_types
 
-                with _suppress_r_console():
-                    ro.r("""
+            with _suppress_r_console(callbacks):
+                ro.r("""
                         puck <- SpatialRNA(coords, spatial_counts, numi_spatial)
                         cell_types_factor <- as.factor(cell_types_vec)
                         names(cell_types_factor) <- names(cell_types_vec)
@@ -219,7 +214,7 @@ def deconvolve(
                         myRCTD <- run.RCTD(myRCTD, doublet_mode = rctd_mode)
                     """)
 
-                proportions = _extract_rctd_results(mode)
+            proportions = _extract_rctd_results(mode, ro)
 
         # Validate results
         if proportions.isna().any().any():
@@ -244,9 +239,8 @@ def deconvolve(
             doublet_threshold=doublet_threshold,
         )
 
-        with openrlib.rlock:
-            with conversion.localconverter(r_converter):
-                ro.r("""
+        with r_env.conversion_context(anndata=True, pandas=True, numpy=True):
+            ro.r("""
                     rm(list = c("spatial_counts", "reference_counts", "gene_names_spatial",
                                 "spot_names", "gene_names_ref", "cell_names", "coords",
                                 "numi_spatial", "cell_types_vec", "numi_ref", "max_cores_val",
@@ -255,19 +249,19 @@ def deconvolve(
                                 "weights_matrix", "cell_type_names"),
                            envir = .GlobalEnv)
                     gc()
-                """)
+            """)
 
         return proportions, stats
 
+    except ChatSpatialError:
+        raise
     except Exception as e:
-        if isinstance(e, (DataError, ParameterError, ProcessingError)):
-            raise
         raise ProcessingError(f"RCTD deconvolution failed: {e}") from e
 
 
-def _extract_rctd_results(mode: str) -> pd.DataFrame:
+def _extract_rctd_results(mode: str, robjects: Any) -> pd.DataFrame:
     """Extract RCTD results; caller must hold the R lock/converter context."""
-    import rpy2.robjects as ro
+    ro = robjects
 
     if mode == "full":
         ro.r("""
