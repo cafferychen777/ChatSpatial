@@ -29,7 +29,7 @@ from ...utils.exceptions import (
     DataNotFoundError,
     ParameterError,
 )
-from ...utils.image_utils import non_interactive_backend
+from ...utils.image_utils import non_interactive_plotting
 from .core import (
     get_categorical_columns,
     infer_basis,
@@ -296,7 +296,7 @@ async def _create_cellrank_circular_projection(
     # Use centralized figure size resolution
     figsize = resolve_figure_size(params, "trajectory")
 
-    with non_interactive_backend():
+    with non_interactive_plotting():
         cr.pl.circular_projection(
             adata,
             keys=keys,
@@ -348,7 +348,7 @@ async def _create_cellrank_fate_map(
     # Use centralized figure size resolution
     figsize = resolve_figure_size(params, "violin")  # similar width to violin plots
 
-    with non_interactive_backend():
+    with non_interactive_plotting():
         cr.pl.aggregate_fate_probabilities(
             adata,
             cluster_key=cluster_key,
@@ -435,7 +435,7 @@ async def _create_cellrank_gene_trends(
     if context:
         await context.info(f"Lineages: {lineage_names}")
 
-    with non_interactive_backend():
+    with non_interactive_plotting():
         cr.pl.gene_trends(
             adata,
             model=model,
@@ -522,7 +522,7 @@ async def _create_cellrank_fate_heatmap(
     if context:
         await context.info(f"Lineages: {lineage_names}")
 
-    with non_interactive_backend():
+    with non_interactive_plotting():
         cr.pl.heatmap(
             adata,
             model=model,

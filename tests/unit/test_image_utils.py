@@ -27,64 +27,53 @@ class _FakeFigure:
         self.saved_path.write_bytes(b"img")
 
 
-def test_ensure_non_interactive_backend_switches_from_interactive_backend(
-    monkeypatch,
-):
-    use_calls: list[str] = []
-    ioff_calls = {"count": 0}
+def test_non_interactive_plotting_preserves_backend_and_restores_state(monkeypatch):
+    original_backend = matplotlib.get_backend()
+    was_interactive = plt.isinteractive()
+    show_calls = {"count": 0}
 
-    monkeypatch.setattr(matplotlib, "get_backend", lambda: "MacOSX")
-    monkeypatch.setattr(matplotlib, "use", lambda backend: use_calls.append(backend))
-    monkeypatch.setattr(plt, "ioff", lambda: ioff_calls.__setitem__("count", 1))
+    def _show(*_args, **_kwargs) -> None:
+        show_calls["count"] += 1
 
-    image_utils._ensure_non_interactive_backend()
+    monkeypatch.setattr(plt, "show", _show)
+    original_show = plt.show
 
-    assert use_calls == ["Agg"]
-    assert ioff_calls["count"] == 1
+    monkeypatch.setattr(
+        matplotlib,
+        "use",
+        lambda *_args, **_kwargs: pytest.fail("backend switching is destructive"),
+    )
 
+    try:
+        plt.ion()
+        with image_utils.non_interactive_plotting():
+            assert matplotlib.get_backend() == original_backend
+            assert plt.isinteractive() is False
+            assert plt.show is not original_show
+            plt.show()
 
-def test_ensure_non_interactive_backend_is_noop_when_already_agg(monkeypatch):
-    use_calls: list[str] = []
-    ioff_calls = {"count": 0}
-
-    monkeypatch.setattr(matplotlib, "get_backend", lambda: "Agg")
-    monkeypatch.setattr(matplotlib, "use", lambda backend: use_calls.append(backend))
-    monkeypatch.setattr(plt, "ioff", lambda: ioff_calls.__setitem__("count", 1))
-
-    image_utils._ensure_non_interactive_backend()
-
-    assert use_calls == []
-    assert ioff_calls["count"] == 0
-
-
-def test_non_interactive_backend_restores_original_backend(monkeypatch):
-    use_calls: list[str] = []
-    ioff_calls = {"count": 0}
-
-    monkeypatch.setattr(matplotlib, "get_backend", lambda: "QtAgg")
-    monkeypatch.setattr(matplotlib, "use", lambda backend: use_calls.append(backend))
-    monkeypatch.setattr(plt, "ioff", lambda: ioff_calls.__setitem__("count", 1))
-
-    with image_utils.non_interactive_backend():
-        pass
-
-    assert use_calls == ["Agg", "QtAgg"]
-    assert ioff_calls["count"] == 1
+        assert matplotlib.get_backend() == original_backend
+        assert plt.isinteractive() is True
+        assert plt.show is original_show
+        assert show_calls["count"] == 0
+    finally:
+        plt.interactive(was_interactive)
 
 
-def test_non_interactive_backend_is_noop_when_backend_is_agg(monkeypatch):
-    use_calls: list[str] = []
-    ioff_calls = {"count": 0}
+def test_non_interactive_plotting_restores_state_after_failure():
+    original_show = plt.show
+    was_interactive = plt.isinteractive()
 
-    monkeypatch.setattr(matplotlib, "get_backend", lambda: "Agg")
-    monkeypatch.setattr(matplotlib, "use", lambda backend: use_calls.append(backend))
-    monkeypatch.setattr(plt, "ioff", lambda: ioff_calls.__setitem__("count", 1))
+    try:
+        plt.ioff()
+        with pytest.raises(RuntimeError, match="plot failed"):
+            with image_utils.non_interactive_plotting():
+                raise RuntimeError("plot failed")
 
-    with image_utils.non_interactive_backend():
-        pass
-
-    assert use_calls == []
-    assert ioff_calls["count"] == 0
+        assert plt.isinteractive() is False
+        assert plt.show is original_show
+    finally:
+        plt.interactive(was_interactive)
 
 
 def test_isolated_figure_scope_closes_only_figures_created_inside():
@@ -114,7 +103,6 @@ async def test_optimize_fig_to_image_with_cache_jpg_sets_quality_and_suffix(
         output_path=str(tmp_path / "exports" / "figure_without_suffix"),
     )
 
-    monkeypatch.setattr(image_utils, "_ensure_non_interactive_backend", lambda: None)
     monkeypatch.setattr(plt, "close", lambda figure: closed.__setitem__("fig", figure))
 
     result = await image_utils.optimize_fig_to_image_with_cache(
@@ -139,7 +127,6 @@ async def test_optimize_fig_to_image_with_cache_removes_unsupported_metadata(
 ):
     fig = _FakeFigure()
     params = SimpleNamespace(dpi=None, output_format=output_format, output_path=None)
-    monkeypatch.setattr(image_utils, "_ensure_non_interactive_backend", lambda: None)
     monkeypatch.setattr(image_utils, "get_default_output_dir", lambda: tmp_path)
     monkeypatch.setattr(
         image_utils.uuid,
@@ -152,7 +139,10 @@ async def test_optimize_fig_to_image_with_cache_removes_unsupported_metadata(
         fig, params, plot_type="scatter"
     )
 
-    assert fig.saved_path == tmp_path / "visualizations" / f"scatter_deadbeef.{output_format}"
+    assert (
+        fig.saved_path
+        == tmp_path / "visualizations" / f"scatter_deadbeef.{output_format}"
+    )
     assert fig.saved_kwargs is not None
     assert fig.saved_kwargs["format"] == output_format
     assert fig.saved_kwargs["dpi"] == 100

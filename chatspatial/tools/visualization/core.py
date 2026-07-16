@@ -12,9 +12,6 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 
 import anndata as ad
-import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -24,8 +21,6 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import get_gene_expression, require_spatial_coords
 from ...utils.exceptions import DataNotFoundError, ParameterError
-
-plt.ioff()
 
 if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
@@ -141,6 +136,9 @@ def create_figure_from_params(
         dpi=params.dpi,
         squeeze=squeeze,
     )
+    # Interactive HiDPI backends may scale the canvas DPI while constructing
+    # its manager. Keep the public factory contract backend-independent.
+    fig.set_dpi(params.dpi)
 
     # Ensure axes is always an array for consistent handling
     if squeeze and n_rows == 1 and n_cols == 1:
@@ -197,6 +195,7 @@ def setup_multi_panel_figure(
         fig, axes = plt.subplots(
             n_rows, n_cols, figsize=figsize, dpi=params.dpi, squeeze=False
         )
+    fig.set_dpi(params.dpi)
 
     axes = axes.flatten()
 

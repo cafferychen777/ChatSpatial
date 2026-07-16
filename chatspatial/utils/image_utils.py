@@ -6,6 +6,7 @@ This module provides:
 - Figure export to file with user-specified format/DPI
 """
 
+import threading
 import uuid
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -18,56 +19,44 @@ if TYPE_CHECKING:
 
 
 # =============================================================================
-# Matplotlib Backend Management
+# Matplotlib State Management
 # =============================================================================
 
-
-def _ensure_non_interactive_backend() -> None:
-    """Ensure matplotlib uses non-interactive backend to prevent GUI popups on macOS."""
-    import matplotlib
-
-    current_backend = matplotlib.get_backend()
-    if current_backend != "Agg":
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-
-        plt.ioff()
+_PLOTTING_STATE_LOCK = threading.RLock()
 
 
 @contextmanager
-def non_interactive_backend() -> Generator[None, None, None]:
-    """Context manager for temporary non-interactive matplotlib backend.
+def non_interactive_plotting() -> Generator[None, None, None]:
+    """Temporarily suppress interactive display without switching backend.
 
     Use this when calling external plotting functions (e.g., cellrank, scvelo)
-    that may trigger interactive backend behavior. The original backend is
-    restored after the context exits.
-
-    For internal plotting code that doesn't need backend restoration,
-    use _ensure_non_interactive_backend() instead.
+    that may call ``pyplot.show()``. Backend switching is intentionally avoided:
+    Matplotlib 3.5 closes every open figure when switching backends. The
+    caller's interactive mode and ``show`` function are restored on exit.
 
     Usage:
-        with non_interactive_backend():
+        with non_interactive_plotting():
             cr.pl.circular_projection(adata, ...)
             fig = plt.gcf()
 
     Yields:
         None
     """
-    import matplotlib
+    import matplotlib.pyplot as plt
 
-    original_backend = matplotlib.get_backend()
-    needs_restore = original_backend != "Agg"
-
-    try:
-        if needs_restore:
-            matplotlib.use("Agg")
-            import matplotlib.pyplot as plt
-
+    with _PLOTTING_STATE_LOCK:
+        was_interactive = plt.isinteractive()
+        original_show = plt.show
+        try:
             plt.ioff()
-        yield
-    finally:
-        if needs_restore:
-            matplotlib.use(original_backend)
+            plt.show = lambda *_args, **_kwargs: None
+            yield
+        finally:
+            plt.show = original_show
+            if was_interactive:
+                plt.ion()
+            else:
+                plt.ioff()
 
 
 @contextmanager
@@ -128,7 +117,6 @@ async def optimize_fig_to_image_with_cache(
     Returns:
         str with file path
     """
-    _ensure_non_interactive_backend()
     import matplotlib.pyplot as plt
 
     # Extract parameters
