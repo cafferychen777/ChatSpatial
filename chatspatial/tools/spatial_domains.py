@@ -9,6 +9,8 @@ function, which handles data preparation and dispatches to the selected method.
 """
 
 import logging
+import sys
+import tempfile
 from collections import Counter
 from typing import TYPE_CHECKING, Any
 
@@ -1193,6 +1195,8 @@ async def _identify_domains_banksy(
 # write happens before its own grid construction reads the transcriptomics
 # key, so the combined key must never alias the transcriptomics key.
 _AESTETIK_COMBINED_OBSM_KEY = "X_aestetik_combined"
+_AESTETIK_TRANSCRIPTOMICS_OBSM_KEY = "X_pca_transcriptomics"
+_AESTETIK_MORPHOLOGY_OBSM_KEY = "X_pca_morphology"
 
 
 def _require_aestetik_representation(
@@ -1217,13 +1221,93 @@ def _require_aestetik_representation(
             f"column, found shape {matrix.shape}. {guidance}"
         )
 
-    if not np.all(np.isfinite(matrix)):
+    try:
+        is_finite = np.all(np.isfinite(matrix))
+    except TypeError as exc:
+        raise DataNotFoundError(
+            f"adata.obsm['{obsm_key}'] is not a numeric {modality} embedding. "
+            f"{guidance}"
+        ) from exc
+
+    if not is_finite:
         raise DataNotFoundError(
             f"adata.obsm['{obsm_key}'] contains NaN or infinite values and "
             f"cannot be used as the {modality} embedding. {guidance}"
         )
 
     return matrix
+
+
+def _managed_aestetik_estimator(
+    estimator_cls: type,
+    trainer_root: str,
+    **kwargs: Any,
+) -> Any:
+    """Create an AESTETIK estimator whose Lightning trainer writes no artifacts.
+
+    AESTETIK 0.3.x constructs its trainer through a protected factory without
+    exposing Lightning configuration. A request-local subclass is safer than a
+    process-wide working-directory or monkeypatch guard: concurrent MCP calls
+    cannot redirect one another's files or trainer configuration.
+    """
+
+    class _ManagedAESTETIK(estimator_cls):
+        def _build_trainer(self) -> tuple[Any, list[Any]]:
+            trainer, callbacks = super()._build_trainer()
+            logger_connector = getattr(trainer, "_logger_connector", None)
+            if logger_connector is None or not hasattr(
+                logger_connector, "configure_logger"
+            ):
+                raise DependencyError(
+                    "The installed AESTETIK/Lightning combination does not "
+                    "support artifact-free server execution. Install the "
+                    "supported dependency family with "
+                    "pip install 'chatspatial[aestetik]'."
+                )
+            trainer._default_root_dir = trainer_root
+            logger_connector.configure_logger(False)
+            return trainer, callbacks
+
+    return _ManagedAESTETIK(**kwargs)
+
+
+def _install_aestetik_compatibility_inputs(
+    adata: Any,
+    transcriptomics_key: str,
+    morphology_key: str,
+) -> dict[str, Any]:
+    """Install AESTETIK 0.3.x canonical aliases and return overwritten values.
+
+    AESTETIK exposes configurable input keys, but its training dataset still
+    reads cluster labels derived from the two historical key names. The aliases
+    live only on ChatSpatial's request-local working copy and are restored after
+    fitting, so neither user data nor concurrent requests are affected.
+    """
+    previous: dict[str, Any] = {}
+    aliases = {
+        _AESTETIK_TRANSCRIPTOMICS_OBSM_KEY: transcriptomics_key,
+        _AESTETIK_MORPHOLOGY_OBSM_KEY: morphology_key,
+    }
+
+    for alias, source in aliases.items():
+        if alias in adata.obsm and alias != source:
+            previous[alias] = adata.obsm[alias]
+        elif alias not in adata.obsm:
+            previous[alias] = None
+        adata.obsm[alias] = adata.obsm[source]
+
+    return previous
+
+
+def _restore_aestetik_compatibility_inputs(
+    adata: Any, previous: dict[str, Any]
+) -> None:
+    """Restore canonical AESTETIK aliases after request-local fitting."""
+    for key, value in previous.items():
+        if value is None:
+            del adata.obsm[key]
+        else:
+            adata.obsm[key] = value
 
 
 def _apply_aestetik_lattice_coordinates(adata: Any) -> str:
@@ -1291,6 +1375,12 @@ async def _identify_domains_aestetik(
     import asyncio
     import concurrent.futures
 
+    if sys.version_info >= (3, 14):
+        raise DependencyError(
+            "AESTETIK does not support Python 3.14. Run ChatSpatial with "
+            "Python 3.11, 3.12, or 3.13 to use method='aestetik'."
+        )
+
     aestetik = require(
         "aestetik", ctx, feature="AESTETIK spatial domain identification"
     )
@@ -1330,28 +1420,45 @@ async def _identify_domains_aestetik(
         else:
             n_cluster = params.resolution
 
-        model = estimator_cls(
-            n_cluster=n_cluster,
-            morphology_weight=params.aestetik_morphology_weight,
-            window_size=params.aestetik_window_size,
-            clustering_method=params.aestetik_clustering_method,
-            latent_dim=params.aestetik_latent_dim,
-            max_epochs=params.aestetik_max_epochs,
-            random_state=params.aestetik_random_seed,
-            refine_cluster=False,
-            used_obsm_transcriptomics=params.aestetik_transcriptomics_key,
-            used_obsm_morphology=params.aestetik_morphology_key,
-            used_obsm_combined=_AESTETIK_COMBINED_OBSM_KEY,
-        )
-
         loop = asyncio.get_running_loop()
         timeout_seconds = params.timeout if params.timeout is not None else 600
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
 
             def _fit_aestetik():
-                with suppress_output():
-                    return model.fit(adata_aestetik)
+                previous_inputs = _install_aestetik_compatibility_inputs(
+                    adata_aestetik,
+                    params.aestetik_transcriptomics_key,
+                    params.aestetik_morphology_key,
+                )
+                try:
+                    with tempfile.TemporaryDirectory(
+                        prefix="chatspatial-aestetik-"
+                    ) as trainer_root:
+                        model = _managed_aestetik_estimator(
+                            estimator_cls,
+                            trainer_root,
+                            n_cluster=n_cluster,
+                            morphology_weight=params.aestetik_morphology_weight,
+                            window_size=params.aestetik_window_size,
+                            clustering_method=params.aestetik_clustering_method,
+                            latent_dim=params.aestetik_latent_dim,
+                            max_epochs=params.aestetik_max_epochs,
+                            random_state=params.aestetik_random_seed,
+                            refine_cluster=False,
+                            validation_split=0.0,
+                            used_obsm_transcriptomics=(
+                                _AESTETIK_TRANSCRIPTOMICS_OBSM_KEY
+                            ),
+                            used_obsm_morphology=_AESTETIK_MORPHOLOGY_OBSM_KEY,
+                            used_obsm_combined=_AESTETIK_COMBINED_OBSM_KEY,
+                        )
+                        with suppress_output():
+                            return model.fit(adata_aestetik)
+                finally:
+                    _restore_aestetik_compatibility_inputs(
+                        adata_aestetik, previous_inputs
+                    )
 
             fitted = await asyncio.wait_for(
                 loop.run_in_executor(executor, _fit_aestetik),
@@ -1368,11 +1475,19 @@ async def _identify_domains_aestetik(
                 "AESTETIK returned an embedding with unexpected shape "
                 f"{embedding.shape} for {adata_aestetik.n_obs} spots."
             )
+        try:
+            embedding_is_finite = np.all(np.isfinite(embedding))
+        except TypeError as exc:
+            raise ProcessingError("AESTETIK returned a non-numeric embedding.") from exc
+        if not embedding_is_finite:
+            raise ProcessingError("AESTETIK returned a non-finite embedding.")
         if labels.shape[0] != adata_aestetik.n_obs:
             raise ProcessingError(
                 f"AESTETIK returned {labels.shape[0]} cluster labels for "
                 f"{adata_aestetik.n_obs} spots."
             )
+        if np.any(pd.isna(labels)):
+            raise ProcessingError("AESTETIK returned missing cluster labels.")
 
         embeddings_key = "X_aestetik"
         adata.obsm[embeddings_key] = embedding

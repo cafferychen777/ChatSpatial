@@ -256,6 +256,11 @@ def test_spatial_domain_rejects_even_aestetik_window_size():
         SpatialDomainParameters(method="aestetik", aestetik_window_size=4)
 
 
+def test_spatial_domain_rejects_aestetik_morphology_weight_above_total_weight():
+    with pytest.raises(ValidationError):
+        SpatialDomainParameters(method="aestetik", aestetik_morphology_weight=3.1)
+
+
 def test_spatial_variable_genes_default_is_flashs():
     params = SpatialVariableGenesParameters()
     assert params.method == "flashs"

@@ -6,7 +6,7 @@ behavior. MCP clients expose the full schema for method-specific advanced
 options.
 
 ChatSpatial's public interface is a set of 20 schema-validated MCP tools. Those
-tools orchestrate 65 spatial transcriptomics methods across 15 analytical
+tools orchestrate 66 spatial transcriptomics methods across 15 analytical
 categories. In this page, **tool** means the MCP entry point you or an AI client
 can call; **method** means an algorithm or analysis backend selected through a
 parameter such as `method`, `analysis_type`, `plot_type`, or `subtype`.

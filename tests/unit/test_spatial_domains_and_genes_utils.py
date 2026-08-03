@@ -1884,6 +1884,36 @@ def _install_fake_aestetik(monkeypatch: pytest.MonkeyPatch, estimator_cls) -> No
     monkeypatch.setattr(sd, "require", _required_dependency)
 
 
+def test_managed_aestetik_estimator_disables_lightning_artifacts(tmp_path):
+    configured_loggers = []
+
+    class _LoggerConnector:
+        def configure_logger(self, logger):
+            configured_loggers.append(logger)
+
+    class _Trainer:
+        def __init__(self):
+            self._default_root_dir = "original"
+            self._logger_connector = _LoggerConnector()
+
+    class _BaseEstimator:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def _build_trainer(self):
+            return _Trainer(), ["callback"]
+
+    estimator = sd._managed_aestetik_estimator(
+        _BaseEstimator, str(tmp_path), n_cluster=3
+    )
+    trainer, callbacks = estimator._build_trainer()
+
+    assert estimator.kwargs == {"n_cluster": 3}
+    assert trainer._default_root_dir == str(tmp_path)
+    assert configured_loggers == [False]
+    assert callbacks == ["callback"]
+
+
 @pytest.mark.asyncio
 async def test_identify_domains_aestetik_success_path(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
@@ -1919,14 +1949,64 @@ async def test_identify_domains_aestetik_success_path(
     assert stats["n_clusters"] == 2
     assert stats["lattice_source"] == "array_row/array_col"
 
-    # The combined key must not alias the transcriptomics key, otherwise
-    # AESTETIK overwrites its own transcriptomics input before grid building.
-    assert recorded["used_obsm_transcriptomics"] == "X_pca"
+    # AESTETIK 0.3.x exposes custom input keys but its dataset still reads
+    # clusters from these canonical aliases. ChatSpatial installs them only on
+    # the request-local working copy and removes the transcriptomics alias here.
+    assert recorded["used_obsm_transcriptomics"] == "X_pca_transcriptomics"
+    assert recorded["used_obsm_morphology"] == "X_pca_morphology"
     assert recorded["used_obsm_combined"] != recorded["used_obsm_transcriptomics"]
     assert recorded["n_cluster"] == 2
     assert recorded["refine_cluster"] is False
+    assert "X_pca_transcriptomics" not in adata.obsm
     np.testing.assert_array_equal(recorded["x_array"], adata.obs["array_row"])
     np.testing.assert_array_equal(recorded["y_array"], adata.obs["array_col"])
+
+
+@pytest.mark.asyncio
+async def test_identify_domains_aestetik_restores_canonical_input_keys(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = _aestetik_adata(minimal_spatial_adata)
+    n_obs = adata.n_obs
+    original_transcriptomics = np.full((n_obs, 2), 11.0)
+    original_morphology = np.full((n_obs, 2), 13.0)
+    custom_transcriptomics = np.full((n_obs, 3), 17.0)
+    custom_morphology = np.full((n_obs, 4), 19.0)
+    adata.obsm["X_pca_transcriptomics"] = original_transcriptomics.copy()
+    adata.obsm["X_pca_morphology"] = original_morphology.copy()
+    adata.obsm["custom_transcriptomics"] = custom_transcriptomics
+    adata.obsm["custom_morphology"] = custom_morphology
+
+    class _FakeAestetik:
+        def __init__(self, **kwargs):
+            assert kwargs["used_obsm_transcriptomics"] == "X_pca_transcriptomics"
+            assert kwargs["used_obsm_morphology"] == "X_pca_morphology"
+
+        def fit(self, X):
+            np.testing.assert_array_equal(
+                X.obsm["X_pca_transcriptomics"], custom_transcriptomics
+            )
+            np.testing.assert_array_equal(X.obsm["X_pca_morphology"], custom_morphology)
+            self.embedding_ = np.ones((X.n_obs, 2))
+            self.labels_ = np.zeros(X.n_obs, dtype=int)
+            return self
+
+    _install_fake_aestetik(monkeypatch, _FakeAestetik)
+
+    await sd._identify_domains_aestetik(
+        adata,
+        SpatialDomainParameters(
+            method="aestetik",
+            aestetik_transcriptomics_key="custom_transcriptomics",
+            aestetik_morphology_key="custom_morphology",
+        ),
+        DummyCtx(adata),
+    )
+
+    np.testing.assert_array_equal(
+        adata.obsm["X_pca_transcriptomics"], original_transcriptomics
+    )
+    np.testing.assert_array_equal(adata.obsm["X_pca_morphology"], original_morphology)
 
 
 @pytest.mark.asyncio
@@ -2030,6 +2110,27 @@ async def test_identify_domains_aestetik_rejects_non_finite_representation(
 
 
 @pytest.mark.asyncio
+async def test_identify_domains_aestetik_rejects_non_numeric_representation(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = _aestetik_adata(minimal_spatial_adata)
+    adata.obsm["X_pca_morphology"] = np.full((adata.n_obs, 2), "not-numeric")
+
+    class _FakeAestetik:
+        def __init__(self, **kwargs):
+            raise AssertionError("estimator must not be constructed")
+
+    _install_fake_aestetik(monkeypatch, _FakeAestetik)
+
+    with pytest.raises(DataNotFoundError, match="not a numeric morphology"):
+        await sd._identify_domains_aestetik(
+            adata,
+            SpatialDomainParameters(method="aestetik"),
+            DummyCtx(adata),
+        )
+
+
+@pytest.mark.asyncio
 async def test_identify_domains_aestetik_requires_lattice_coordinates(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
@@ -2109,6 +2210,21 @@ async def test_identify_domains_aestetik_missing_estimator_is_reported(
     monkeypatch.setattr(sd, "require", _required_dependency)
 
     with pytest.raises(DependencyError, match="fit/predict API"):
+        await sd._identify_domains_aestetik(
+            adata,
+            SpatialDomainParameters(method="aestetik"),
+            DummyCtx(adata),
+        )
+
+
+@pytest.mark.asyncio
+async def test_identify_domains_aestetik_reports_python_314_incompatibility(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = _aestetik_adata(minimal_spatial_adata)
+    monkeypatch.setattr(sd.sys, "version_info", (3, 14, 0))
+
+    with pytest.raises(DependencyError, match="does not support Python 3.14"):
         await sd._identify_domains_aestetik(
             adata,
             SpatialDomainParameters(method="aestetik"),

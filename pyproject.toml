@@ -225,7 +225,7 @@ spatial-domains = [
 # torchvision/lightning stack that the other spatial-domain backends do not
 # need. The environment marker keeps the 3.14 CI leg resolvable.
 aestetik = [
-    "aestetik>=0.3.1,<1.0; python_version < '3.14'",
+    "aestetik>=0.3.1,<0.4; python_version < '3.14'",
 ]
 
 # HPC acceleration (requires system PETSc/SLEPc libraries)

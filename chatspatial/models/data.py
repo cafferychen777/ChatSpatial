@@ -1378,6 +1378,7 @@ class SpatialDomainParameters(StrictParameters):
     aestetik_morphology_weight: float = Field(
         default=1.5,
         ge=0.0,
+        le=3.0,
         description="Morphology weight in the AESTETIK joint loss.",
     )
     aestetik_window_size: int = Field(
