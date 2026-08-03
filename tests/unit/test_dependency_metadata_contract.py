@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
-from packaging.requirements import Requirement
 import pytest
+from packaging.requirements import Requirement
 
 from chatspatial.utils.dependency_manager import DEPENDENCY_REGISTRY
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -50,9 +49,7 @@ def test_dependency_families_keep_conflicting_backends_separate() -> None:
 def test_spatial_domain_extra_pins_a_coherent_graph_stack() -> None:
     """Louvain and Leiden must resolve against the same igraph generation."""
     project = _project_metadata()
-    requirements = _requirements(
-        project["optional-dependencies"]["spatial-domains"]
-    )
+    requirements = _requirements(project["optional-dependencies"]["spatial-domains"])
 
     expected_versions = {
         "spagcn": "1.2.7",
@@ -67,6 +64,21 @@ def test_spatial_domain_extra_pins_a_coherent_graph_stack() -> None:
 
     assert not requirements["igraph"][0].specifier.contains("1.0.0")
     assert not requirements["leidenalg"][0].specifier.contains("0.11.0")
+
+
+@pytest.mark.unit
+def test_aestetik_extra_is_bounded_and_excludes_python_314() -> None:
+    """AESTETIK must stay isolated from full and unsupported Python releases."""
+    project = _project_metadata()
+    extras = project["optional-dependencies"]
+    requirement = _requirements(extras["aestetik"])["aestetik"][0]
+
+    assert requirement.specifier.contains("0.3.1")
+    assert not requirement.specifier.contains("0.4.0")
+    assert requirement.marker is not None
+    assert requirement.marker.evaluate({"python_version": "3.13"})
+    assert not requirement.marker.evaluate({"python_version": "3.14"})
+    assert "aestetik" not in _requirements(extras["full"])
 
 
 @pytest.mark.unit
@@ -106,6 +118,7 @@ def test_install_guidance_uses_compatible_optional_families() -> None:
         "SpaGCN": "spatial-domains",
         "banksy": "spatial-domains",
         "louvain": "spatial-domains",
+        "aestetik": "aestetik",
     }
 
     for dependency, extra in expected_extras.items():

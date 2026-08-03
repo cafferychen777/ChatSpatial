@@ -9,6 +9,8 @@ function, which handles data preparation and dispatches to the selected method.
 """
 
 import logging
+import sys
+import tempfile
 from collections import Counter
 from typing import TYPE_CHECKING, Any
 
@@ -31,6 +33,7 @@ from ..utils.exceptions import (
     ChatSpatialError,
     DataError,
     DataNotFoundError,
+    DependencyError,
     ParameterError,
     ProcessingError,
 )
@@ -225,9 +228,15 @@ async def identify_spatial_domains(
             domain_labels, embeddings_key, statistics = await _identify_domains_banksy(
                 adata_subset, params, ctx
             )
+        elif params.method == "aestetik":
+            (
+                domain_labels,
+                embeddings_key,
+                statistics,
+            ) = await _identify_domains_aestetik(adata_subset, params, ctx)
         else:
             raise ParameterError(
-                f"Unsupported method: {params.method}. Available methods: spagcn, leiden, louvain, stagate, graphst, banksy"
+                f"Unsupported method: {params.method}. Available methods: spagcn, leiden, louvain, stagate, graphst, banksy, aestetik"
             )
 
         # Build the published result on a fresh source copy. Backend workspaces
@@ -1180,3 +1189,331 @@ async def _identify_domains_banksy(
         raise
     except Exception as e:
         raise ProcessingError(f"BANKSY execution failed: {e}") from e
+
+
+# AESTETIK concatenates the two modalities into ``used_obsm_combined``. That
+# write happens before its own grid construction reads the transcriptomics
+# key, so the combined key must never alias the transcriptomics key.
+_AESTETIK_COMBINED_OBSM_KEY = "X_aestetik_combined"
+_AESTETIK_TRANSCRIPTOMICS_OBSM_KEY = "X_pca_transcriptomics"
+_AESTETIK_MORPHOLOGY_OBSM_KEY = "X_pca_morphology"
+
+
+def _require_aestetik_representation(
+    adata: Any, obsm_key: str, modality: str, guidance: str
+) -> np.ndarray:
+    """Return a validated 2D representation from ``adata.obsm``."""
+    available = sorted(adata.obsm.keys())
+
+    if obsm_key not in adata.obsm:
+        raise DataNotFoundError(
+            f"AESTETIK requires a precomputed {modality} embedding in "
+            f"adata.obsm['{obsm_key}'], which is not present. {guidance} "
+            f"Available obsm keys: {available}."
+        )
+
+    matrix = np.asarray(adata.obsm[obsm_key])
+
+    if matrix.ndim != 2 or matrix.shape[0] != adata.n_obs or matrix.shape[1] < 1:
+        raise DataNotFoundError(
+            f"adata.obsm['{obsm_key}'] is not a usable {modality} embedding: "
+            f"expected a 2D array with {adata.n_obs} rows and at least one "
+            f"column, found shape {matrix.shape}. {guidance}"
+        )
+
+    try:
+        is_finite = np.all(np.isfinite(matrix))
+    except TypeError as exc:
+        raise DataNotFoundError(
+            f"adata.obsm['{obsm_key}'] is not a numeric {modality} embedding. "
+            f"{guidance}"
+        ) from exc
+
+    if not is_finite:
+        raise DataNotFoundError(
+            f"adata.obsm['{obsm_key}'] contains NaN or infinite values and "
+            f"cannot be used as the {modality} embedding. {guidance}"
+        )
+
+    return matrix
+
+
+def _managed_aestetik_estimator(
+    estimator_cls: type,
+    trainer_root: str,
+    **kwargs: Any,
+) -> Any:
+    """Create an AESTETIK estimator whose Lightning trainer writes no artifacts.
+
+    AESTETIK 0.3.x constructs its trainer through a protected factory without
+    exposing Lightning configuration. A request-local subclass is safer than a
+    process-wide working-directory or monkeypatch guard: concurrent MCP calls
+    cannot redirect one another's files or trainer configuration.
+    """
+
+    class _ManagedAESTETIK(estimator_cls):
+        def _build_trainer(self) -> tuple[Any, list[Any]]:
+            trainer, callbacks = super()._build_trainer()
+            logger_connector = getattr(trainer, "_logger_connector", None)
+            if logger_connector is None or not hasattr(
+                logger_connector, "configure_logger"
+            ):
+                raise DependencyError(
+                    "The installed AESTETIK/Lightning combination does not "
+                    "support artifact-free server execution. Install the "
+                    "supported dependency family with "
+                    "pip install 'chatspatial[aestetik]'."
+                )
+            trainer._default_root_dir = trainer_root
+            logger_connector.configure_logger(False)
+            return trainer, callbacks
+
+    return _ManagedAESTETIK(**kwargs)
+
+
+def _install_aestetik_compatibility_inputs(
+    adata: Any,
+    transcriptomics_key: str,
+    morphology_key: str,
+) -> dict[str, Any]:
+    """Install AESTETIK 0.3.x canonical aliases and return overwritten values.
+
+    AESTETIK exposes configurable input keys, but its training dataset still
+    reads cluster labels derived from the two historical key names. The aliases
+    live only on ChatSpatial's request-local working copy and are restored after
+    fitting, so neither user data nor concurrent requests are affected.
+    """
+    previous: dict[str, Any] = {}
+    aliases = {
+        _AESTETIK_TRANSCRIPTOMICS_OBSM_KEY: transcriptomics_key,
+        _AESTETIK_MORPHOLOGY_OBSM_KEY: morphology_key,
+    }
+
+    for alias, source in aliases.items():
+        if alias in adata.obsm and alias != source:
+            previous[alias] = adata.obsm[alias]
+        elif alias not in adata.obsm:
+            previous[alias] = None
+        adata.obsm[alias] = adata.obsm[source]
+
+    return previous
+
+
+def _restore_aestetik_compatibility_inputs(
+    adata: Any, previous: dict[str, Any]
+) -> None:
+    """Restore canonical AESTETIK aliases after request-local fitting."""
+    for key, value in previous.items():
+        if value is None:
+            del adata.obsm[key]
+        else:
+            adata.obsm[key] = value
+
+
+def _apply_aestetik_lattice_coordinates(adata: Any) -> str:
+    """Populate ``x_array``/``y_array`` on the working copy and report the source.
+
+    AESTETIK matches grid neighbours at an exact integer offset, so pixel
+    coordinates are never an acceptable substitute for the array lattice.
+    """
+    if "x_array" in adata.obs.columns and "y_array" in adata.obs.columns:
+        source_columns = ("x_array", "y_array")
+    elif "array_row" in adata.obs.columns and "array_col" in adata.obs.columns:
+        source_columns = ("array_row", "array_col")
+    else:
+        raise DataNotFoundError(
+            "AESTETIK requires discrete lattice coordinates in adata.obs, as "
+            "either 'x_array'/'y_array' or the Visium 'array_row'/'array_col' "
+            "columns. Neither pair is present. Pixel coordinates in "
+            "obsm['spatial'] cannot be substituted: AESTETIK only accepts grid "
+            "neighbours at an exact integer offset, so pixel coordinates would "
+            "yield an empty neighborhood for every spot. Reload the dataset "
+            "from its Space Ranger output, or add the lattice columns before "
+            "running this method. Available obs columns: "
+            f"{sorted(adata.obs.columns)}."
+        )
+
+    coordinates = []
+    for column in source_columns:
+        values = pd.to_numeric(adata.obs[column], errors="coerce").to_numpy(dtype=float)
+        if not np.all(np.isfinite(values)):
+            raise DataNotFoundError(
+                f"adata.obs['{column}'] contains non-numeric, NaN, or infinite "
+                "values and cannot be used as an AESTETIK lattice coordinate."
+            )
+        if not np.all(np.equal(np.mod(values, 1), 0)):
+            raise DataNotFoundError(
+                f"adata.obs['{column}'] holds non-integer values. AESTETIK "
+                "matches grid neighbours at an exact integer offset and cannot "
+                "use continuous coordinates."
+            )
+        coordinates.append(values)
+
+    adata.obs["x_array"] = coordinates[0]
+    adata.obs["y_array"] = coordinates[1]
+
+    return "/".join(source_columns)
+
+
+async def _identify_domains_aestetik(
+    adata: Any, params: SpatialDomainParameters, ctx: "ToolContext"
+) -> tuple:
+    """
+    Identifies spatial domains using the AESTETIK algorithm.
+
+    AESTETIK is a convolutional autoencoder that learns a representation per
+    spot from three inputs: a precomputed transcriptomics embedding, a
+    precomputed per-spot morphology embedding, and the spatial neighborhood
+    grid around the spot. The learned representations are then clustered to
+    define spatial domains. This method requires the `aestetik` package.
+
+    Morphology features are consumed, not produced: ChatSpatial does not
+    extract them from tissue images, so ``aestetik_morphology_key`` must
+    already be present in the dataset. Cluster refinement is left to the
+    shared ``refine_domains`` stage so smoothing is applied exactly once.
+    """
+    import asyncio
+    import concurrent.futures
+
+    if sys.version_info >= (3, 14):
+        raise DependencyError(
+            "AESTETIK does not support Python 3.14. Run ChatSpatial with "
+            "Python 3.11, 3.12, or 3.13 to use method='aestetik'."
+        )
+
+    aestetik = require(
+        "aestetik", ctx, feature="AESTETIK spatial domain identification"
+    )
+
+    estimator_cls = getattr(aestetik, "AESTETIK", None)
+    if estimator_cls is None:
+        raise DependencyError(
+            "The installed aestetik package does not expose the AESTETIK "
+            "estimator. Install a release that provides the fit/predict API: "
+            "pip install 'chatspatial[aestetik]'"
+        )
+
+    try:
+        adata_aestetik = adata
+
+        _require_aestetik_representation(
+            adata_aestetik,
+            params.aestetik_transcriptomics_key,
+            "transcriptomics",
+            "Run compute_embeddings first, or point "
+            "aestetik_transcriptomics_key at an existing representation.",
+        )
+        _require_aestetik_representation(
+            adata_aestetik,
+            params.aestetik_morphology_key,
+            "morphology",
+            "ChatSpatial does not extract morphology features from tissue "
+            "images. Add the embedding to the dataset, or point "
+            "aestetik_morphology_key at an existing representation.",
+        )
+
+        lattice_source = _apply_aestetik_lattice_coordinates(adata_aestetik)
+
+        # kmeans/bgm take a cluster count; leiden/louvain take a resolution.
+        if params.aestetik_clustering_method in ("kmeans", "bgm"):
+            n_cluster: float = params.n_domains
+        else:
+            n_cluster = params.resolution
+
+        loop = asyncio.get_running_loop()
+        timeout_seconds = params.timeout if params.timeout is not None else 600
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+
+            def _fit_aestetik():
+                previous_inputs = _install_aestetik_compatibility_inputs(
+                    adata_aestetik,
+                    params.aestetik_transcriptomics_key,
+                    params.aestetik_morphology_key,
+                )
+                try:
+                    with tempfile.TemporaryDirectory(
+                        prefix="chatspatial-aestetik-"
+                    ) as trainer_root:
+                        model = _managed_aestetik_estimator(
+                            estimator_cls,
+                            trainer_root,
+                            n_cluster=n_cluster,
+                            morphology_weight=params.aestetik_morphology_weight,
+                            window_size=params.aestetik_window_size,
+                            clustering_method=params.aestetik_clustering_method,
+                            latent_dim=params.aestetik_latent_dim,
+                            max_epochs=params.aestetik_max_epochs,
+                            random_state=params.aestetik_random_seed,
+                            refine_cluster=False,
+                            validation_split=0.0,
+                            used_obsm_transcriptomics=(
+                                _AESTETIK_TRANSCRIPTOMICS_OBSM_KEY
+                            ),
+                            used_obsm_morphology=_AESTETIK_MORPHOLOGY_OBSM_KEY,
+                            used_obsm_combined=_AESTETIK_COMBINED_OBSM_KEY,
+                        )
+                        with suppress_output():
+                            return model.fit(adata_aestetik)
+                finally:
+                    _restore_aestetik_compatibility_inputs(
+                        adata_aestetik, previous_inputs
+                    )
+
+            fitted = await asyncio.wait_for(
+                loop.run_in_executor(executor, _fit_aestetik),
+                timeout=timeout_seconds,
+            )
+
+        # Publish the embedding and labels cached by this fit. transform() is
+        # stochastic, so recomputing either one here would desynchronize them.
+        embedding = np.asarray(fitted.embedding_)
+        labels = np.asarray(fitted.labels_).ravel()
+
+        if embedding.ndim != 2 or embedding.shape[0] != adata_aestetik.n_obs:
+            raise ProcessingError(
+                "AESTETIK returned an embedding with unexpected shape "
+                f"{embedding.shape} for {adata_aestetik.n_obs} spots."
+            )
+        try:
+            embedding_is_finite = np.all(np.isfinite(embedding))
+        except TypeError as exc:
+            raise ProcessingError("AESTETIK returned a non-numeric embedding.") from exc
+        if not embedding_is_finite:
+            raise ProcessingError("AESTETIK returned a non-finite embedding.")
+        if labels.shape[0] != adata_aestetik.n_obs:
+            raise ProcessingError(
+                f"AESTETIK returned {labels.shape[0]} cluster labels for "
+                f"{adata_aestetik.n_obs} spots."
+            )
+        if np.any(pd.isna(labels)):
+            raise ProcessingError("AESTETIK returned missing cluster labels.")
+
+        embeddings_key = "X_aestetik"
+        adata.obsm[embeddings_key] = embedding
+        domain_labels = pd.Series(labels, index=adata_aestetik.obs.index).astype(str)
+
+        statistics = {
+            "method": "aestetik",
+            "n_clusters": len(domain_labels.unique()),
+            "clustering_method": params.aestetik_clustering_method,
+            "morphology_weight": params.aestetik_morphology_weight,
+            "window_size": params.aestetik_window_size,
+            "latent_dim": params.aestetik_latent_dim,
+            "max_epochs": params.aestetik_max_epochs,
+            "transcriptomics_key": params.aestetik_transcriptomics_key,
+            "morphology_key": params.aestetik_morphology_key,
+            "lattice_source": lattice_source,
+            "framework": "PyTorch Lightning",
+        }
+
+        return domain_labels, embeddings_key, statistics
+
+    except asyncio.TimeoutError as e:
+        raise ProcessingError(
+            f"AESTETIK timeout after {params.timeout if params.timeout is not None else 600} seconds"
+        ) from e
+    except ChatSpatialError:
+        raise
+    except Exception as e:
+        raise ProcessingError(f"AESTETIK execution failed: {e}") from e

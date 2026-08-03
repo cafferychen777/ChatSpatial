@@ -619,7 +619,7 @@ def create_spatial_mcp_server(
         Tuple of (MCPServer instance, SpatialMCPAdapter instance)
     """
     # Server instructions for LLM guidance on tool usage
-    instructions = """ChatSpatial provides spatial transcriptomics analysis through 65 methods across 15 analytical categories.
+    instructions = """ChatSpatial provides spatial transcriptomics analysis through 66 methods across 15 analytical categories.
 
 CORE WORKFLOW PATTERN:
 1. Always start with load_data() to import spatial transcriptomics data
@@ -658,7 +658,7 @@ For multi-step analyses, preserve data_id across operations to maintain analysis
         title="ChatSpatial",
         description=(
             "Schema-enforced spatial transcriptomics analysis with 20 tools "
-            "covering 65 methods across 15 analytical categories."
+            "covering 66 methods across 15 analytical categories."
         ),
         instructions=instructions,
         website_url="https://github.com/cafferychen777/ChatSpatial",

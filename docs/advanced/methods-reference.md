@@ -6,7 +6,7 @@ behavior. MCP clients expose the full schema for method-specific advanced
 options.
 
 ChatSpatial's public interface is a set of 20 schema-validated MCP tools. Those
-tools orchestrate 65 spatial transcriptomics methods across 15 analytical
+tools orchestrate 66 spatial transcriptomics methods across 15 analytical
 categories. In this page, **tool** means the MCP entry point you or an AI client
 can call; **method** means an algorithm or analysis backend selected through a
 parameter such as `method`, `analysis_type`, `plot_type`, or `subtype`.
@@ -151,9 +151,24 @@ Find tissue domains and spatial niches.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `method` | `spagcn` | `spagcn`, `stagate`, `graphst`, `banksy`, `leiden`, `louvain` |
+| `method` | `spagcn` | `spagcn`, `stagate`, `graphst`, `banksy`, `aestetik`, `leiden`, `louvain` |
 | `n_domains` | 7 | Expected number of domains |
 | `resolution` | 0.5 | Clustering resolution |
+
+**AESTETIK** fuses a precomputed expression embedding, a precomputed per-spot morphology embedding, and the spatial neighborhood grid. It reads both representations from `adata.obsm` and does not extract morphology features from tissue images. It also needs discrete lattice coordinates in `adata.obs`, either `x_array`/`y_array` or the Visium `array_row`/`array_col` columns.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `aestetik_transcriptomics_key` | `X_pca` | obsm key with the expression embedding |
+| `aestetik_morphology_key` | `X_pca_morphology` | obsm key with the morphology embedding |
+| `aestetik_morphology_weight` | 1.5 | Morphology weight in the joint loss |
+| `aestetik_window_size` | 3 | Odd side length of the neighborhood grid |
+| `aestetik_clustering_method` | `kmeans` | `bgm`, `kmeans`, `louvain`, `leiden`. `kmeans`/`bgm` use `n_domains`; `leiden`/`louvain` use `resolution` |
+| `aestetik_latent_dim` | 16 | Latent embedding dimension |
+| `aestetik_max_epochs` | 100 | Training epochs |
+| `aestetik_random_seed` | 2023 | Random seed |
+
+Install with `pip install 'chatspatial[aestetik]'` (Python < 3.14). Method reference: [Representation learning for multi-modal spatially resolved transcriptomics data](https://doi.org/10.1093/bioinformatics/btag316), *Bioinformatics* (2026).
 
 ---
 

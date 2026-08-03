@@ -220,6 +220,14 @@ spatial-domains = [
     "pybanksy>=1.3.5,<2.0",
 ]
 
+# AESTETIK multi-modal spatial domain identification. Kept in its own family
+# because it does not yet support Python 3.14 and because it pulls a
+# torchvision/lightning stack that the other spatial-domain backends do not
+# need. The environment marker keeps the 3.14 CI leg resolvable.
+aestetik = [
+    "aestetik>=0.3.1,<0.4; python_version < '3.14'",
+]
+
 # HPC acceleration (requires system PETSc/SLEPc libraries)
 # Install: brew install petsc slepc (macOS) or apt install petsc-dev slepc-dev (Linux)
 hpc = [

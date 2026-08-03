@@ -6,7 +6,7 @@ ChatSpatial
 Analyze your spatial data from any MCP-compatible client. No coding required.
 
 ChatSpatial exposes 20 schema-validated MCP tools. Those tools orchestrate
-65 spatial transcriptomics methods across 15 analytical categories; the tools
+66 spatial transcriptomics methods across 15 analytical categories; the tools
 are the user-facing interface, and the methods are selected through tool
 parameters.
 
@@ -16,7 +16,7 @@ parameters.
 
       <div style="margin: 2rem 0; padding: 1.5rem; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-radius: 12px; border-left: 4px solid #1565C0;">
         <p style="margin: 0; font-size: 1.1rem; color: #1e293b;">
-          <strong>20 MCP tools</strong> orchestrating 65 methods across 15 analytical categories.
+          <strong>20 MCP tools</strong> orchestrating 66 methods across 15 analytical categories.
           Supports 10x Visium, Xenium, Slide-seq, MERFISH, and more.
         </p>
       </div>

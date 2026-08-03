@@ -1276,11 +1276,11 @@ class DeconvolutionParameters(StrictParameters):
 class SpatialDomainParameters(StrictParameters):
     """Spatial domain identification parameters model"""
 
-    method: Literal["spagcn", "leiden", "louvain", "stagate", "graphst", "banksy"] = (
-        Field(
-            default="spagcn",
-            description="'spagcn' uses histology. 'banksy' uses spatial feature augmentation. 'stagate'/'graphst' use deep learning.",
-        )
+    method: Literal[
+        "spagcn", "leiden", "louvain", "stagate", "graphst", "banksy", "aestetik"
+    ] = Field(
+        default="spagcn",
+        description="'spagcn' uses histology. 'banksy' uses spatial feature augmentation. 'stagate'/'graphst' use deep learning. 'aestetik' fuses precomputed expression and morphology embeddings.",
     )
     n_domains: int = Field(
         default=7, gt=0, le=50, description="Number of spatial domains to identify."
@@ -1366,8 +1366,48 @@ class SpatialDomainParameters(StrictParameters):
         default=0.5, gt=0.0, description="Leiden resolution for BANKSY clustering."
     )
 
+    # AESTETIK specific parameters
+    aestetik_transcriptomics_key: str = Field(
+        default="X_pca",
+        description="obsm key holding the precomputed expression embedding (AESTETIK only).",
+    )
+    aestetik_morphology_key: str = Field(
+        default="X_pca_morphology",
+        description="obsm key holding the precomputed per-spot morphology embedding (AESTETIK only).",
+    )
+    aestetik_morphology_weight: float = Field(
+        default=1.5,
+        ge=0.0,
+        le=3.0,
+        description="Morphology weight in the AESTETIK joint loss.",
+    )
+    aestetik_window_size: int = Field(
+        default=3,
+        gt=0,
+        le=15,
+        description="Odd side length of the AESTETIK neighborhood grid.",
+    )
+    aestetik_clustering_method: Literal["bgm", "kmeans", "louvain", "leiden"] = Field(
+        default="kmeans",
+        description="Clustering applied to AESTETIK embeddings. 'kmeans'/'bgm' use n_domains; 'leiden'/'louvain' use resolution.",
+    )
+    aestetik_latent_dim: int = Field(
+        default=16, gt=0, le=512, description="AESTETIK latent embedding dimension."
+    )
+    aestetik_max_epochs: int = Field(
+        default=100, gt=0, le=10000, description="AESTETIK training epochs."
+    )
+    aestetik_random_seed: int = 2023
+
     # Simple timeout configuration
     timeout: Optional[int] = None  # Timeout in seconds (default: 600)
+
+    @field_validator("aestetik_window_size")
+    @classmethod
+    def validate_aestetik_window_size(cls, v: int) -> int:
+        if v % 2 == 0:
+            raise ValueError("aestetik_window_size must be an odd integer")
+        return v
 
 
 class SpatialVariableGenesParameters(StrictParameters):
