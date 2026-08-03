@@ -9,7 +9,6 @@ from types import ModuleType, SimpleNamespace
 import numpy as np
 import pandas as pd
 import pytest
-import torch
 
 from chatspatial.tools.deconvolution import cell2location as c2l_module
 from chatspatial.tools.deconvolution import destvi as destvi_module
@@ -18,6 +17,28 @@ from chatspatial.tools.deconvolution import stereoscope as stereo_module
 from chatspatial.tools.deconvolution import tangram as tangram_module
 from chatspatial.tools.deconvolution.base import PreparedDeconvolutionData
 from chatspatial.utils.exceptions import DataError, DependencyError, ProcessingError
+
+
+class _FakeTensor:
+    """Minimal tensor value for testing the optional PyTorch boundary."""
+
+    def __init__(self, value: object, *, dtype: np.dtype) -> None:
+        self.value = np.asarray(value, dtype=dtype)
+        self.dtype = self.value.dtype
+
+
+class _FakeTorch:
+    """PyTorch protocol subset consumed by the DestVI adapter."""
+
+    Tensor = _FakeTensor
+    float32 = np.dtype(np.float32)
+
+    @staticmethod
+    def as_tensor(value: object, *, dtype: np.dtype) -> _FakeTensor:
+        return _FakeTensor(value, dtype=dtype)
+
+
+_FAKE_TORCH = _FakeTorch()
 
 
 class DummyCtx:
@@ -66,7 +87,7 @@ def _patch_destvi_dependencies(
     monkeypatch: pytest.MonkeyPatch,
     scvi_module: object,
 ) -> None:
-    dependencies = {"scvi": scvi_module, "torch": torch}
+    dependencies = {"scvi": scvi_module, "torch": _FAKE_TORCH}
 
     def _require(requested_name: str, *_args, **_kwargs):
         try:
@@ -404,8 +425,8 @@ def test_destvi_success_with_fake_scvi(
             assert "l1_reg" not in kwargs
             assert kwargs["vamp_prior_p"] == 15
             prior = cond_model.get_vamp_prior()
-            assert all(isinstance(value, torch.Tensor) for value in prior.values())
-            assert all(value.dtype == torch.float32 for value in prior.values())
+            assert all(isinstance(value, _FakeTorch.Tensor) for value in prior.values())
+            assert all(value.dtype == _FakeTorch.float32 for value in prior.values())
             inst = cls()
             inst._n = spatial_data.n_obs
             return inst
