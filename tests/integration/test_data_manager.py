@@ -3,7 +3,7 @@
 import pytest
 
 from chatspatial.spatial_mcp_adapter import DefaultSpatialDataManager
-from chatspatial.utils.exceptions import DataNotFoundError
+from chatspatial.utils.exceptions import DataNotFoundError, ParameterError
 
 
 @pytest.fixture
@@ -46,7 +46,9 @@ async def test_data_manager_create_update_get(manager, minimal_spatial_adata):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_data_manager_auto_generated_ids_are_unique(manager, minimal_spatial_adata):
+async def test_data_manager_auto_generated_ids_are_unique(
+    manager, minimal_spatial_adata
+):
     id1 = await manager.create_dataset(minimal_spatial_adata, prefix="dup")
     id2 = await manager.create_dataset(minimal_spatial_adata, prefix="dup")
 
@@ -60,28 +62,76 @@ async def test_data_manager_auto_generated_ids_are_unique(manager, minimal_spati
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_data_manager_save_and_get_result_contract(manager, minimal_spatial_adata):
-    """save_result/get_result should preserve payload and key boundaries."""
-    data_id = await manager.create_dataset(minimal_spatial_adata, prefix="d")
+async def test_data_manager_can_publish_a_reserved_id(manager, minimal_spatial_adata):
+    reserved = manager.reserve_dataset_id("integrated")
 
-    result_payload = {"score": 0.91, "method": "demo"}
-    await manager.save_result(data_id, "annotation", result_payload)
-    fetched = await manager.get_result(data_id, "annotation")
+    assert reserved not in manager.data_store
+    created = await manager.create_dataset(
+        minimal_spatial_adata,
+        prefix="integrated",
+        data_id=reserved,
+    )
 
-    assert fetched == result_payload
-    ds = await manager.get_dataset(data_id)
-    assert "results" in ds
-    assert ds["results"]["annotation"] == result_payload
+    assert created == reserved
+    assert (await manager.get_dataset(reserved))["adata"] is minimal_spatial_adata
+
+    with pytest.raises(ParameterError, match="already exists"):
+        await manager.create_dataset(
+            minimal_spatial_adata,
+            prefix="integrated",
+            data_id=reserved,
+        )
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_data_manager_get_result_missing_paths_raise(manager, minimal_spatial_adata):
-    """Missing dataset and missing result should both raise DataNotFoundError."""
-    data_id = await manager.create_dataset(minimal_spatial_adata, prefix="d")
+async def test_data_manager_publish_dataset_detaches_metadata(
+    manager, minimal_spatial_adata
+):
+    data_id = manager.reserve_dataset_id("staged")
+    staged = {
+        "adata": minimal_spatial_adata,
+        "name": "staged-data",
+        "type": "generic",
+    }
 
-    with pytest.raises(DataNotFoundError, match="No preprocessing results found"):
-        await manager.get_result(data_id, "preprocessing")
+    await manager.publish_dataset(data_id, staged)
+    staged["name"] = "mutated-after-publish"
 
-    with pytest.raises(DataNotFoundError, match="Dataset absent not found"):
-        await manager.get_result("absent", "preprocessing")
+    stored = await manager.get_dataset(data_id)
+    assert stored["name"] == "staged-data"
+    assert stored["n_cells"] == minimal_spatial_adata.n_obs
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_data_manager_reservation_skips_existing_generated_id(
+    manager, minimal_spatial_adata
+):
+    manager.data_store["data_1"] = {"adata": minimal_spatial_adata}
+
+    assert manager.reserve_dataset_id("data") == "data_2"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_data_manager_multi_dataset_update_is_atomic(
+    manager,
+    minimal_spatial_adata,
+):
+    first_id = await manager.create_dataset(minimal_spatial_adata, prefix="slice")
+    original = (await manager.get_dataset(first_id))["adata"]
+    candidate = original[:20, :10].copy()
+
+    with pytest.raises(DataNotFoundError, match="missing"):
+        await manager.update_adatas(
+            {
+                first_id: candidate,
+                "missing": candidate,
+            }
+        )
+
+    stored = await manager.get_dataset(first_id)
+    assert stored["adata"] is original
+    assert stored["n_cells"] == original.n_obs
+    assert stored["n_genes"] == original.n_vars

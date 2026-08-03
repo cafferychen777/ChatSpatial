@@ -23,7 +23,6 @@ from ...utils.exceptions import (
 )
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
-
 _VALID_MODES = frozenset({"full", "doublet", "multi"})
 _RCTD_SUBPROCESS_CODE = r"""
 args <- commandArgs(trailingOnly = TRUE)
@@ -241,7 +240,8 @@ def deconvolve(
                 r_context["max_multi_types_val"] = max_multi_types
                 r_context["rctd_input_path"] = str(input_path)
 
-                ro.r("""
+                ro.r(
+                    """
                     invisible(suppressMessages(suppressWarnings(capture.output({
                         rownames(spatial_counts) <- gene_names_spatial
                         colnames(spatial_counts) <- spot_names
@@ -277,7 +277,8 @@ def deconvolve(
                             rctd_input_path
                         )
                     }))))
-                """)
+                """
+                )
 
                 _run_rctd_subprocess(
                     ro,
@@ -288,7 +289,8 @@ def deconvolve(
                 )
 
                 r_context["rctd_output_path"] = str(output_path)
-                ro.r("""
+                ro.r(
+                    """
                     rctd_bundle <- readRDS(rctd_output_path)
                     myRCTD <- rctd_bundle$rctd
                     if (!is.null(rctd_bundle$random_seed)) {
@@ -298,7 +300,8 @@ def deconvolve(
                             envir = .GlobalEnv
                         )
                     }
-                """)
+                """
+                )
                 proportions = _extract_rctd_results(mode, ro)
 
         # Validate results
@@ -337,13 +340,16 @@ def _extract_rctd_results(mode: str, robjects: Any) -> pd.DataFrame:
     ro = robjects
 
     if mode == "full":
-        ro.r("""
+        ro.r(
+            """
             weights_matrix <- myRCTD@results$weights
             cell_type_names <- myRCTD@cell_type_info$renorm[[2]]
             spot_names <- rownames(weights_matrix)
-        """)
+        """
+        )
     elif mode == "doublet":
-        ro.r("""
+        ro.r(
+            """
             if("weights_doublet" %in% names(myRCTD@results) && "results_df" %in% names(myRCTD@results)) {
                 weights_doublet <- myRCTD@results$weights_doublet
                 results_df <- myRCTD@results$results_df
@@ -378,9 +384,11 @@ def _extract_rctd_results(mode: str, robjects: Any) -> pd.DataFrame:
             } else {
                 stop("Official doublet mode structures not found")
             }
-        """)
+        """
+        )
     else:  # multi mode
-        ro.r("""
+        ro.r(
+            """
             results_list <- myRCTD@results
             spot_names <- colnames(myRCTD@spatialRNA@counts)
             cell_type_names <- myRCTD@cell_type_info$renorm[[2]]
@@ -401,7 +409,8 @@ def _extract_rctd_results(mode: str, robjects: Any) -> pd.DataFrame:
                     }
                 }
             }
-        """)
+        """
+        )
 
     weights_r = ro.r("as.matrix(weights_matrix)")
     cell_type_names_r = ro.r("cell_type_names")

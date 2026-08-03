@@ -89,9 +89,7 @@ def deconvolve(
             r_context["spatial_coords"] = spatial_coords
             r_context["gene_names"] = ro.StrVector(data.common_genes)
             r_context["spatial_names"] = ro.StrVector(list(spatial_data.obs_names))
-            r_context["reference_names"] = ro.StrVector(
-                list(reference_data.obs_names)
-            )
+            r_context["reference_names"] = ro.StrVector(list(reference_data.obs_names))
             r_context["cell_types"] = ro.StrVector(cell_types.tolist())
             r_context["nmf_model"] = nmf_model
             r_context["min_prop"] = min_prop
@@ -99,7 +97,8 @@ def deconvolve(
             r_context["weight_id"] = weight_id
             r_context["n_top_genes"] = n_top_genes
 
-            ro.r("""
+            ro.r(
+                """
                     sce <- SingleCellExperiment(
                         assays = list(counts = reference_counts),
                         colData = data.frame(
@@ -150,7 +149,8 @@ def deconvolve(
                         scale = scale_data,
                         verbose = FALSE
                     )
-                """)
+                """
+            )
 
             proportions_np = np.array(ro.r("spotlight_result$mat"))
             spot_names = list(ro.r("rownames(spotlight_result$mat)"))

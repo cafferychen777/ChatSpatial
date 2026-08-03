@@ -1670,16 +1670,33 @@ def get_column_profile(
         col_data = df[col]
 
         # Determine if numeric
-        is_numeric = pd.api.types.is_numeric_dtype(col_data)
+        # Complex values have no meaningful one-dimensional min/max range and
+        # JSON cannot represent them as numbers. Expose them as categorical
+        # strings instead of silently discarding their imaginary component.
+        is_numeric = pd.api.types.is_numeric_dtype(
+            col_data
+        ) and not pd.api.types.is_complex_dtype(col_data)
 
         if is_numeric:
-            # Numerical column
+            # JSON has no representation for NaN or infinity. Profile the
+            # finite observations only and omit the range when a column has no
+            # finite values, keeping MCP structured output schema-valid.
+            numeric_values = pd.to_numeric(col_data, errors="coerce").to_numpy(
+                dtype=float,
+                na_value=np.nan,
+            )
+            finite_values = numeric_values[np.isfinite(numeric_values)]
+            value_range = (
+                (float(finite_values.min()), float(finite_values.max()))
+                if finite_values.size
+                else None
+            )
             profiles.append(
                 {
                     "name": col,
                     "dtype": "numerical",
-                    "n_unique": int(col_data.nunique()),
-                    "range": (float(col_data.min()), float(col_data.max())),
+                    "n_unique": int(np.unique(finite_values).size),
+                    "range": value_range,
                     "sample_values": None,
                 }
             )

@@ -10,7 +10,7 @@
 [![IBC 2026](https://img.shields.io/badge/IBC%202026-Oral-blue.svg)](https://www.ibc2026.org/home)
 [![CI](https://github.com/cafferychen777/ChatSpatial/actions/workflows/ci.yml/badge.svg)](https://github.com/cafferychen777/ChatSpatial/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/chatspatial)](https://pypi.org/project/chatspatial/)
-[![Python 3.11-3.13](https://img.shields.io/badge/python-3.11--3.13-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11-3.14](https://img.shields.io/badge/python-3.11--3.14-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docs](https://img.shields.io/badge/docs-available-blue)](https://docs.cafferyang.com/)
 [![Docker](https://img.shields.io/badge/docker-ghcr.io-blue)](https://github.com/users/cafferychen777/packages/container/package/chatspatial)
@@ -25,6 +25,11 @@ ChatSpatial replaces ad-hoc LLM code generation with **schema-enforced orchestra
 
 ChatSpatial exposes **20 schema-validated MCP tools** that orchestrate **65 spatial transcriptomics methods** across **15 analytical categories**. The tools are the stable natural-language interface; the methods are the analysis backends selected through tool parameters.
 
+The server implements MCP `2026-07-28` through the official Python SDK v2 and
+continues to serve `2025-11-25` clients through SDK-managed protocol negotiation.
+STDIO remains the secure local default; Streamable HTTP is available for
+explicitly configured HTTP deployments.
+
 ---
 
 ## Start Here
@@ -36,7 +41,7 @@ ChatSpatial exposes **20 schema-validated MCP tools** that orchestrate **65 spat
 **Docker quick start:**
 
 ```bash
-docker pull ghcr.io/cafferychen777/chatspatial:v1.2.10
+docker pull ghcr.io/cafferychen777/chatspatial:v1.3.0
 ```
 
 **Minimal example prompt:**

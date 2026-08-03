@@ -242,6 +242,34 @@ def test_export_analysis_result_continues_when_one_key_extraction_fails(
     exported = re.export_analysis_result(adata, "d2", "demo")
     assert len(exported) == 1
     assert exported[0].name == "demo_good.csv"
+    index = json.loads(
+        (re.get_results_dir("d2") / "_index.json").read_text(encoding="utf-8")
+    )
+    assert index["analyses"]["demo"]["errors"] == [
+        {"location": "var", "key": "bad", "error": "boom"}
+    ]
+
+
+def test_export_analysis_result_preserves_valid_empty_dataframe(
+    minimal_spatial_adata, monkeypatch, tmp_path: Path
+):
+    _patch_home(monkeypatch, tmp_path)
+    monkeypatch.setenv("CHATSPATIAL_EXPORT_RESULTS", "1")
+    adata = minimal_spatial_adata.copy()
+    adata.uns["empty"] = pd.DataFrame(columns=["score"])
+    adata.uns["empty_metadata"] = {
+        "method": "demo",
+        "results_keys": {"uns": ["empty"]},
+    }
+
+    exported = re.export_analysis_result(adata, "d_empty", "empty")
+
+    assert len(exported) == 1
+    assert exported[0].read_text(encoding="utf-8").strip() == ",score"
+    index = json.loads(
+        (re.get_results_dir("d_empty") / "_index.json").read_text(encoding="utf-8")
+    )
+    assert index["analyses"]["empty"]["errors"] == []
 
 
 def test_managed_result_paths_reject_path_traversal(

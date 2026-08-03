@@ -8,8 +8,9 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
+from chatspatial.models.analysis import SpatialRegistrationResult
 from chatspatial.models.data import RegistrationParameters
-from chatspatial.server import data_manager, register_spatial_data
+from chatspatial.server import register_spatial_data
 from tests.fixtures.helpers import load_generic_dataset
 
 
@@ -29,15 +30,18 @@ async def test_register_spatial_data_invalid_method_raises_validation_error(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_register_spatial_data_success_saves_registration_result(
+async def test_register_spatial_data_success_returns_registration_result(
     reset_data_manager, monkeypatch: pytest.MonkeyPatch
 ):
     async def fake_register(source_id, target_id, ctx, params=None):
-        return {
-            "source_id": source_id,
-            "target_id": target_id,
-            "method": params.method if params else "paste",
-        }
+        return SpatialRegistrationResult(
+            source_id=source_id,
+            target_id=target_id,
+            method=params.method if params else "paste",
+            n_source_spots=10,
+            n_target_spots=12,
+            spatial_key_registered="spatial_registered",
+        )
 
     monkeypatch.setitem(
         sys.modules,
@@ -45,25 +49,10 @@ async def test_register_spatial_data_success_saves_registration_result(
         SimpleNamespace(register_spatial_slices_mcp=fake_register),
     )
 
-    saved_calls: list[dict[str, object]] = []
-
-    async def fake_save_result(data_id: str, result_type: str, result):
-        saved_calls.append(
-            {"data_id": data_id, "result_type": result_type, "result": result}
-        )
-
-    monkeypatch.setattr(data_manager, "save_result", fake_save_result)
-
     result = await register_spatial_data(
         "source_1", "target_1", params=RegistrationParameters(method="paste")
     )
 
-    assert result["source_id"] == "source_1"
-    # Registration must be saved to both source and target datasets
-    assert len(saved_calls) == 2
-    assert saved_calls[0]["data_id"] == "source_1"
-    assert saved_calls[0]["result_type"] == "registration"
-    assert saved_calls[0]["result"] == result
-    assert saved_calls[1]["data_id"] == "target_1"
-    assert saved_calls[1]["result_type"] == "registration"
-    assert saved_calls[1]["result"] == result
+    assert result.source_id == "source_1"
+    assert result.target_id == "target_1"
+    assert result.method == "paste"

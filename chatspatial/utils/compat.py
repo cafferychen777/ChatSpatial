@@ -19,6 +19,7 @@ Sections:
 """
 
 import functools
+import threading
 from contextlib import contextmanager
 from typing import Any, Callable, Generator
 
@@ -46,6 +47,11 @@ from scipy import misc as scipy_misc
 
 
 _NUMPY2_COMPAT_MARKER = "_chatspatial_numpy2_compat"
+_NUMPY2_PATCH_LOCK = threading.RLock()
+_NUMPY2_PATCH_REFERENCES = 0
+_NUMPY2_PATCH_ORIGINAL: Callable[..., None] | None = None
+_NUMPY2_PATCH_WRAPPER: Callable[..., None] | None = None
+_MISSING_ARGUMENT = object()
 
 
 def _make_numpy2_compat_wrapper(
@@ -58,25 +64,31 @@ def _make_numpy2_compat_wrapper(
 
     def wrapper(
         *args: Any,
-        x: Any = None,
-        y: Any = None,
-        actual: Any = None,
-        desired: Any = None,
+        x: Any = _MISSING_ARGUMENT,
+        y: Any = _MISSING_ARGUMENT,
         **kwargs: Any,
     ) -> None:
-        if args:
-            arr_actual = args[0]
-            arr_desired = args[1] if len(args) > 1 else desired or y
-        else:
-            arr_actual = actual if actual is not None else x
-            arr_desired = desired if desired is not None else y
-
-        if arr_actual is None or arr_desired is None:
+        has_actual = bool(args) or "actual" in kwargs or x is not _MISSING_ARGUMENT
+        has_desired = len(args) > 1 or "desired" in kwargs or y is not _MISSING_ARGUMENT
+        if not has_actual or not has_desired:
             raise ValueError(
                 "assert_array_equal requires two arrays. "
                 "Use positional args or (actual, desired) / (x, y) keyword args."
             )
-        original(arr_actual, arr_desired, **kwargs)
+
+        if x is not _MISSING_ARGUMENT:
+            if args or "actual" in kwargs:
+                raise TypeError("assert_array_equal got multiple values for 'actual'")
+            kwargs["actual"] = x
+        if y is not _MISSING_ARGUMENT:
+            if len(args) > 1 or "desired" in kwargs:
+                raise TypeError("assert_array_equal got multiple values for 'desired'")
+            kwargs["desired"] = y
+
+        # Forward every modern argument unchanged. In particular, positional
+        # err_msg and verbose arguments must not disappear in the compatibility
+        # layer while legacy x/y keywords are translated.
+        original(*args, **kwargs)
 
     setattr(wrapper, _NUMPY2_COMPAT_MARKER, True)
     return wrapper
@@ -97,15 +109,44 @@ def _patch_numpy_testing() -> Callable[[], None]:
     Returns:
         Unpatch function to restore original behavior.
     """
-    current = np.testing.assert_array_equal
+    global _NUMPY2_PATCH_ORIGINAL
+    global _NUMPY2_PATCH_REFERENCES
+    global _NUMPY2_PATCH_WRAPPER
 
-    if getattr(current, _NUMPY2_COMPAT_MARKER, False):
-        return lambda: None  # Already patched
+    with _NUMPY2_PATCH_LOCK:
+        if _NUMPY2_PATCH_REFERENCES == 0:
+            current = np.testing.assert_array_equal
+            if getattr(current, _NUMPY2_COMPAT_MARKER, False):
+                # Respect a compatibility wrapper installed by another owner.
+                return lambda: None
+            _NUMPY2_PATCH_ORIGINAL = current
+            _NUMPY2_PATCH_WRAPPER = _make_numpy2_compat_wrapper(current)
+            np.testing.assert_array_equal = _NUMPY2_PATCH_WRAPPER
+        _NUMPY2_PATCH_REFERENCES += 1
 
-    np.testing.assert_array_equal = _make_numpy2_compat_wrapper(current)
+    cleaned = False
 
     def unpatch() -> None:
-        np.testing.assert_array_equal = current
+        nonlocal cleaned
+        global _NUMPY2_PATCH_ORIGINAL
+        global _NUMPY2_PATCH_REFERENCES
+        global _NUMPY2_PATCH_WRAPPER
+
+        with _NUMPY2_PATCH_LOCK:
+            if cleaned:
+                return
+            cleaned = True
+            _NUMPY2_PATCH_REFERENCES -= 1
+            if _NUMPY2_PATCH_REFERENCES != 0:
+                return
+
+            if (
+                _NUMPY2_PATCH_ORIGINAL is not None
+                and np.testing.assert_array_equal is _NUMPY2_PATCH_WRAPPER
+            ):
+                np.testing.assert_array_equal = _NUMPY2_PATCH_ORIGINAL
+            _NUMPY2_PATCH_ORIGINAL = None
+            _NUMPY2_PATCH_WRAPPER = None
 
     return unpatch
 

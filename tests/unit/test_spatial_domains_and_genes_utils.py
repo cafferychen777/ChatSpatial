@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
-import scipy.sparse as sp
 import pytest
+import scipy.sparse as sp
 
 from chatspatial.models.data import SpatialDomainParameters
 from chatspatial.tools import spatial_domains as sd
@@ -174,6 +174,7 @@ async def test_identify_spatial_domains_refinement_failure_does_not_abort(
         return labels, None, {"silhouette": 0.4}
 
     monkeypatch.setattr(sd, "_identify_domains_clustering", _fake_clustering)
+
     def _partially_refine_then_fail(candidate, domain_key, **_kwargs):
         candidate.obs[f"{domain_key}_refined"] = "partial"
         raise RuntimeError("refine boom")
@@ -305,6 +306,39 @@ async def test_identify_spatial_genes_routes_to_flashs(
     )
     assert out.method == "flashs"
     assert out.n_significant_genes == 3
+
+
+@pytest.mark.asyncio
+async def test_identify_spatial_genes_late_failure_preserves_managed_source(
+    minimal_spatial_adata,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    adata = minimal_spatial_adata.copy()
+    ctx = DummyCtx(adata)
+
+    async def _partially_publish_then_fail(data_id, candidate, params, _ctx):
+        del data_id, params, _ctx
+        candidate.var["partial_spatial_score"] = 1.0
+        candidate.uns["partial_spatial_metadata"] = True
+        raise RuntimeError("spatial export failed")
+
+    monkeypatch.setattr(
+        sg,
+        "_identify_spatial_genes_flashs",
+        _partially_publish_then_fail,
+    )
+
+    with pytest.raises(RuntimeError, match="spatial export failed"):
+        await sg.identify_spatial_genes(
+            "d1",
+            ctx,
+            sg.SpatialVariableGenesParameters(method="flashs"),
+        )
+
+    assert ctx.adata is adata
+    assert "partial_spatial_score" not in adata.var
+    assert "partial_spatial_metadata" not in adata.uns
+    assert ctx.set_calls == 0
 
 
 @pytest.mark.asyncio
@@ -446,9 +480,7 @@ def test_refine_spatial_domains_single_spot_preserves_coordinate_error(
     adata = minimal_spatial_adata[:1].copy()
     adata.obs["domain"] = ["A"]
 
-    with pytest.raises(
-        DataError, match="All spatial coordinates are identical"
-    ):
+    with pytest.raises(DataError, match="All spatial coordinates are identical"):
         _refine_spatial_domains(adata, "domain", threshold=0.5)
 
 
@@ -599,9 +631,9 @@ async def test_identify_domains_spagcn_timeout_is_wrapped(
         "chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None
     )
 
+    import asyncio as _asyncio
     import sys
     import types
-    import asyncio as _asyncio
 
     ez_mod = types.ModuleType("SpaGCN.ez_mode")
     ez_mod.detect_spatial_domains_ez_mode = lambda ad, *args, **kwargs: ["0"] * ad.n_obs
@@ -852,9 +884,9 @@ async def test_identify_domains_stagate_timeout_is_wrapped(
 async def test_identify_domains_graphst_mclust_path_success(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import warnings
     import sys
     import types
+    import warnings
 
     adata = minimal_spatial_adata.copy()
 

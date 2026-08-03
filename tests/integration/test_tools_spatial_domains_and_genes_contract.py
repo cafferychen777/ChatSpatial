@@ -6,7 +6,10 @@ import pandas as pd
 import pytest
 
 from chatspatial.models.analysis import SpatialDomainResult, SpatialVariableGenesResult
-from chatspatial.models.data import SpatialDomainParameters, SpatialVariableGenesParameters
+from chatspatial.models.data import (
+    SpatialDomainParameters,
+    SpatialVariableGenesParameters,
+)
 from chatspatial.tools import spatial_domains as domains_module
 from chatspatial.tools import spatial_genes as genes_module
 from chatspatial.tools.spatial_domains import identify_spatial_domains
@@ -41,9 +44,7 @@ async def test_identify_spatial_domains_leiden_contract_with_mocked_backend(
         labels = pd.Series(["0"] * 30 + ["1"] * 30, index=adata_subset.obs.index)
         return labels, "X_pca", {"method": "leiden", "resolution": params.resolution}
 
-    monkeypatch.setattr(
-        domains_module, "_identify_domains_clustering", fake_clustering
-    )
+    monkeypatch.setattr(domains_module, "_identify_domains_clustering", fake_clustering)
     monkeypatch.setattr(domains_module, "store_analysis_metadata", lambda *a, **k: None)
     monkeypatch.setattr(domains_module, "export_analysis_result", lambda *a, **k: None)
 
@@ -139,4 +140,6 @@ async def test_identify_spatial_genes_requires_spatial_coordinates(
     ctx = DummyCtx(adata)
 
     with pytest.raises(DataError):
-        await identify_spatial_genes("d4", ctx, SpatialVariableGenesParameters(method="sparkx"))
+        await identify_spatial_genes(
+            "d4", ctx, SpatialVariableGenesParameters(method="sparkx")
+        )

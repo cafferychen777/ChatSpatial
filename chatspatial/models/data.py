@@ -6,8 +6,10 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from typing_extensions import Self
+
+from .base import FiniteModel, StrictParameters
 
 IntPair = Annotated[list[int], Field(min_length=2, max_length=2)]
 FloatPair = Annotated[list[float], Field(min_length=2, max_length=2)]
@@ -29,7 +31,7 @@ SpatialPlatform = Literal[
 ]
 
 
-class ColumnInfo(BaseModel):
+class ColumnInfo(FiniteModel):
     """Metadata column information for dataset profiling"""
 
     name: str
@@ -39,7 +41,7 @@ class ColumnInfo(BaseModel):
     range: Optional[FloatPair] = None  # Value range for numerical
 
 
-class SpatialDataset(BaseModel):
+class SpatialDataset(FiniteModel):
     """Spatial transcriptomics dataset model with comprehensive metadata profile"""
 
     id: str
@@ -64,7 +66,7 @@ class SpatialDataset(BaseModel):
     top_expressed_genes: Optional[list[str]] = None
 
 
-class PreprocessingParameters(BaseModel):
+class PreprocessingParameters(StrictParameters):
     """Preprocessing parameters model"""
 
     # Data filtering and subsampling parameters (user controlled)
@@ -156,9 +158,6 @@ class PreprocessingParameters(BaseModel):
         le=5000,
         description="Number of highly variable genes to select.",
     )
-    n_pcs: int = Field(
-        default=30, gt=0, le=100, description="Number of principal components for PCA."
-    )
 
     # ========== Normalization Control Parameters ==========
     normalize_target_sum: Optional[float] = Field(
@@ -223,28 +222,12 @@ class PreprocessingParameters(BaseModel):
         description="Training data fraction (rest for validation). 1.0 disables validation and early stopping.",
     )
 
-    # Key naming parameters (configurable hard-coded keys)
-    cluster_key: str = Field(
-        default="leiden",
-        alias="clustering_key",
-        description="Key name for clustering results in obs.",
-    )
     batch_key: str = Field(
         default="batch", description="Key name for batch information in obs."
     )
 
-    # User-controllable parameters (scientifically-informed defaults)
-    n_neighbors: Annotated[int, Field(gt=2, le=100)] = Field(
-        default=15,
-        description="Neighbors for k-NN graph. Larger (20-50) for global structure, smaller (5-10) for local patterns.",
-    )
-    clustering_resolution: Annotated[float, Field(gt=0.1, le=2.0)] = Field(
-        default=1.0,
-        description="Leiden clustering resolution. Higher (1.5-2.0) for more clusters, lower (0.2-0.5) for fewer.",
-    )
 
-
-class DifferentialExpressionParameters(BaseModel):
+class DifferentialExpressionParameters(StrictParameters):
     """Differential expression analysis parameters model.
 
     This model encapsulates all parameters for differential expression analysis,
@@ -294,10 +277,8 @@ class DifferentialExpressionParameters(BaseModel):
     )
 
 
-class VisualizationParameters(BaseModel):
+class VisualizationParameters(StrictParameters):
     """Visualization parameters model"""
-
-    model_config = ConfigDict(extra="forbid")  # Strict validation after preprocessing
 
     feature: Optional[Union[str, list[str]]] = Field(
         None,
@@ -626,7 +607,7 @@ class VisualizationParameters(BaseModel):
         return self
 
 
-class AnnotationParameters(BaseModel):
+class AnnotationParameters(StrictParameters):
     """Cell type annotation parameters model"""
 
     method: Literal[
@@ -642,7 +623,9 @@ class AnnotationParameters(BaseModel):
     training_genes: Optional[list[str]] = (
         None  # For Tangram method - genes to use for mapping
     )
-    n_epochs: int = 100  # For Tangram/ScanVI methods - number of training epochs (reduced for faster training)
+    n_epochs: int = (
+        100  # For Tangram/ScanVI methods - number of training epochs (reduced for faster training)
+    )
     tangram_mode: Literal["cells", "clusters"] = (
         "cells"  # Tangram mapping mode: 'cells' (cell-level) or 'clusters' (cluster-level)
     )
@@ -805,7 +788,7 @@ class AnnotationParameters(BaseModel):
     n_threads: int = 4  # Number of threads for parallel processing
 
 
-class SpatialStatisticsParameters(BaseModel):
+class SpatialStatisticsParameters(StrictParameters):
     """Spatial statistics parameters model"""
 
     analysis_type: Literal[
@@ -912,12 +895,8 @@ class SpatialStatisticsParameters(BaseModel):
     )
 
 
-class RNAVelocityParameters(BaseModel):
+class RNAVelocityParameters(StrictParameters):
     """RNA velocity analysis parameters model"""
-
-    model_config = ConfigDict(
-        extra="forbid"
-    )  # Strict validation - no extra parameters allowed
 
     # Velocity computation method selection
     method: Literal["scvelo", "velovi"] = Field(
@@ -959,7 +938,7 @@ class RNAVelocityParameters(BaseModel):
     velovi_use_gpu: bool = False
 
 
-class TrajectoryParameters(BaseModel):
+class TrajectoryParameters(StrictParameters):
     """Trajectory analysis parameters model"""
 
     method: Literal["cellrank", "palantir", "dpt"] = Field(
@@ -1013,7 +992,7 @@ class TrajectoryParameters(BaseModel):
     # LLMs should explicitly choose which method to use
 
 
-class IntegrationParameters(BaseModel):
+class IntegrationParameters(StrictParameters):
     """Sample integration parameters model"""
 
     method: Literal["harmony", "bbknn", "scanorama", "scvi"] = Field(
@@ -1039,7 +1018,7 @@ class IntegrationParameters(BaseModel):
     scvi_gene_likelihood: Literal["zinb", "nb", "poisson"] = "zinb"
 
 
-class DeconvolutionParameters(BaseModel):
+class DeconvolutionParameters(StrictParameters):
     """Spatial deconvolution parameters model"""
 
     method: Literal[
@@ -1294,7 +1273,7 @@ class DeconvolutionParameters(BaseModel):
     )
 
 
-class SpatialDomainParameters(BaseModel):
+class SpatialDomainParameters(StrictParameters):
     """Spatial domain identification parameters model"""
 
     method: Literal["spagcn", "leiden", "louvain", "stagate", "graphst", "banksy"] = (
@@ -1391,7 +1370,7 @@ class SpatialDomainParameters(BaseModel):
     timeout: Optional[int] = None  # Timeout in seconds (default: 600)
 
 
-class SpatialVariableGenesParameters(BaseModel):
+class SpatialVariableGenesParameters(StrictParameters):
     """Spatial variable genes identification parameters model"""
 
     # Method selection
@@ -1488,7 +1467,7 @@ class SpatialVariableGenesParameters(BaseModel):
         return v
 
 
-class CellCommunicationParameters(BaseModel):
+class CellCommunicationParameters(StrictParameters):
     """Cell-cell communication analysis parameters model with explicit user control"""
 
     # ========== Basic Method Selection ==========
@@ -1719,10 +1698,8 @@ class CellCommunicationParameters(BaseModel):
     )
 
 
-class EnrichmentParameters(BaseModel):
+class EnrichmentParameters(StrictParameters):
     """Parameters for gene set enrichment analysis"""
-
-    model_config = ConfigDict(extra="forbid")
 
     # REQUIRED: Species specification (no default value)
     species: Literal["human", "mouse", "zebrafish"]
@@ -1785,7 +1762,7 @@ class EnrichmentParameters(BaseModel):
     )
 
 
-class CNVParameters(BaseModel):
+class CNVParameters(StrictParameters):
     """Copy Number Variation (CNV) analysis parameters model"""
 
     # Method selection
@@ -1849,7 +1826,7 @@ class CNVParameters(BaseModel):
     )
 
 
-class RegistrationParameters(BaseModel):
+class RegistrationParameters(StrictParameters):
     """Spatial registration parameters for aligning multiple tissue slices."""
 
     method: Literal["paste", "stalign"] = Field(
@@ -1901,7 +1878,7 @@ class RegistrationParameters(BaseModel):
     )
 
 
-class ConditionComparisonParameters(BaseModel):
+class ConditionComparisonParameters(StrictParameters):
     """Parameters for multi-sample condition comparison analysis.
 
     This tool compares gene expression between experimental conditions (e.g., Treatment vs Control)

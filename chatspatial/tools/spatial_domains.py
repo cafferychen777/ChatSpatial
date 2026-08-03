@@ -300,9 +300,6 @@ async def identify_spatial_domains(
         # Export results for reproducibility
         export_analysis_result(adata, data_id, analysis_key)
 
-        await ctx.set_adata(data_id, adata)
-
-        # Create result
         result = SpatialDomainResult(
             data_id=data_id,
             method=params.method,
@@ -313,7 +310,7 @@ async def identify_spatial_domains(
             statistics=statistics,
             embeddings_key=embeddings_key,
         )
-
+        await ctx.set_adata(data_id, adata)
         return result
 
     except ChatSpatialError:

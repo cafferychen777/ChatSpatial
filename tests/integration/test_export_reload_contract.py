@@ -20,17 +20,18 @@ def _extract_export_path(msg: str) -> Path:
 
 
 class DummyContext:
-    """Minimal async context mock to verify info/error logging behavior."""
+    """Minimal MCP context mock for progress-notification contracts."""
 
     def __init__(self):
-        self.info_logs: list[str] = []
-        self.error_logs: list[str] = []
+        self.progress_updates: list[tuple[float, float | None, str | None]] = []
 
-    async def info(self, msg: str):
-        self.info_logs.append(msg)
-
-    async def error(self, msg: str):
-        self.error_logs.append(msg)
+    async def report_progress(
+        self,
+        progress: float,
+        total: float | None = None,
+        message: str | None = None,
+    ) -> None:
+        self.progress_updates.append((progress, total, message))
 
 
 @pytest.mark.integration
@@ -73,10 +74,12 @@ async def test_reload_data_applies_external_changes(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_reload_data_emits_context_info_logs_on_success(
+async def test_reload_data_emits_progress_on_success(
     spatial_dataset_path, tmp_path, reset_data_manager
 ):
-    dataset = await load_generic_dataset(spatial_dataset_path, name="reload_ctx_success")
+    dataset = await load_generic_dataset(
+        spatial_dataset_path, name="reload_ctx_success"
+    )
 
     target = tmp_path / "exports" / "dataset_reload_ctx.h5ad"
     await export_data(dataset.id, path=str(target))
@@ -89,9 +92,10 @@ async def test_reload_data_emits_context_info_logs_on_success(
     msg = await reload_data(dataset.id, path=str(target), context=ctx)
 
     assert "reloaded" in msg
-    assert len(ctx.info_logs) == 2
-    assert "Reloading dataset" in ctx.info_logs[0]
-    assert "reloaded successfully" in ctx.info_logs[1]
+    assert ctx.progress_updates == [
+        (1.0, None, f"Reloading dataset '{dataset.id}'..."),
+        (2.0, None, f"Dataset '{dataset.id}' reloaded successfully"),
+    ]
 
 
 @pytest.mark.integration
@@ -115,7 +119,7 @@ async def test_export_data_missing_dataset_raises_not_found(reset_data_manager):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_export_data_emits_context_info_logs(
+async def test_export_data_emits_progress(
     spatial_dataset_path, tmp_path, reset_data_manager
 ):
     dataset = await load_generic_dataset(spatial_dataset_path, name="export_ctx")
@@ -125,15 +129,19 @@ async def test_export_data_emits_context_info_logs(
     msg = await export_data(dataset.id, path=str(target), context=ctx)
 
     assert "exported to:" in msg
-    assert len(ctx.info_logs) == 2
-    assert "Exporting dataset" in ctx.info_logs[0]
-    assert "Dataset exported to:" in ctx.info_logs[1]
-    assert ctx.error_logs == []
+    assert ctx.progress_updates[0] == (
+        1.0,
+        None,
+        f"Exporting dataset '{dataset.id}'...",
+    )
+    assert ctx.progress_updates[1][0:2] == (2.0, None)
+    assert ctx.progress_updates[1][2] is not None
+    assert ctx.progress_updates[1][2].startswith("Dataset exported to:")
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_export_data_logs_context_error_when_persistence_fails(
+async def test_export_data_does_not_emit_duplicate_error_status(
     reset_data_manager, monkeypatch: pytest.MonkeyPatch
 ):
     class BoomError(RuntimeError):
@@ -160,27 +168,31 @@ async def test_export_data_logs_context_error_when_persistence_fails(
     with pytest.raises(BoomError, match="boom"):
         await export_data("d_boom", context=ctx)
 
-    assert any("Failed to export dataset: boom" in line for line in ctx.error_logs)
+    assert ctx.progress_updates == [(1.0, None, "Exporting dataset 'd_boom'...")]
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_reload_data_logs_context_error_for_missing_file(
+async def test_reload_data_does_not_emit_duplicate_missing_file_error_status(
     spatial_dataset_path, tmp_path, reset_data_manager
 ):
-    dataset = await load_generic_dataset(spatial_dataset_path, name="reload_ctx_missing")
+    dataset = await load_generic_dataset(
+        spatial_dataset_path, name="reload_ctx_missing"
+    )
     ctx = DummyContext()
     missing = tmp_path / "missing_reload_file.h5ad"
 
     with pytest.raises(FileNotFoundError, match="Data file not found"):
         await reload_data(dataset.id, path=str(missing), context=ctx)
 
-    assert any("Data file not found" in line for line in ctx.error_logs)
+    assert ctx.progress_updates == [
+        (1.0, None, f"Reloading dataset '{dataset.id}'..."),
+    ]
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_reload_data_logs_context_error_for_generic_failure(
+async def test_reload_data_does_not_emit_duplicate_generic_error_status(
     reset_data_manager, monkeypatch: pytest.MonkeyPatch
 ):
     def fake_load_adata_from_active(data_id, path):
@@ -196,7 +208,4 @@ async def test_reload_data_logs_context_error_for_generic_failure(
     with pytest.raises(RuntimeError, match="unexpected reload failure"):
         await reload_data("d_fail", path="/tmp/not_used.h5ad", context=ctx)
 
-    assert any(
-        "Failed to reload dataset: unexpected reload failure" in line
-        for line in ctx.error_logs
-    )
+    assert ctx.progress_updates == [(1.0, None, "Reloading dataset 'd_fail'...")]

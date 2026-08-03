@@ -54,13 +54,33 @@ async def test_error_handler_preserves_dependency_error_without_traceback():
 
 
 @pytest.mark.asyncio
-async def test_error_handler_for_simple_type_non_user_error_has_traceback():
+async def test_error_handler_logs_non_user_error_without_exposing_traceback(
+    caplog: pytest.LogCaptureFixture,
+):
     @mcp_tool_error_handler()
+    async def tool() -> dict:
+        raise ProcessingError("compute failed")
+
+    with (
+        caplog.at_level(logging.ERROR),
+        pytest.raises(ProcessingError, match="compute failed") as exc,
+    ):
+        await tool()
+
+    assert "Traceback:" not in str(exc.value)
+    assert "MCP tool tool failed" in caplog.text
+    assert "ProcessingError: compute failed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_error_handler_can_expose_traceback_for_local_debugging():
+    @mcp_tool_error_handler(include_traceback=True)
     async def tool() -> dict:
         raise ProcessingError("compute failed")
 
     with pytest.raises(ProcessingError, match="compute failed") as exc:
         await tool()
+
     assert "Traceback:" in str(exc.value)
 
 

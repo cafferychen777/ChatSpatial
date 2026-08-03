@@ -5,14 +5,26 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from chatspatial.models.data import DifferentialExpressionParameters, VisualizationParameters
-from chatspatial.server import find_markers, load_data, preprocess_data, visualize_data
+import chatspatial.server as server
+from chatspatial.models.data import (
+    DifferentialExpressionParameters,
+    VisualizationParameters,
+)
+from chatspatial.server import (
+    data_manager,
+    find_markers,
+    load_data,
+    preprocess_data,
+    visualize_data,
+)
 from chatspatial.utils.exceptions import DataNotFoundError
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_preprocess_data_missing_dataset_raises_data_not_found(reset_data_manager):
+async def test_preprocess_data_missing_dataset_raises_data_not_found(
+    reset_data_manager,
+):
     with pytest.raises(DataNotFoundError, match="Dataset missing_data not found"):
         await preprocess_data("missing_data")
 
@@ -22,7 +34,8 @@ async def test_preprocess_data_missing_dataset_raises_data_not_found(reset_data_
 async def test_find_markers_invalid_method_raises_validation_error(reset_data_manager):
     with pytest.raises(ValidationError, match="method"):
         params = DifferentialExpressionParameters(
-            group_key="group", method="not_a_method",
+            group_key="group",
+            method="not_a_method",
         )
         await find_markers(data_id="any", params=params)
 
@@ -42,3 +55,21 @@ async def test_visualize_data_missing_dataset_raises_not_found(reset_data_manage
 async def test_load_data_invalid_path_raises_file_not_found(reset_data_manager):
     with pytest.raises(FileNotFoundError, match="Data path not found"):
         await load_data("/definitely/not/exist/file.h5ad", "generic", name="bad")
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_load_data_does_not_publish_when_public_result_validation_fails(
+    spatial_dataset_path,
+    reset_data_manager,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def reject_public_result(**kwargs):
+        raise ValidationError.from_exception_data("SpatialDataset", [])
+
+    monkeypatch.setattr(server, "SpatialDataset", reject_public_result)
+
+    with pytest.raises(ValidationError):
+        await load_data(str(spatial_dataset_path), "generic", name="invalid-output")
+
+    assert data_manager.data_store == {}

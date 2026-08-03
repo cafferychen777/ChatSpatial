@@ -366,9 +366,7 @@ def _normalize_palantir_matrix(
         try:
             values = np.asarray(matrix, dtype=float)
         except (TypeError, ValueError) as exc:
-            raise DataCompatibilityError(
-                f"Palantir {name} must be numeric."
-            ) from exc
+            raise DataCompatibilityError(f"Palantir {name} must be numeric.") from exc
         if values.ndim != 2 or values.shape[0] != len(expected_index):
             raise DataCompatibilityError(
                 f"Palantir {name} has shape {values.shape}; expected "
@@ -383,9 +381,7 @@ def _normalize_palantir_matrix(
     except (TypeError, ValueError) as exc:
         raise DataCompatibilityError(f"Palantir {name} must be numeric.") from exc
     if not np.isfinite(values).all():
-        raise DataCompatibilityError(
-            f"Palantir {name} contains non-finite values."
-        )
+        raise DataCompatibilityError(f"Palantir {name} contains non-finite values.")
     return pd.DataFrame(values, index=expected_index, columns=normalized.columns)
 
 
@@ -498,9 +494,7 @@ def infer_pseudotime_palantir(
         ms_data, start_cell, num_waypoints=num_waypoints
     )
 
-    pseudotime = _normalize_palantir_pseudotime(
-        pr_res.pseudotime, adata.obs_names
-    )
+    pseudotime = _normalize_palantir_pseudotime(pr_res.pseudotime, adata.obs_names)
     branch_probs = _normalize_palantir_matrix(
         pr_res.branch_probs,
         adata.obs_names,
@@ -778,10 +772,7 @@ async def analyze_trajectory(
     # Export results for reproducibility
     export_analysis_result(adata, data_id, analysis_key)
 
-    # Publish only after computation, validation, metadata, and export finish.
-    await ctx.set_adata(data_id, adata)
-
-    return TrajectoryResult(
+    result = TrajectoryResult(
         data_id=data_id,
         pseudotime_computed=True,
         velocity_computed=velocity_available,
@@ -789,3 +780,5 @@ async def analyze_trajectory(
         method=method_used,
         spatial_weight=params.spatial_weight,
     )
+    await ctx.set_adata(data_id, adata)
+    return result

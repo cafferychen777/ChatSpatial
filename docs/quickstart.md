@@ -77,8 +77,16 @@ Dataset loaded successfully
 ```text
 Preprocessing complete
 - Filtered to 2800 spots, 2000 HVGs
-- Computed 30 PCs, UMAP
+- Normalized expression and preserved raw counts
+```
+
+**After computing embeddings:**
+
+```text
+Embedding computation complete
+- Computed 30 PCs and UMAP
 - Found 8 clusters (Leiden)
+- Built expression and spatial neighbor graphs
 ```
 
 Visualizations appear directly in the chat or client UI.
@@ -93,6 +101,7 @@ Check these basics first:
 - If using Docker, use the container path from your mount, such as `/data/sample.h5ad`; full Docker mount rules live in [Docker / GHCR](docker.md)
 - Restart your client after MCP configuration changes
 - Run preprocessing before most downstream analyses
+- Run `compute_embeddings` before tools that require PCA, UMAP, clusters, or neighbor graphs
 
 If that does not fix the problem, go to the [Troubleshooting Guide](advanced/troubleshooting.md).
 

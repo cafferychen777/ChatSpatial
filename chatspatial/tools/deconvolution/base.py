@@ -241,11 +241,17 @@ async def prepare_deconvolution(
 
     # 4. Restore raw counts
     spatial_prep = await _prepare_counts(
-        spatial_adata, "Spatial", ctx, require_int_dtype,
+        spatial_adata,
+        "Spatial",
+        ctx,
+        require_int_dtype,
         require_counts=require_counts,
     )
     reference_prep = await _prepare_counts(
-        reference_adata, "Reference", ctx, require_int_dtype,
+        reference_adata,
+        "Reference",
+        ctx,
+        require_int_dtype,
         require_counts=require_counts,
     )
 

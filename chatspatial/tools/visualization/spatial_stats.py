@@ -407,11 +407,7 @@ def _create_moran_visualization(
 
     # Add annotation for significance (match the actual criterion used)
     n_significant = top_genes["significant"].sum()
-    sig_label = (
-        "FDR < 0.05"
-        if "pval_norm_fdr" in moran_data.columns
-        else "p < 0.05"
-    )
+    sig_label = "FDR < 0.05" if "pval_norm_fdr" in moran_data.columns else "p < 0.05"
     ax.text(
         0.98,
         0.02,

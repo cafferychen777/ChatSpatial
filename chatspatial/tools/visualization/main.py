@@ -27,7 +27,10 @@ from ...utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
-from ...utils.image_utils import isolated_figure_scope, optimize_fig_to_image_with_cache
+from ...utils.image_utils import (
+    optimize_fig_to_image_with_cache,
+    serialized_figure_scope,
+)
 
 # Import unified visualization handlers
 from .cell_comm import (
@@ -115,7 +118,7 @@ async def visualize_data(
         )
 
     try:
-        with isolated_figure_scope():
+        async with serialized_figure_scope():
             return await _create_and_export_visualization(data_id, ctx, params)
     except ChatSpatialError:
         raise

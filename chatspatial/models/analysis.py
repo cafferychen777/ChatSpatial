@@ -2,19 +2,33 @@
 Analysis result models for spatial transcriptomics data.
 """
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
+from pydantic.json_schema import SkipJsonSchema
+
+from .base import FiniteModel
 
 
-class BaseAnalysisResult(BaseModel):
-    """Base class for all analysis results.
-
-    Provides common configuration and optional shared fields.
-    All analysis result models should inherit from this class.
-    """
+class _AnalysisModel(FiniteModel):
+    """Shared configuration for analysis result and nested value models."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class BaseAnalysisResult(_AnalysisModel):
+    """Base class for top-level analysis tool results.
+
+    Top-level results may carry non-fatal warnings collected during a tool call.
+    Nested value models intentionally inherit from ``_AnalysisModel`` instead so
+    warnings are represented once, at the tool-result boundary.
+    """
+
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="Non-fatal conditions that may affect result interpretation.",
+        exclude_if=lambda value: not value,
+    )
 
 
 class PreprocessingResult(BaseAnalysisResult):
@@ -24,8 +38,23 @@ class PreprocessingResult(BaseAnalysisResult):
     n_cells: int
     n_genes: int
     n_hvgs: int
-    clusters: int
-    qc_metrics: Optional[dict[str, Any]] = None
+    clusters: int = Field(
+        description=(
+            "Clusters computed during preprocessing. This is zero because "
+            "clustering is performed by compute_embeddings."
+        )
+    )
+    qc_metrics: Optional[dict[str, int | float | bool | str]] = None
+
+
+class EmbeddingResult(BaseAnalysisResult):
+    """Result of dimensionality reduction and clustering computation."""
+
+    data_id: str
+    computed: list[str]
+    skipped: list[str]
+    n_clusters: Optional[int] = Field(default=None, ge=0)
+    pca_variance_ratio: Optional[float] = Field(default=None, ge=0.0)
 
 
 class DifferentialExpressionResult(BaseAnalysisResult):
@@ -50,7 +79,7 @@ class DifferentialExpressionResult(BaseAnalysisResult):
     top_genes: list[str] = Field(default_factory=list)
 
     # Detailed statistics - excluded from MCP response
-    statistics: dict[str, Any] = Field(
+    statistics: SkipJsonSchema[dict[str, Any]] = Field(
         default_factory=dict,
         exclude=True,  # Exclude from JSON serialization to LLM
     )
@@ -116,7 +145,7 @@ class SpatialStatisticsResult(BaseAnalysisResult):
     results_key: Optional[str] = None  # Key in adata.uns for full results
 
     # Detailed statistics - excluded from MCP response
-    statistics: Optional[dict[str, Any]] = Field(
+    statistics: SkipJsonSchema[Optional[dict[str, Any]]] = Field(
         default=None,
         exclude=True,  # Exclude from JSON serialization to LLM
     )
@@ -146,8 +175,20 @@ class IntegrationResult(BaseAnalysisResult):
     """Result of sample integration"""
 
     data_id: str
-    n_samples: int
+    n_samples: int = Field(ge=2)
     integration_method: str
+
+
+class SpatialRegistrationResult(BaseAnalysisResult):
+    """Result of bilateral spatial-coordinate registration."""
+
+    method: Literal["paste", "stalign"]
+    source_id: str
+    target_id: str
+    n_source_spots: int = Field(ge=0)
+    n_target_spots: int = Field(ge=0)
+    registration_completed: Literal[True] = True
+    spatial_key_registered: str
 
 
 class DeconvolutionResult(BaseAnalysisResult):
@@ -178,7 +219,7 @@ class DeconvolutionResult(BaseAnalysisResult):
     genes_used: int = 0
 
     # Detailed statistics - excluded from MCP response
-    statistics: dict[str, Any] = Field(
+    statistics: SkipJsonSchema[dict[str, Any]] = Field(
         default_factory=dict,
         exclude=True,  # Exclude from JSON serialization to LLM
     )
@@ -213,7 +254,7 @@ class SpatialDomainResult(BaseAnalysisResult):
     )
 
     # Detailed statistics - excluded from MCP response
-    statistics: dict[str, Any] = Field(
+    statistics: SkipJsonSchema[dict[str, Any]] = Field(
         default_factory=dict,
         exclude=True,  # Exclude from JSON serialization to LLM
     )
@@ -250,27 +291,27 @@ class SpatialVariableGenesResult(BaseAnalysisResult):
     # ============================================================
     # Fields excluded from MCP response (stored in adata.var)
     # ============================================================
-    gene_statistics: dict[str, float] = Field(
+    gene_statistics: SkipJsonSchema[dict[str, float]] = Field(
         default_factory=dict,
         exclude=True,  # Exclude from JSON serialization to LLM
     )
-    p_values: dict[str, float] = Field(
+    p_values: SkipJsonSchema[dict[str, float]] = Field(
         default_factory=dict,
         exclude=True,
     )
-    q_values: dict[str, float] = Field(
+    q_values: SkipJsonSchema[dict[str, float]] = Field(
         default_factory=dict,
         exclude=True,
     )
-    spatialde_results: Optional[dict[str, Any]] = Field(
+    spatialde_results: SkipJsonSchema[Optional[dict[str, Any]]] = Field(
         default=None,
         exclude=True,
     )
-    sparkx_results: Optional[dict[str, Any]] = Field(
+    sparkx_results: SkipJsonSchema[Optional[dict[str, Any]]] = Field(
         default=None,
         exclude=True,
     )
-    flashs_results: Optional[dict[str, Any]] = Field(
+    flashs_results: SkipJsonSchema[Optional[dict[str, Any]]] = Field(
         default=None,
         exclude=True,
     )
@@ -311,7 +352,7 @@ class CellCommunicationResult(BaseAnalysisResult):
     results_key: str = "ccc"  # adata.uns["ccc"]
 
     # Detailed statistics - excluded from MCP response
-    statistics: dict[str, Any] = Field(
+    statistics: SkipJsonSchema[dict[str, Any]] = Field(
         default_factory=dict,
         exclude=True,
     )
@@ -337,6 +378,11 @@ class EnrichmentResult(BaseAnalysisResult):
         - spatial_metrics (spatial autocorrelation data)
     """
 
+    # Fisher's exact test legitimately returns an infinite odds ratio under
+    # complete separation. Those detailed values live only in fields excluded
+    # from MCP serialization; compact public summary fields remain finite.
+    model_config = ConfigDict(allow_inf_nan=True)
+
     # Basic information - always included in MCP response
     method: str  # Method used (pathway_gsea, pathway_ora, etc.)
     n_gene_sets: int  # Number of gene sets analyzed
@@ -357,23 +403,23 @@ class EnrichmentResult(BaseAnalysisResult):
     # EXCLUDED FROM MCP RESPONSE - stored in adata.uns for viz
     # Full data available via visualize_data() tool
     # ============================================================
-    enrichment_scores: dict[str, float] = Field(
+    enrichment_scores: SkipJsonSchema[dict[str, float]] = Field(
         default_factory=dict,
         exclude=True,  # Exclude from JSON serialization to LLM
     )
-    pvalues: Optional[dict[str, float]] = Field(
+    pvalues: SkipJsonSchema[Optional[dict[str, float]]] = Field(
         default=None,
         exclude=True,
     )
-    adjusted_pvalues: Optional[dict[str, float]] = Field(
+    adjusted_pvalues: SkipJsonSchema[Optional[dict[str, float]]] = Field(
         default=None,
         exclude=True,
     )
-    gene_set_statistics: dict[str, dict[str, Any]] = Field(
+    gene_set_statistics: SkipJsonSchema[dict[str, dict[str, Any]]] = Field(
         default_factory=dict,
         exclude=True,
     )
-    spatial_metrics: Optional[dict[str, Any]] = Field(
+    spatial_metrics: SkipJsonSchema[Optional[dict[str, Any]]] = Field(
         default=None,
         exclude=True,
     )
@@ -406,13 +452,13 @@ class CNVResult(BaseAnalysisResult):
     visualization_available: bool = False  # Whether visualization is available
 
     # Detailed statistics - excluded from MCP response
-    statistics: Optional[dict[str, Any]] = Field(
+    statistics: SkipJsonSchema[Optional[dict[str, Any]]] = Field(
         default=None,
         exclude=True,  # Exclude from JSON serialization to LLM
     )
 
 
-class DEGene(BaseAnalysisResult):
+class DEGene(_AnalysisModel):
     """A single differentially expressed gene with statistics"""
 
     gene: str
@@ -423,7 +469,7 @@ class DEGene(BaseAnalysisResult):
     mean_expr_condition2: Optional[float] = None
 
 
-class CellTypeComparisonResult(BaseAnalysisResult):
+class CellTypeComparisonResult(_AnalysisModel):
     """Differential expression result for a single cell type"""
 
     cell_type: str
@@ -434,7 +480,7 @@ class CellTypeComparisonResult(BaseAnalysisResult):
     n_significant_genes: int
     top_upregulated: list[DEGene]  # Upregulated in condition1
     top_downregulated: list[DEGene]  # Downregulated in condition1
-    all_de_genes: list[DEGene] = Field(
+    all_de_genes: SkipJsonSchema[list[DEGene]] = Field(
         default_factory=list,
         exclude=True,  # Exclude from MCP response to reduce size
     )
@@ -485,4 +531,4 @@ class ConditionComparisonResult(BaseAnalysisResult):
     results_key: str  # Key in adata.uns for full results
 
     # Summary statistics
-    statistics: dict[str, Any]
+    statistics: dict[str, int | str]

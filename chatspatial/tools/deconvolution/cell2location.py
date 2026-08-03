@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 from ...utils.dependency_manager import is_available, require_module
 from ...utils.device_utils import get_accelerator, get_device
 from ...utils.exceptions import ChatSpatialError, ProcessingError
-from ...utils.image_utils import isolated_figure_scope, non_interactive_plotting
+from ...utils.image_utils import non_interactive_plotting, serialized_figure_scope
 from ...utils.mcp_utils import suppress_output
 from .base import (
     PreparedDeconvolutionData,
@@ -60,13 +60,14 @@ async def apply_gene_filtering(
         ctx,
         feature="cell2location gene filtering",
     )
-    with non_interactive_plotting(), isolated_figure_scope():
-        selected = filtering.filter_genes(
-            adata,
-            cell_count_cutoff=cell_count_cutoff,
-            cell_percentage_cutoff2=cell_percentage_cutoff2,
-            nonz_mean_cutoff=nonz_mean_cutoff,
-        )
+    async with serialized_figure_scope():
+        with non_interactive_plotting():
+            selected = filtering.filter_genes(
+                adata,
+                cell_count_cutoff=cell_count_cutoff,
+                cell_percentage_cutoff2=cell_percentage_cutoff2,
+                nonz_mean_cutoff=nonz_mean_cutoff,
+            )
 
     return adata[:, selected].copy()
 

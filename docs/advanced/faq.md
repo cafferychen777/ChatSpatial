@@ -28,7 +28,7 @@ No. ChatSpatial is designed for natural-language use, though basic spatial trans
 
 ### What Python version do I need?
 
-Python 3.11-3.13 is supported, with 3.12 recommended. See [Installation](../installation.md).
+Python 3.11-3.14 is supported, with 3.12 recommended. See [Installation](../installation.md).
 
 ### Should I use a virtual environment?
 

@@ -5,10 +5,9 @@ Schema-enforced orchestration framework for spatial transcriptomics analysis.
 Integrates 65 methods across 15 analytical categories via Model Context Protocol.
 """
 
+import tomllib
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-import tomllib
-
 
 try:
     __version__ = version("chatspatial")

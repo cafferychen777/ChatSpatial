@@ -30,7 +30,7 @@ Canonical Docker command shape:
 docker run --rm -i \
   -v /absolute/path/to/your/data:/data:ro \
   -v /absolute/path/to/outputs:/outputs \
-  ghcr.io/cafferychen777/chatspatial:v1.2.10 server --transport stdio
+  ghcr.io/cafferychen777/chatspatial:v1.3.0 server --transport stdio
 ```
 
 Use `--rm -i`, not `-it`, for MCP stdio. If you mount host data to `/data`, prompts must use container paths such as `/data/sample.h5ad`.
@@ -81,7 +81,7 @@ claude mcp add chatspatial-docker docker -- \
   run --rm -i \
   -v /absolute/path/to/your/data:/data:ro \
   -v /absolute/path/to/outputs:/outputs \
-  ghcr.io/cafferychen777/chatspatial:v1.2.10 server --transport stdio
+  ghcr.io/cafferychen777/chatspatial:v1.3.0 server --transport stdio
 ```
 
 Use `/data/...` paths in prompts when using this Docker-backed server.
@@ -199,7 +199,7 @@ Docker-backed example:
         "/absolute/path/to/your/data:/data:ro",
         "-v",
         "/absolute/path/to/outputs:/outputs",
-        "ghcr.io/cafferychen777/chatspatial:v1.2.10",
+        "ghcr.io/cafferychen777/chatspatial:v1.3.0",
         "server",
         "--transport",
         "stdio"
@@ -222,6 +222,47 @@ Minimum requirement:
 - pass `-m chatspatial server` as arguments
 
 Use the same absolute Python path pattern shown above.
+
+---
+
+## Streamable HTTP
+
+STDIO is preferred for local desktop and coding clients. Use Streamable HTTP
+only when a client cannot launch ChatSpatial as a subprocess or when the server
+runs in a separately managed environment.
+
+Loopback-only server:
+
+```bash
+python -m chatspatial server \
+  --transport streamable-http \
+  --host 127.0.0.1 \
+  --port 8000
+```
+
+Connect to `http://127.0.0.1:8000/mcp`. The MCP SDK supplies a strict loopback
+Host/Origin allowlist automatically.
+
+Binding to a non-loopback interface requires explicit Host values:
+
+```bash
+python -m chatspatial server \
+  --transport streamable-http \
+  --host 0.0.0.0 \
+  --port 8000 \
+  --allowed-host 'chatspatial.example.org:*' \
+  --allowed-origin 'https://chatspatial.example.org'
+```
+
+The built-in HTTP endpoint has no application authentication. Put non-local
+deployments behind an authenticated reverse proxy or private network, terminate
+TLS there, and use exact Host/Origin allowlists. The legacy `sse` transport is
+retained for compatibility but is deprecated.
+
+The MCP protocol is stateless, while ChatSpatial's loaded AnnData objects are
+intentionally process-local. Use one worker per endpoint. A `data_id` is valid
+for the lifetime of that process; call `export_data()` before a restart and
+`reload_data()` afterward when the analysis must continue.
 
 ---
 

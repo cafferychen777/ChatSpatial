@@ -1690,10 +1690,7 @@ async def annotate_cell_types(
     # Export results for reproducibility
     export_analysis_result(adata, data_id, analysis_key)
 
-    await ctx.set_adata(data_id, adata)
-
-    # Return result
-    return AnnotationResult(
+    tool_result = AnnotationResult(
         data_id=data_id,
         method=params.method,
         output_key=output_key,
@@ -1703,6 +1700,8 @@ async def annotate_cell_types(
         confidence_scores=confidence_scores,
         tangram_mapping_score=tangram_mapping_score,
     )
+    await ctx.set_adata(data_id, adata)
+    return tool_result
 
 
 # ============================================================================
@@ -1849,10 +1848,32 @@ def _is_remote_resource(path: str) -> bool:
     return path.lower().startswith(("http://", "https://"))
 
 
+def _update_hash_with_local_file(
+    digest: Any,
+    *,
+    label: str,
+    path: Path,
+) -> None:
+    """Add a local resource's identity and content to a cache digest."""
+    digest.update(label.encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(str(path.expanduser().resolve()).encode("utf-8"))
+    digest.update(b"\0")
+    try:
+        with path.expanduser().open("rb") as file:
+            while chunk := file.read(1024 * 1024):
+                digest.update(chunk)
+    except OSError as exc:
+        # Resource validation produces the user-facing error later. Including
+        # the failure identity here prevents an unreadable path from colliding
+        # with a readable empty file or a different failure mode.
+        digest.update(f"unreadable:{type(exc).__name__}".encode("utf-8"))
+
+
 def _get_sctype_cache_key(adata, params: AnnotationParameters) -> str:
-    """Generate cache key for sc-type results."""
+    """Generate a content-addressed cache key for all deterministic inputs."""
     data_hash = hashlib.blake2b(digest_size=16)
-    data_hash.update(b"sctype-cache-key-v2\0")
+    data_hash.update(b"sctype-cache-key-v3\0")
 
     # Values alone do not identify an annotated matrix: scType consumes gene
     # names, and cached labels are aligned to cell identities. Length-prefix
@@ -1874,12 +1895,20 @@ def _get_sctype_cache_key(adata, params: AnnotationParameters) -> str:
     # Hash the entire expression matrix for correctness
     X = adata.X
     if sparse.issparse(X):
-        csr = X.tocsr()
+        csr = X.tocsr(copy=True)
+        csr.sum_duplicates()
+        csr.sort_indices()
+        data_hash.update(b"sparse-csr\0")
+        data_hash.update(csr.data.dtype.str.encode("ascii"))
+        data_hash.update(csr.indices.dtype.str.encode("ascii"))
+        data_hash.update(csr.indptr.dtype.str.encode("ascii"))
         data_hash.update(csr.data.tobytes())
         data_hash.update(csr.indices.tobytes())
         data_hash.update(csr.indptr.tobytes())
     else:
         arr = np.asarray(X)
+        data_hash.update(b"dense\0")
+        data_hash.update(arr.dtype.str.encode("ascii"))
         data_hash.update(np.ascontiguousarray(arr).tobytes())
 
     # Hash relevant parameters
@@ -1890,6 +1919,32 @@ def _get_sctype_cache_key(adata, params: AnnotationParameters) -> str:
         "custom_markers": params.sctype_custom_markers,
     }
     data_hash.update(json.dumps(params_dict, sort_keys=True, default=str).encode())
+
+    # scType output also depends on executable R scripts and, unless custom
+    # markers are supplied, the marker database. Hash local resource contents
+    # so updating a file in place cannot reuse labels from an older resource.
+    script_dir_value = os.getenv("CHATSPATIAL_SCTYPE_R_DIR")
+    if script_dir_value:
+        script_dir = Path(script_dir_value).expanduser()
+        for script_name in ("gene_sets_prepare.R", "sctype_score_.R"):
+            _update_hash_with_local_file(
+                data_hash,
+                label=f"script:{script_name}",
+                path=script_dir / script_name,
+            )
+    else:
+        data_hash.update(_R_LOAD_SCTYPE_REMOTE.encode("utf-8"))
+
+    if not params.sctype_custom_markers:
+        db_path = params.sctype_db_ or _SCTYPE_DEFAULT_DB_URL
+        if _is_remote_resource(db_path):
+            data_hash.update(f"remote-db:{db_path}".encode("utf-8"))
+        else:
+            _update_hash_with_local_file(
+                data_hash,
+                label="marker-database",
+                path=Path(db_path),
+            )
 
     return data_hash.hexdigest()
 
@@ -1997,7 +2052,7 @@ def _load_sctype_functions(
         script_dir = Path(local_script_dir).expanduser()
         gene_sets_prepare = script_dir / "gene_sets_prepare.R"
         sctype_score = script_dir / "sctype_score_.R"
-        missing = [str(p) for p in (gene_sets_prepare, sctype_score) if not p.exists()]
+        missing = [str(p) for p in (gene_sets_prepare, sctype_score) if not p.is_file()]
         if missing:
             raise ParameterError(
                 "Local scType R script directory is configured but files are missing: "
@@ -2069,7 +2124,7 @@ def _prepare_sctype_genesets(
             )
     else:
         local_db = Path(db_path).expanduser()
-        if not local_db.exists():
+        if not local_db.is_file():
             raise DataNotFoundError(f"scType database file not found: {local_db}")
         db_path = local_db.as_posix()
 

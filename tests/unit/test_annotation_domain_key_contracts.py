@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-
 from chatspatial.tools.annotation import _build_annotation_suffix
 from chatspatial.tools.spatial_domains import _build_domain_suffix
-
 
 # ---------------------------------------------------------------------------
 # _build_annotation_suffix
@@ -74,41 +71,3 @@ class TestBuildDomainSuffix:
         s1 = _build_domain_suffix("leiden", 0.5, 7)
         s2 = _build_domain_suffix("louvain", 0.5, 7)
         assert s1 != s2
-
-
-# ---------------------------------------------------------------------------
-# Coexistence in data manager
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def dm(minimal_spatial_adata):
-    from chatspatial.spatial_mcp_adapter import DefaultSpatialDataManager
-
-    mgr = DefaultSpatialDataManager()
-    mgr.data_store["d1"] = {"adata": minimal_spatial_adata, "results": {}}
-    return mgr
-
-
-@pytest.mark.asyncio
-async def test_annotation_refs_coexist_in_cache(dm):
-    """scanvi + refA and scanvi + refB must coexist."""
-    await dm.save_result("d1", "annotation_scanvi_refA", {"ref": "A"})
-    await dm.save_result("d1", "annotation_scanvi_refB", {"ref": "B"})
-
-    r1 = await dm.get_result("d1", "annotation_scanvi_refA")
-    r2 = await dm.get_result("d1", "annotation_scanvi_refB")
-    assert r1["ref"] == "A"
-    assert r2["ref"] == "B"
-
-
-@pytest.mark.asyncio
-async def test_domain_resolutions_coexist_in_cache(dm):
-    """leiden res0.5 and leiden res1.0 must coexist."""
-    await dm.save_result("d1", "spatial_domains_leiden_res0_50", {"res": 0.5})
-    await dm.save_result("d1", "spatial_domains_leiden_res1_00", {"res": 1.0})
-
-    r1 = await dm.get_result("d1", "spatial_domains_leiden_res0_50")
-    r2 = await dm.get_result("d1", "spatial_domains_leiden_res1_00")
-    assert r1["res"] == 0.5
-    assert r2["res"] == 1.0

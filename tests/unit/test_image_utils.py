@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -90,6 +91,24 @@ def test_isolated_figure_scope_closes_only_figures_created_inside():
         assert created_number not in plt.get_fignums()
     finally:
         plt.close(existing)
+
+
+@pytest.mark.asyncio
+async def test_serialized_figure_scope_excludes_concurrent_coroutines():
+    active = 0
+    max_active = 0
+
+    async def render() -> None:
+        nonlocal active, max_active
+        async with image_utils.serialized_figure_scope():
+            active += 1
+            max_active = max(max_active, active)
+            await asyncio.sleep(0.01)
+            active -= 1
+
+    await asyncio.gather(render(), render())
+
+    assert max_active == 1
 
 
 async def test_optimize_fig_to_image_with_cache_jpg_sets_quality_and_suffix(

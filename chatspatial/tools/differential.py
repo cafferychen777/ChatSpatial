@@ -156,9 +156,7 @@ async def differential_expression(
         # Publish only after the statistical workspace has completed. The
         # managed dataset remains read-only until metadata and export succeed.
         result_adata = adata.copy()
-        result_adata.uns["rank_genes_groups"] = adata_filtered.uns[
-            "rank_genes_groups"
-        ]
+        result_adata.uns["rank_genes_groups"] = adata_filtered.uns["rank_genes_groups"]
 
         # Per-run copy for provenance (shared key kept for viz)
         analysis_key = _build_de_key(method, None, None)
@@ -188,9 +186,7 @@ async def differential_expression(
         # Export results to CSV for reproducibility
         export_analysis_result(result_adata, data_id, analysis_key)
 
-        await ctx.set_adata(data_id, result_adata)
-
-        return DifferentialExpressionResult(
+        result = DifferentialExpressionResult(
             data_id=data_id,
             comparison=f"All groups in {group_key}",
             n_genes=len(top_genes),
@@ -201,6 +197,8 @@ async def differential_expression(
                 "groups": list(map(str, groups)),
             },
         )
+        await ctx.set_adata(data_id, result_adata)
+        return result
 
     # Original logic for specific group comparison
     # Check if the groups exist in the group_key
@@ -441,15 +439,15 @@ async def differential_expression(
     # Export results to CSV for reproducibility
     export_analysis_result(result_adata, data_id, analysis_key)
 
-    await ctx.set_adata(data_id, result_adata)
-
-    return DifferentialExpressionResult(
+    result = DifferentialExpressionResult(
         data_id=data_id,
         comparison=comparison,
         n_genes=len(top_genes),
         top_genes=top_genes,
         statistics=statistics,
     )
+    await ctx.set_adata(data_id, result_adata)
+    return result
 
 
 async def _run_pydeseq2(
@@ -723,9 +721,7 @@ async def _run_pydeseq2(
     # Export results to CSV for reproducibility
     export_analysis_result(result_adata, data_id, analysis_key)
 
-    await ctx.set_adata(data_id, result_adata)
-
-    return DifferentialExpressionResult(
+    result = DifferentialExpressionResult(
         data_id=data_id,
         comparison=f"{group1} vs {group2}",
         n_genes=len(top_genes),
@@ -740,3 +736,5 @@ async def _run_pydeseq2(
             ),
         },
     )
+    await ctx.set_adata(data_id, result_adata)
+    return result

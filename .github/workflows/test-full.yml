@@ -39,7 +39,6 @@ jobs:
       - name: Install
         run: pip install -e ".[full]"
         timeout-minutes: 30
-        continue-on-error: true  # louvain may fail on macOS/Windows
 
       - name: Verify
         run: |

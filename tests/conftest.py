@@ -93,7 +93,9 @@ def e2e_trace(request: pytest.FixtureRequest):
         "outcome": "failed",
         "events": trace.events,
     }
-    output_file.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    output_file.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 @pytest.fixture
@@ -160,12 +162,8 @@ def spatial_dataset_path(minimal_spatial_adata, write_h5ad_dataset) -> Path:
 @pytest.fixture
 def reset_data_manager():
     """Reset global data manager state before and after each test."""
-    import itertools
-
     from chatspatial.server import data_manager
 
-    data_manager.data_store = {}
-    data_manager._id_counter = itertools.count(1)
+    data_manager.reset()
     yield data_manager
-    data_manager.data_store = {}
-    data_manager._id_counter = itertools.count(1)
+    data_manager.reset()

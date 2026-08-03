@@ -156,6 +156,51 @@ def test_get_sctype_cache_key_includes_axis_identity(minimal_spatial_adata):
     assert len(keys) == 3
 
 
+def test_get_sctype_cache_key_includes_matrix_dtype():
+    import anndata as ad
+
+    float_adata = ad.AnnData(np.array([[1.0]], dtype=np.float32))
+    int_adata = ad.AnnData(np.array([[1065353216]], dtype=np.int32))
+    assert float_adata.X.tobytes() == int_adata.X.tobytes()
+    params = AnnotationParameters(
+        method="sctype",
+        sctype_custom_markers={"T": {"positive": ["g"], "negative": []}},
+    )
+
+    assert ann._get_sctype_cache_key(float_adata, params) != ann._get_sctype_cache_key(
+        int_adata, params
+    )
+
+
+def test_get_sctype_cache_key_tracks_local_resource_contents(
+    minimal_spatial_adata,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    script_dir = tmp_path / "scripts"
+    script_dir.mkdir()
+    prepare_script = script_dir / "gene_sets_prepare.R"
+    score_script = script_dir / "sctype_score_.R"
+    prepare_script.write_text("prepare-v1", encoding="utf-8")
+    score_script.write_text("score-v1", encoding="utf-8")
+    database = tmp_path / "markers.xlsx"
+    database.write_bytes(b"database-v1")
+    monkeypatch.setenv("CHATSPATIAL_SCTYPE_R_DIR", str(script_dir))
+    params = AnnotationParameters(
+        method="sctype",
+        sctype_tissue="Brain",
+        sctype_db_=str(database),
+    )
+
+    first = ann._get_sctype_cache_key(minimal_spatial_adata, params)
+    database.write_bytes(b"database-v2")
+    second = ann._get_sctype_cache_key(minimal_spatial_adata, params)
+    score_script.write_text("score-v2", encoding="utf-8")
+    third = ann._get_sctype_cache_key(minimal_spatial_adata, params)
+
+    assert len({first, second, third}) == 3
+
+
 def test_get_nonnegative_int_env_is_safe_and_allows_zero(
     monkeypatch: pytest.MonkeyPatch,
 ):

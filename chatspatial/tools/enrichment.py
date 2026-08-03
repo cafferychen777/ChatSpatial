@@ -169,7 +169,9 @@ def _normalize_gene_set_library(raw_gene_sets: object) -> dict[str, list[str]]:
 
     normalized: dict[str, list[str]] = {}
     for raw_name, raw_genes in raw_gene_sets.items():
-        name = raw_name.decode("utf-8") if isinstance(raw_name, bytes) else str(raw_name)
+        name = (
+            raw_name.decode("utf-8") if isinstance(raw_name, bytes) else str(raw_name)
+        )
         if isinstance(raw_genes, bytes | str):
             genes_iter: Iterable[object] = [raw_genes]
         else:
@@ -461,7 +463,9 @@ def _limit_spatial_enrichmap_gene_sets(
     if len(gene_sets) <= max_gene_sets:
         return gene_sets
 
-    ranked_gene_sets = _rank_gene_sets_by_dataset_overlap(gene_sets, available_genes, species)
+    ranked_gene_sets = _rank_gene_sets_by_dataset_overlap(
+        gene_sets, available_genes, species
+    )
     return dict(ranked_gene_sets[:max_gene_sets])
 
 
@@ -663,12 +667,16 @@ def map_gene_set_database_to_enrichr_library(database_name: str, species: str) -
 
 def _get_numeric_var_columns(adata: "ad.AnnData") -> list[str]:
     return [
-        col for col in adata.var.columns if pd.api.types.is_numeric_dtype(adata.var[col])
+        col
+        for col in adata.var.columns
+        if pd.api.types.is_numeric_dtype(adata.var[col])
     ]
 
 
 def _validate_gsea_ranking_key(adata: "ad.AnnData", ranking_key: str) -> None:
-    if ranking_key in adata.var and pd.api.types.is_numeric_dtype(adata.var[ranking_key]):
+    if ranking_key in adata.var and pd.api.types.is_numeric_dtype(
+        adata.var[ranking_key]
+    ):
         return
 
     available_rankings = _get_numeric_var_columns(adata)
@@ -821,12 +829,8 @@ def perform_gsea(
         results_df = res.res2d
 
         # Prepare output - OPTIMIZED: vectorized dict + array iteration (16x faster)
-        enrichment_scores = dict(
-            zip(results_df["Term"], results_df["ES"], strict=True)
-        )
-        pvalues = dict(
-            zip(results_df["Term"], results_df["NOM p-val"], strict=True)
-        )
+        enrichment_scores = dict(zip(results_df["Term"], results_df["ES"], strict=True))
+        pvalues = dict(zip(results_df["Term"], results_df["NOM p-val"], strict=True))
         adjusted_pvalues = dict(
             zip(results_df["Term"], results_df["FDR q-val"], strict=True)
         )
@@ -1284,7 +1288,10 @@ def perform_ssgsea(
             all_gene_sets = set()
 
             for sample_result in res.results.values():
-                if isinstance(sample_result, pd.DataFrame) and "Term" in sample_result.columns:
+                if (
+                    isinstance(sample_result, pd.DataFrame)
+                    and "Term" in sample_result.columns
+                ):
                     all_gene_sets.update(sample_result["Term"].values)
                 elif isinstance(sample_result, dict):
                     all_gene_sets.update(sample_result)
@@ -1474,9 +1481,7 @@ def perform_enrichr(
                 strict=True,
             )
         )
-        pvalues = dict(
-            zip(all_results["Term"], all_results["P-value"], strict=True)
-        )
+        pvalues = dict(zip(all_results["Term"], all_results["P-value"], strict=True))
         adjusted_pvalues = dict(
             zip(
                 all_results["Term"],
@@ -1884,13 +1889,9 @@ def load_msigdb_gene_sets(
         elif collection == "C2" and subcollection == "CP:KEGG":
             # KEGG pathways
             if species.lower() == "human":
-                gene_sets_dict = _load_enrichr_library(
-                    "KEGG_2021_Human", organism, gp
-                )
+                gene_sets_dict = _load_enrichr_library("KEGG_2021_Human", organism, gp)
             else:
-                gene_sets_dict = _load_enrichr_library(
-                    "KEGG_2019_Mouse", organism, gp
-                )
+                gene_sets_dict = _load_enrichr_library("KEGG_2019_Mouse", organism, gp)
 
         elif collection == "C2" and subcollection == "CP:REACTOME":
             # Reactome pathways
@@ -1902,21 +1903,15 @@ def load_msigdb_gene_sets(
             # GO gene sets
             if subcollection == "GO:BP" or subcollection is None:
                 gene_sets_dict.update(
-                    _load_library_first_available(
-                        "GO_Biological_Process", organism, gp
-                    )
+                    _load_library_first_available("GO_Biological_Process", organism, gp)
                 )
             if subcollection == "GO:MF" or subcollection is None:
                 gene_sets_dict.update(
-                    _load_library_first_available(
-                        "GO_Molecular_Function", organism, gp
-                    )
+                    _load_library_first_available("GO_Molecular_Function", organism, gp)
                 )
             if subcollection == "GO:CC" or subcollection is None:
                 gene_sets_dict.update(
-                    _load_library_first_available(
-                        "GO_Cellular_Component", organism, gp
-                    )
+                    _load_library_first_available("GO_Cellular_Component", organism, gp)
                 )
 
         elif collection == "C8":
@@ -2065,9 +2060,7 @@ def load_cell_marker_gene_sets(
     try:
         gp = _get_gseapy(ctx)
         organism = _get_organism_name(species)
-        gene_sets = _load_enrichr_library(
-            "CellMarker_Augmented_2021", organism, gp
-        )
+        gene_sets = _load_enrichr_library("CellMarker_Augmented_2021", organism, gp)
 
         # Filter by size
         filtered_sets = _filter_gene_sets_by_size(gene_sets, min_size, max_size)

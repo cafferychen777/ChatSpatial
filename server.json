@@ -2,17 +2,17 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.cafferychen777/chatspatial",
   "title": "ChatSpatial",
-  "description": "Natural language-driven spatial transcriptomics analysis with 60+ methods via MCP",
+  "description": "Schema-enforced spatial transcriptomics analysis with 20 tools and 65 methods via MCP",
   "repository": {
     "url": "https://github.com/cafferychen777/ChatSpatial",
     "source": "github"
   },
-  "version": "1.2.10",
+  "version": "1.3.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "chatspatial",
-      "version": "1.2.10",
+      "version": "1.3.0",
       "transport": {
         "type": "stdio"
       },

@@ -2,28 +2,32 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import Mock
 
 import pytest
 
 from chatspatial import spatial_mcp_adapter as adapter
+from chatspatial.models.analysis import PreprocessingResult
 from chatspatial.utils.exceptions import DataNotFoundError
 
 
 class _FakeMCPContext:
     def __init__(self):
-        self.infos: list[str] = []
-        self.warnings: list[str] = []
-        self.errors: list[str] = []
+        self.progress_updates: list[tuple[float, float | None, str | None]] = []
 
-    async def info(self, msg: str) -> None:
-        self.infos.append(msg)
+    async def report_progress(
+        self,
+        progress: float,
+        total: float | None = None,
+        message: str | None = None,
+    ) -> None:
+        self.progress_updates.append((progress, total, message))
 
-    async def warning(self, msg: str) -> None:
-        self.warnings.append(msg)
 
-    async def error(self, msg: str) -> None:
-        self.errors.append(msg)
+class _FailingMCPContext:
+    async def report_progress(self, *args, **kwargs) -> None:
+        raise RuntimeError("transport unavailable")
 
 
 @pytest.mark.asyncio
@@ -46,20 +50,17 @@ async def test_data_manager_list_defaults_and_dataset_exists():
 
 
 @pytest.mark.asyncio
-async def test_data_manager_save_and_update_missing_dataset_raise(
+async def test_data_manager_update_missing_dataset_raises(
     minimal_spatial_adata,
 ):
     manager = adapter.DefaultSpatialDataManager()
-
-    with pytest.raises(DataNotFoundError, match="Dataset missing not found"):
-        await manager.save_result("missing", "demo", {"ok": True})
 
     with pytest.raises(DataNotFoundError, match="Dataset missing not found"):
         await manager.update_adata("missing", minimal_spatial_adata.copy())
 
 
 @pytest.mark.asyncio
-async def test_data_manager_create_dataset_filters_reserved_metadata(
+async def test_data_manager_create_dataset_protects_ownership_metadata(
     minimal_spatial_adata,
 ):
     manager = adapter.DefaultSpatialDataManager()
@@ -80,7 +81,7 @@ async def test_data_manager_create_dataset_filters_reserved_metadata(
     assert stored["adata"] is minimal_spatial_adata
     assert stored["name"] == "derived-data"
     assert stored["source"] == "integration"
-    assert "results" not in stored
+    assert stored["results"] == {"bad": True}
     assert stored["type"] == "unknown"
     assert stored["n_cells"] == minimal_spatial_adata.n_obs
     assert stored["n_genes"] == minimal_spatial_adata.n_vars
@@ -95,6 +96,21 @@ async def test_data_manager_create_dataset_filters_reserved_metadata(
             "n_genes": minimal_spatial_adata.n_vars,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_progress_delivery_failure_does_not_fail_tool_context():
+    logger = Mock()
+    ctx = adapter.ToolContext(
+        _data_manager=adapter.DefaultSpatialDataManager(),
+        _mcp_context=_FailingMCPContext(),
+        _logger=logger,
+    )
+
+    await ctx.info("still valid")
+
+    logger.warning.assert_called_once()
+    assert ctx._progress_step == 1
 
 
 def test_tool_context_debug_and_log_config_delegate_to_logger():
@@ -163,10 +179,12 @@ async def test_tool_context_data_access_and_add_dataset(minimal_spatial_adata):
 
 
 @pytest.mark.asyncio
-async def test_tool_context_info_warning_error_use_mcp_context():
+async def test_tool_context_uses_progress_and_structured_warnings():
+    logger = Mock()
     ctx = adapter.ToolContext(
         _data_manager=adapter.DefaultSpatialDataManager(),
         _mcp_context=_FakeMCPContext(),
+        _logger=logger,
     )
 
     await ctx.info("i")
@@ -174,6 +192,109 @@ async def test_tool_context_info_warning_error_use_mcp_context():
     await ctx.error("e")
 
     assert ctx._mcp_context is not None
-    assert ctx._mcp_context.infos == ["i"]
-    assert ctx._mcp_context.warnings == ["w"]
-    assert ctx._mcp_context.errors == ["e"]
+    assert ctx._mcp_context.progress_updates == [
+        (1.0, None, "i"),
+        (2.0, None, "Warning: w"),
+        (3.0, None, "Error: e"),
+    ]
+    assert ctx.warnings == ("w",)
+    assert ctx.finalize({"ok": True}) == {"ok": True, "warnings": ["w"]}
+    model_result = PreprocessingResult(
+        data_id="d1",
+        n_cells=10,
+        n_genes=5,
+        n_hvgs=3,
+        clusters=2,
+    )
+    finalized_model = ctx.finalize(model_result)
+    assert finalized_model is not model_result
+    assert finalized_model.warnings == ["w"]
+    assert logger.info.called
+    assert logger.warning.called
+    assert logger.error.called
+
+
+@pytest.mark.asyncio
+async def test_serialize_dataset_access_prevents_overlapping_calls():
+    manager = adapter.DefaultSpatialDataManager()
+    active_calls = 0
+    maximum_active_calls = 0
+
+    @adapter.serialize_dataset_access(manager, "data_id")
+    async def operation(data_id: str) -> None:
+        nonlocal active_calls, maximum_active_calls
+        active_calls += 1
+        maximum_active_calls = max(maximum_active_calls, active_calls)
+        await asyncio.sleep(0)
+        active_calls -= 1
+
+    await asyncio.gather(operation("d1"), operation("d1"))
+
+    assert maximum_active_calls == 1
+    assert manager._dataset_locks == {}
+
+
+@pytest.mark.asyncio
+async def test_serialize_dataset_access_releases_locks_after_failure():
+    manager = adapter.DefaultSpatialDataManager()
+
+    @adapter.serialize_dataset_access(manager, "data_id")
+    async def operation(data_id: str) -> None:
+        await manager.get_dataset(data_id)
+
+    for index in range(100):
+        with pytest.raises(DataNotFoundError):
+            await operation(f"missing_{index}")
+
+    assert manager._dataset_locks == {}
+
+
+@pytest.mark.asyncio
+async def test_serialize_dataset_access_releases_locks_after_cancellation():
+    manager = adapter.DefaultSpatialDataManager()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    @adapter.serialize_dataset_access(manager, "data_id")
+    async def operation(data_id: str) -> None:
+        started.set()
+        await release.wait()
+
+    task = asyncio.create_task(operation("d1"))
+    await started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert manager._dataset_locks == {}
+
+
+def test_server_factory_preserves_positional_data_manager_contract():
+    manager = adapter.DefaultSpatialDataManager()
+
+    server, spatial_adapter = adapter.create_spatial_mcp_server("Custom", manager)
+
+    assert spatial_adapter.data_manager is manager
+    assert server.version == adapter.__version__
+
+
+def test_server_factory_accepts_explicit_version_metadata():
+    server, _ = adapter.create_spatial_mcp_server(
+        "Custom",
+        server_version="9.8.7",
+    )
+
+    assert server.version == "9.8.7"
+
+
+def test_data_manager_reset_clears_data_locks_and_ids(minimal_spatial_adata):
+    manager = adapter.DefaultSpatialDataManager()
+    manager.data_store["d1"] = {"adata": minimal_spatial_adata}
+    manager._dataset_locks["d1"] = Mock()
+
+    manager.reset()
+
+    assert manager.data_store == {}
+    assert manager._dataset_locks == {}
+    assert next(manager._id_counter) == 1

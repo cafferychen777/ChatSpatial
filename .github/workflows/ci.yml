@@ -1,7 +1,10 @@
 name: CI
 
 on:
-  workflow_dispatch:  # Manual trigger only
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   lint:
@@ -15,7 +18,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install linters
-        run: pip install ruff black isort
+        run: pip install "ruff==0.14.11" "black==25.12.0" "isort==7.0.0"
 
       - name: Check formatting
         run: |
@@ -24,20 +27,27 @@ jobs:
           ruff check chatspatial/
 
   test:
-    name: Test
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
       - name: Install
-        run: uv pip install -e . --system
+        run: uv pip install -e ".[dev]" --system
+
+      - name: Verify dependency graph
+        run: python -m pip check
 
       - name: Verify imports
         run: |
@@ -47,3 +57,10 @@ jobs:
 
       - name: Test CLI
         run: python -m chatspatial --help
+
+      - name: Test full default suite
+        if: matrix.python-version == '3.12'
+        run: python -m pytest
+
+      - name: Test MCP protocol eras
+        run: python -m pytest tests/integration/test_mcp_protocol_v2.py

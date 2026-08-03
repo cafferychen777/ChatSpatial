@@ -47,9 +47,7 @@ _NUMBAT_ALLELE_COLUMNS = (
 _NUMBAT_CLONE_COLUMNS = ("cell", "clone_opt", "p_cnv", "compartment_opt")
 
 
-def _resolve_numbat_table_path(
-    out_dir: str, stem: str, iteration: str
-) -> Path | None:
+def _resolve_numbat_table_path(out_dir: str, stem: str, iteration: str) -> Path | None:
     """Return a Numbat TSV output path across documented compression variants."""
     base_path = Path(out_dir) / f"{stem}_{iteration}.tsv"
     for candidate in (base_path, Path(f"{base_path}.gz")):
@@ -701,9 +699,7 @@ def _infer_cnv_numbat(
     out_dir = tempfile.mkdtemp(prefix="numbat_", dir=tempfile.gettempdir())
 
     try:
-        with r_env.local_context(
-            anndata=True, pandas=True, numpy=True
-        ) as r_context:
+        with r_env.local_context(anndata=True, pandas=True, numpy=True) as r_context:
             r_context["count_mat"] = count_mat.T  # R expects genes × cells
             r_context["df_allele_python"] = df_allele
             r_context["gene_names"] = gene_names
@@ -799,9 +795,7 @@ def _infer_cnv_numbat(
         geno = pd.read_csv(geno_file, sep="\t")
 
         # 3. Read consensus segments (optional metadata)
-        segs_file = _resolve_numbat_table_path(
-            out_dir, "segs_consensus", iter_suffix
-        )
+        segs_file = _resolve_numbat_table_path(out_dir, "segs_consensus", iter_suffix)
         segs = pd.read_csv(segs_file, sep="\t") if segs_file is not None else None
 
         # 4. Check for the final phylogeny tree

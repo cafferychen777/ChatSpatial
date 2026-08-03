@@ -111,15 +111,11 @@ def _coerce_velovi_numeric_array(result: Any, output_name: str) -> np.ndarray:
     """Convert a VELOVI output to a finite real-valued float array."""
     raw_values = np.asarray(result)
     if np.iscomplexobj(raw_values):
-        raise DataCompatibilityError(
-            f"VELOVI {output_name} contains complex values."
-        )
+        raise DataCompatibilityError(f"VELOVI {output_name} contains complex values.")
     try:
         values = np.asarray(raw_values, dtype=np.float32)
     except (TypeError, ValueError) as exc:
-        raise DataCompatibilityError(
-            f"VELOVI {output_name} must be numeric."
-        ) from exc
+        raise DataCompatibilityError(f"VELOVI {output_name} must be numeric.") from exc
     if not np.isfinite(values).all():
         raise DataCompatibilityError(
             f"VELOVI {output_name} contains non-finite values."
@@ -196,9 +192,7 @@ def _normalize_velovi_cell_gene_output(
             f"expected {expected_shape}."
         )
     if require_nonnegative and np.any(values < 0):
-        raise DataCompatibilityError(
-            f"VELOVI {output_name} contains negative values."
-        )
+        raise DataCompatibilityError(f"VELOVI {output_name} contains negative values.")
     return values
 
 
@@ -518,9 +512,7 @@ async def analyze_velocity_with_velovi(
     """
     try:
         if "spliced" not in adata.layers or "unspliced" not in adata.layers:
-            raise DataNotFoundError(
-                "Missing required 'spliced' and 'unspliced' layers"
-            )
+            raise DataNotFoundError("Missing required 'spliced' and 'unspliced' layers")
 
         scv = require("scvelo", ctx, feature="VELOVI preprocessing")
         scvi_external = require_module(
@@ -532,9 +524,7 @@ async def analyze_velocity_with_velovi(
         VELOVI = scvi_external.VELOVI
 
         # Data preprocessing (forward params so user's preprocessing settings apply)
-        adata_prepared = await _prepare_velovi_data(
-            adata, ctx, params=params, scv=scv
-        )
+        adata_prepared = await _prepare_velovi_data(adata, ctx, params=params, scv=scv)
         _validate_velovi_workspace_axis(adata, adata_prepared)
 
         # Data validation
@@ -797,10 +787,7 @@ async def analyze_rna_velocity(
     # Export results for reproducibility
     export_analysis_result(adata, data_id, analysis_key)
 
-    # Commit only the complete scientific result and its provenance metadata.
-    await ctx.set_adata(data_id, adata)
-
-    return RNAVelocityResult(
+    result = RNAVelocityResult(
         data_id=data_id,
         velocity_computed=velocity_computed,
         velocity_graph_key=(
@@ -810,3 +797,5 @@ async def analyze_rna_velocity(
         ),
         mode=params.scvelo_mode if params.method == "scvelo" else params.method,
     )
+    await ctx.set_adata(data_id, adata)
+    return result

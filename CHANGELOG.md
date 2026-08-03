@@ -5,6 +5,61 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.0] - 2026-08-03 - MCP 2026-07-28 Protocol Migration
+
+### Added
+
+- Added native MCP `2026-07-28` support through the stable Python SDK v2 while preserving SDK-managed compatibility with `2025-11-25` clients.
+- Added Streamable HTTP as the preferred HTTP transport with explicit DNS-rebinding allowlists for non-loopback bindings.
+- Added modern and legacy protocol discovery contracts, output-schema checks, cache-hint checks, and per-dataset concurrency tests.
+- Added per-dataset serialization for complete tool calls, including deadlock-safe ordering for multi-dataset analyses.
+- Added structured non-fatal warnings to analysis results and request-scoped progress reporting.
+- Added MCP smoke coverage across every supported Python release (3.11-3.14),
+  with the full default test suite on Python 3.12.
+
+### Changed
+
+- Replaced the removed `FastMCP` API with `MCPServer` and now report ChatSpatial's own title, description, website, and package version during server discovery.
+- Moved HTTP transport configuration from mutable server settings to transport-specific `run()` arguments.
+- Replaced deprecated MCP logging notifications with standard Python logging, progress notifications, and structured result warnings.
+- Made tool safety annotations explicit, including destructive behavior.
+- Configured deterministic tool-list caching for modern clients.
+- Updated Docker and configuration documentation from SSE to Streamable HTTP and documented the process-local dataset lifetime.
+- Made preprocessing and embedding a strict two-stage contract: embedding and clustering controls now belong exclusively to `compute_embeddings`.
+- Made all public analysis parameter models reject unknown fields instead of silently ignoring misspelled or obsolete scientific controls.
+
+### Fixed
+
+- Corrected preprocessing to report the effective HVG count after exclusions and to reject empty HVG selections at the preprocessing boundary.
+- Kept unexpected internal tracebacks in server logs by default instead of returning filesystem and stack details to remote MCP clients.
+- Aligned MCP workflow instructions, tool descriptions, result schemas, and user documentation with the explicit `preprocess_data` then `compute_embeddings` sequence.
+- Kept metadata profiles scientifically faithful and schema-valid for NaN, infinite, and complex-valued columns.
+- Made spatial-gene publication and bilateral registration transactional so late backend, metadata, or export failures cannot leak partial state.
+- Rejected duplicate integration IDs and same-dataset registration before scientific computation, and delayed integrated-dataset publication until required exports succeed.
+- Serialized complete Matplotlib lifecycles across concurrent MCP calls so one visualization cannot alter or close another request's figures.
+- Validated finite structured results before publishing AnnData candidates across all mutating analysis tools, preventing output-model failures from committing invisible state.
+- Preserved mathematically valid infinite ORA odds ratios in non-serialized detailed results without leaking non-JSON numbers into MCP output.
+- Made dataset loading a two-phase transaction so public-result validation and progress failures cannot publish an unreachable dataset.
+- Made MCP progress delivery best-effort so auxiliary transport failures cannot invalidate completed scientific work, and moved remaining result construction ahead of state publication.
+- Replaced the remaining arbitrary embedding and registration dictionaries with closed, finite Pydantic result models so MCP can enforce their exact output contracts before publication.
+- Removed Python-only and AnnData-resident detail fields from MCP JSON Schemas as well as serialization, so discovery no longer advertises values that can never appear on the wire.
+- Closed every generated top-level tool input and scalar-output schema, rejecting unknown values at runtime instead of letting MCP SDK wrapper models silently discard them.
+- Made reproducibility indexes record every missing or failed declared artifact, and export valid empty tables instead of silently conflating them with extraction failures.
+- Upgraded scType caching to include matrix dtype and canonical sparse structure plus local R-script and marker-database contents, preventing stale or byte-ambiguous cache hits after resource changes.
+- Made the temporary NumPy 2 / CellRank compatibility patch argument-transparent and reference-counted, so overlapping analyses cannot discard valid arguments or unpatch one another.
+
+### Removed
+
+- Removed the unused direct `aiohttp` dependency.
+- Removed redundant export/reload error notifications that duplicated the MCP tool error result.
+- Removed the write-only server result cache and its parametric cache-key plumbing; durable results now have one source of truth in AnnData and exported artifacts.
+
+### Compatibility note
+
+- ChatSpatial returns ordinary `complete` tool results with request-scoped
+  progress. It does not advertise the optional Tasks extension because that
+  extension is not implemented by Python SDK v2.0.0.
+
 ## [v1.2.10] - 2026-05-21 - MCP Usability and Runtime Fixes
 
 ### Added

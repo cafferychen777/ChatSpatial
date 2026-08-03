@@ -5,11 +5,20 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from chatspatial.models.analysis import (
+    CellTypeComparisonResult,
+    ConditionComparisonResult,
+    DEGene,
+    EmbeddingResult,
+    EnrichmentResult,
+    PreprocessingResult,
+    SpatialRegistrationResult,
+)
 from chatspatial.models.data import (
     AnnotationParameters,
     CellCommunicationParameters,
-    ColumnInfo,
     CNVParameters,
+    ColumnInfo,
     DifferentialExpressionParameters,
     EnrichmentParameters,
     PreprocessingParameters,
@@ -22,6 +31,128 @@ from chatspatial.models.data import (
     TrajectoryParameters,
     VisualizationParameters,
 )
+
+
+def _de_gene() -> DEGene:
+    return DEGene(gene="G", log2fc=1.0, pvalue=0.01, padj=0.02)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_public_result_models_reject_non_finite_numbers(value: float):
+    with pytest.raises(ValidationError, match="finite number"):
+        DEGene(gene="G", log2fc=value, pvalue=0.01, padj=0.02)
+
+    with pytest.raises(ValidationError, match="finite number"):
+        ColumnInfo(
+            name="score",
+            dtype="numerical",
+            n_unique=1,
+            range=[value, value],
+        )
+
+    with pytest.raises(ValidationError, match="finite number"):
+        PreprocessingResult(
+            data_id="d1",
+            n_cells=1,
+            n_genes=1,
+            n_hvgs=1,
+            clusters=0,
+            qc_metrics={"median_counts": value},
+        )
+
+
+@pytest.mark.parametrize(
+    ("model_cls", "kwargs"),
+    [
+        (
+            EmbeddingResult,
+            {"data_id": "d1", "computed": [], "skipped": [], "unknown": True},
+        ),
+        (
+            SpatialRegistrationResult,
+            {
+                "method": "paste",
+                "source_id": "source",
+                "target_id": "target",
+                "n_source_spots": 1,
+                "n_target_spots": 1,
+                "spatial_key_registered": "spatial_registered",
+                "unknown": True,
+            },
+        ),
+        (
+            SpatialDataset,
+            {
+                "id": "d1",
+                "name": "demo",
+                "data_type": "generic",
+                "unknown": True,
+            },
+        ),
+    ],
+)
+def test_public_result_models_reject_unknown_fields(model_cls, kwargs):
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        model_cls(**kwargs)
+
+
+def test_excluded_enrichment_details_preserve_infinite_odds_ratios():
+    result = EnrichmentResult(
+        method="ora",
+        n_gene_sets=1,
+        n_significant=1,
+        top_gene_sets=["perfect_separation"],
+        top_depleted_sets=[],
+        enrichment_scores={"perfect_separation": float("inf")},
+    )
+
+    assert result.enrichment_scores["perfect_separation"] == float("inf")
+    assert "enrichment_scores" not in result.model_dump()
+    assert "Infinity" not in result.model_dump_json()
+
+
+def test_nested_analysis_values_do_not_publish_warning_fields():
+    cell_type_result = CellTypeComparisonResult(
+        cell_type="T",
+        n_cells_condition1=10,
+        n_cells_condition2=10,
+        n_samples_condition1=2,
+        n_samples_condition2=2,
+        n_significant_genes=1,
+        top_upregulated=[_de_gene()],
+        top_downregulated=[],
+    )
+
+    dumped = cell_type_result.model_dump()
+    schema = ConditionComparisonResult.model_json_schema()
+
+    assert "warnings" not in dumped
+    assert "warnings" not in dumped["top_upregulated"][0]
+    assert "warnings" not in schema["$defs"]["CellTypeComparisonResult"]["properties"]
+    assert "warnings" not in schema["$defs"]["DEGene"]["properties"]
+
+
+def test_top_level_analysis_result_only_serializes_nonempty_warnings():
+    result = ConditionComparisonResult(
+        data_id="d1",
+        method="pseudobulk",
+        comparison="treated vs control",
+        condition_key="condition",
+        condition1="treated",
+        condition2="control",
+        sample_key="sample",
+        n_samples_condition1=2,
+        n_samples_condition2=2,
+        global_n_significant=1,
+        global_top_upregulated=[_de_gene()],
+        results_key="condition_comparison",
+        statistics={},
+    )
+
+    assert "warnings" not in result.model_dump()
+    assert result.model_copy(update={"warnings": ["low sample count"]}).model_dump()[
+        "warnings"
+    ] == ["low sample count"]
 
 
 def test_differential_expression_requires_group_key():

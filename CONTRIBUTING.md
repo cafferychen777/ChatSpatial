@@ -17,7 +17,7 @@ pip install -e ".[dev]"
 pytest tests/unit/ -x
 ```
 
-**Prerequisites**: Python 3.11-3.13, Git. For R-based methods (RCTD, CellChat, SPARK-X, etc.): R 4.4+ and rpy2.
+**Prerequisites**: Python 3.11-3.14, Git. For R-based methods (RCTD, CellChat, SPARK-X, etc.): R 4.4+ and rpy2.
 
 ## Project Structure
 

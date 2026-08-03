@@ -20,14 +20,24 @@ class DummyCtx:
     async def get_adata(self, data_id: str):
         return self.datasets[data_id]
 
-    async def add_dataset(self, adata, prefix: str = "data"):
-        data_id = f"{prefix}_1"
+    def reserve_dataset_id(self, prefix: str = "data"):
+        return f"{prefix}_1"
+
+    async def add_dataset(
+        self,
+        adata,
+        prefix: str = "data",
+        data_id: str | None = None,
+    ):
+        data_id = data_id or f"{prefix}_1"
         self.added[data_id] = adata
         return data_id
 
 
 @pytest.mark.integration
-def test_integrate_multiple_samples_requires_at_least_two_datasets(minimal_spatial_adata):
+def test_integrate_multiple_samples_requires_at_least_two_datasets(
+    minimal_spatial_adata,
+):
     with pytest.raises(ParameterError, match="at least 2 datasets"):
         integrate_multiple_samples([minimal_spatial_adata], method="harmony")
 
@@ -71,9 +81,31 @@ async def test_integrate_samples_preserves_scvi_data_errors(
         integration_module, "integrate_with_scvi", fake_integrate_with_scvi
     )
 
-    params = IntegrationParameters(method="scvi", batch_key="batch", align_spatial=False)
+    params = IntegrationParameters(
+        method="scvi", batch_key="batch", align_spatial=False
+    )
     with pytest.raises(DataError, match="raw integer counts"):
         await integrate_samples(["d1", "d2"], ctx, params)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("data_ids", "message"),
+    [
+        (["d1"], "at least 2 dataset IDs"),
+        (["d1", "d1"], "must be distinct"),
+    ],
+)
+async def test_integrate_samples_rejects_invalid_dataset_id_sets(
+    minimal_spatial_adata,
+    data_ids: list[str],
+    message: str,
+):
+    ctx = DummyCtx({"d1": minimal_spatial_adata.copy()})
+
+    with pytest.raises(ParameterError, match=message):
+        await integrate_samples(data_ids, ctx, IntegrationParameters())
 
 
 @pytest.mark.integration
@@ -113,10 +145,14 @@ async def test_integrate_samples_adds_integrated_dataset_and_exports(
         called.setdefault("exports", []).append((data_id, analysis_name))
 
     monkeypatch.setattr(
-        integration_module, "integrate_multiple_samples", fake_integrate_multiple_samples
+        integration_module,
+        "integrate_multiple_samples",
+        fake_integrate_multiple_samples,
     )
     monkeypatch.setattr(
-        integration_module, "rescale_spatial_coordinates", fake_rescale_spatial_coordinates
+        integration_module,
+        "rescale_spatial_coordinates",
+        fake_rescale_spatial_coordinates,
     )
     monkeypatch.setattr(
         integration_module, "export_analysis_result", fake_export_analysis_result
@@ -140,3 +176,37 @@ async def test_integrate_samples_adds_integrated_dataset_and_exports(
     assert ("integrated_1", "spatial_alignment") in called["exports"]
     assert "integrated_1" in ctx.added
 
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_integrate_samples_export_failure_does_not_publish_orphan(
+    minimal_spatial_adata,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    ctx = DummyCtx(
+        {
+            "d1": minimal_spatial_adata.copy(),
+            "d2": minimal_spatial_adata.copy(),
+        }
+    )
+    integrated = minimal_spatial_adata.copy()
+
+    monkeypatch.setattr(
+        integration_module,
+        "integrate_multiple_samples",
+        lambda *_args, **_kwargs: integrated,
+    )
+    monkeypatch.setattr(
+        integration_module,
+        "export_analysis_result",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("export failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="export failed"):
+        await integrate_samples(
+            ["d1", "d2"],
+            ctx,
+            IntegrationParameters(align_spatial=False),
+        )
+
+    assert ctx.added == {}

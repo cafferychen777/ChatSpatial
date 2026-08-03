@@ -20,6 +20,31 @@ class _WarnCtx:
         self.messages.append(msg)
 
 
+def test_column_profile_omits_non_finite_numeric_ranges():
+    adata = ad.AnnData(np.ones((4, 2)))
+    adata.obs["all_nan"] = np.nan
+    adata.obs["mixed"] = [1.0, np.nan, np.inf, 3.0]
+
+    profiles = {item["name"]: item for item in au.get_column_profile(adata)}
+
+    assert profiles["all_nan"]["range"] is None
+    assert profiles["all_nan"]["n_unique"] == 0
+    assert profiles["mixed"]["range"] == (1.0, 3.0)
+    assert profiles["mixed"]["n_unique"] == 2
+
+
+def test_column_profile_preserves_complex_values_as_strings():
+    adata = ad.AnnData(np.ones((3, 2)))
+    adata.obs["complex_metric"] = np.array([1 + 2j, 3 + 4j, 1 + 2j])
+
+    profile = au.get_column_profile(adata)[0]
+
+    assert profile["dtype"] == "categorical"
+    assert profile["n_unique"] == 2
+    assert profile["range"] is None
+    assert profile["sample_values"] == ["(1+2j)", "(3+4j)"]
+
+
 def test_discovery_helpers_find_cell_cluster_and_batch_keys(minimal_spatial_adata):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["T"] * adata.n_obs
@@ -58,7 +83,9 @@ def test_discovery_helpers_use_deterministic_priority_when_multiple_keys_exist(
     assert au.get_spatial_key(adata) == "spatial"
 
 
-def test_sample_expression_values_handles_dense_sparse_and_empty_sparse(minimal_spatial_adata):
+def test_sample_expression_values_handles_dense_sparse_and_empty_sparse(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
 
     dense_sample = au.sample_expression_values(adata, n_samples=5)
@@ -70,13 +97,17 @@ def test_sample_expression_values_handles_dense_sparse_and_empty_sparse(minimal_
     assert sparse_sample.shape[0] <= 7
 
     adata_empty = adata.copy()
-    adata_empty.X = sparse.csr_matrix((adata_empty.n_obs, adata_empty.n_vars), dtype=float)
+    adata_empty.X = sparse.csr_matrix(
+        (adata_empty.n_obs, adata_empty.n_vars), dtype=float
+    )
     empty_sample = au.sample_expression_values(adata_empty, n_samples=3)
     assert empty_sample.shape[0] == 3
     assert np.all(empty_sample == 0)
 
 
-def test_require_spatial_coords_validates_nan_inf_and_missing_key(minimal_spatial_adata):
+def test_require_spatial_coords_validates_nan_inf_and_missing_key(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     adata.obsm["spatial"][0, 0] = np.nan
     with pytest.raises(DataError, match="contain NaN"):
@@ -127,7 +158,9 @@ def test_validate_obs_and_var_column_raise_useful_errors(minimal_spatial_adata):
         au.validate_var_column(adata, "marker", "Marker")
 
 
-def test_validate_adata_basics_check_empty_ratio_for_dense_and_sparse(minimal_spatial_adata):
+def test_validate_adata_basics_check_empty_ratio_for_dense_and_sparse(
+    minimal_spatial_adata,
+):
     dense = minimal_spatial_adata.copy()
     dense.X = np.asarray(dense.X)
     dense.X[:20, :] = 0.0
@@ -140,10 +173,14 @@ def test_validate_adata_basics_check_empty_ratio_for_dense_and_sparse(minimal_sp
     sparse_matrix[:, :18] = 0.0
     sparse_adata.X = sparse_matrix.tocsr()
     with pytest.raises(DataError, match="genes .* zero expression"):
-        au.validate_adata_basics(sparse_adata, check_empty_ratio=True, max_empty_vars_ratio=0.5)
+        au.validate_adata_basics(
+            sparse_adata, check_empty_ratio=True, max_empty_vars_ratio=0.5
+        )
 
 
-def test_validate_adata_basics_rejects_none_and_too_small_dataset(minimal_spatial_adata):
+def test_validate_adata_basics_rejects_none_and_too_small_dataset(
+    minimal_spatial_adata,
+):
     with pytest.raises(DataError, match="cannot be None"):
         au.validate_adata_basics(None)
 
@@ -167,7 +204,9 @@ def test_ensure_categorical_converts_and_rejects_missing_column(minimal_spatial_
         au.ensure_categorical(adata, "missing")
 
 
-def test_shallow_copy_adata_shares_expression_but_copies_metadata(minimal_spatial_adata):
+def test_shallow_copy_adata_shares_expression_but_copies_metadata(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     adata.layers["counts"] = np.asarray(adata.X).copy()
     adata.varm["loadings"] = np.ones((adata.n_vars, 2), dtype=float)
@@ -289,9 +328,7 @@ def test_reconstruct_velovi_adata_rejects_corrupted_matrix_shape(
         au.reconstruct_velovi_adata(adata)
 
 
-def test_velovi_payload_survives_h5ad_roundtrip(
-    minimal_spatial_adata, tmp_path
-):
+def test_velovi_payload_survives_h5ad_roundtrip(minimal_spatial_adata, tmp_path):
     adata = minimal_spatial_adata.copy()
     vel = _make_velovi_workspace(adata)
     au.store_velovi_essential_data(adata, vel)
@@ -330,7 +367,9 @@ def test_reconstruct_velovi_adata_requires_essential_keys(minimal_spatial_adata)
         au.reconstruct_velovi_adata(adata)
 
 
-def test_standardize_adata_moves_spatial_and_casts_known_categories(minimal_spatial_adata):
+def test_standardize_adata_moves_spatial_and_casts_known_categories(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     adata.obsm["coords"] = adata.obsm["spatial"].copy()
     del adata.obsm["spatial"]
@@ -351,7 +390,9 @@ def test_standardize_adata_ignores_obs_xy_conversion_errors(
     adata.obs["x"] = ["bad"] * adata.n_obs
     adata.obs["y"] = ["bad"] * adata.n_obs
 
-    monkeypatch.setattr(au.pd, "to_numeric", lambda *_a, **_k: (_ for _ in ()).throw(ValueError("boom")))
+    monkeypatch.setattr(
+        au.pd, "to_numeric", lambda *_a, **_k: (_ for _ in ()).throw(ValueError("boom"))
+    )
     out = au.standardize_adata(adata, copy=True)
     assert "spatial" not in out.obsm
 
@@ -414,7 +455,9 @@ def test_validate_adata_spatial_and_velocity_issue_branches(minimal_spatial_adat
         au.validate_adata(adata2, required_keys={}, check_spatial=True)
 
     adata3 = minimal_spatial_adata.copy()
-    adata3.layers["spliced"] = sparse.csr_matrix((adata3.n_obs, adata3.n_vars), dtype=float)
+    adata3.layers["spliced"] = sparse.csr_matrix(
+        (adata3.n_obs, adata3.n_vars), dtype=float
+    )
     unspliced = sparse.csr_matrix(np.zeros((adata3.n_obs, adata3.n_vars), dtype=float))
     unspliced = unspliced.tolil()
     unspliced[0, 0] = np.nan
@@ -493,7 +536,9 @@ def test_hvg_and_gene_selection_paths(minimal_spatial_adata):
     hvgs = au.get_highly_variable_genes(adata, max_genes=3)
     assert len(hvgs) == 3
 
-    selected = au.select_genes_for_analysis(adata, genes=["gene_0", "missing"], n_genes=2)
+    selected = au.select_genes_for_analysis(
+        adata, genes=["gene_0", "missing"], n_genes=2
+    )
     assert selected == ["gene_0"]
 
     with pytest.raises(DataError, match="Did you mean"):
@@ -529,14 +574,24 @@ def test_select_genes_for_analysis_hvg_and_require_hvg_error(minimal_spatial_ada
 
 def test_hvg_fallback_to_variance_for_sparse_and_dense(minimal_spatial_adata):
     dense = minimal_spatial_adata.copy()
-    dense.var = dense.var.drop(columns=[c for c in dense.var.columns if c == "highly_variable"], errors="ignore")
-    dense_hvgs = au.get_highly_variable_genes(dense, max_genes=4, fallback_to_variance=True)
+    dense.var = dense.var.drop(
+        columns=[c for c in dense.var.columns if c == "highly_variable"],
+        errors="ignore",
+    )
+    dense_hvgs = au.get_highly_variable_genes(
+        dense, max_genes=4, fallback_to_variance=True
+    )
     assert len(dense_hvgs) == 4
 
     sparse_adata = minimal_spatial_adata.copy()
-    sparse_adata.var = sparse_adata.var.drop(columns=[c for c in sparse_adata.var.columns if c == "highly_variable"], errors="ignore")
+    sparse_adata.var = sparse_adata.var.drop(
+        columns=[c for c in sparse_adata.var.columns if c == "highly_variable"],
+        errors="ignore",
+    )
     sparse_adata.X = sparse.csr_matrix(np.asarray(sparse_adata.X))
-    sparse_hvgs = au.get_highly_variable_genes(sparse_adata, max_genes=4, fallback_to_variance=True)
+    sparse_hvgs = au.get_highly_variable_genes(
+        sparse_adata, max_genes=4, fallback_to_variance=True
+    )
     assert len(sparse_hvgs) == 4
 
 
@@ -707,7 +762,9 @@ def test_profiles_and_overlap_helpers(minimal_spatial_adata):
         au.find_common_genes(["A"])
 
     with pytest.raises(DataError, match="Insufficient gene overlap"):
-        au.validate_gene_overlap(["A", "B"], source_n_genes=200, target_n_genes=150, min_genes=10)
+        au.validate_gene_overlap(
+            ["A", "B"], source_n_genes=200, target_n_genes=150, min_genes=10
+        )
 
 
 def test_profiles_large_cardinality_and_gene_profile_failure_is_not_fabricated(
@@ -771,11 +828,17 @@ def test_get_raw_data_source_raw_error_and_counts_skip_path(
 ):
     adata = minimal_spatial_adata.copy()
     adata.raw = adata.copy()
-    adata.layers["counts"] = np.asarray(adata.X, dtype=float) + 0.25  # non-integer, skip
+    adata.layers["counts"] = (
+        np.asarray(adata.X, dtype=float) + 0.25
+    )  # non-integer, skip
     adata.X = np.asarray(adata.X, dtype=float)  # integer-valued floats -> valid current
 
-    monkeypatch.setattr(adata.raw, "to_adata", lambda: (_ for _ in ()).throw(RuntimeError("raw bad")))
-    out = au.get_raw_data_source(adata, prefer_complete_genes=True, require_integer_counts=True)
+    monkeypatch.setattr(
+        adata.raw, "to_adata", lambda: (_ for _ in ()).throw(RuntimeError("raw bad"))
+    )
+    out = au.get_raw_data_source(
+        adata, prefer_complete_genes=True, require_integer_counts=True
+    )
     assert out.source == "current"
 
 

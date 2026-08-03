@@ -51,9 +51,6 @@ Normalize, filter, and prepare data.
 |-----------|---------|-------------|
 | `normalization` | `pearson_residuals` | `log`, `sct`, `pearson_residuals`, `scvi`, `none` |
 | `n_hvgs` | 2000 | Highly variable genes |
-| `n_pcs` | 30 | Principal components |
-| `n_neighbors` | 15 | Neighbor graph |
-| `clustering_resolution` | 1.0 | Leiden clustering |
 | `filter_genes_min_cells` | 3 | Min cells per gene |
 | `filter_cells_min_genes` | 30 | Min genes per cell |
 | `filter_mito_pct` | 20.0 | Max mitochondrial % |
@@ -67,6 +64,12 @@ Normalize, filter, and prepare data.
 | `normalize_target_sum` | None | Target counts per cell (None=median, 1e4=Visium, 1e6=MERFISH) |
 | `remove_mito_genes` | True | Exclude mito genes from HVG |
 | `batch_key` | `batch` | Batch column for batch-aware normalization |
+
+PCA, neighbor, UMAP, and clustering parameters belong to
+`compute_embeddings`; `preprocess_data` does not accept or retain them.
+
+`preprocess_data` does not compute PCA, UMAP, clustering, or neighbor graphs.
+Call `compute_embeddings` explicitly before cluster- or embedding-dependent tools.
 
 ---
 
@@ -327,7 +330,7 @@ Batch integration.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `data_ids` | required | List of dataset IDs |
+| `data_ids` | required | Two or more distinct dataset IDs |
 | `method` | `harmony` | `harmony`, `bbknn`, `scanorama`, `scvi` |
 | `batch_key` | `batch` | Batch column |
 
@@ -339,8 +342,8 @@ Align spatial sections.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `source_id` | required | Source dataset |
-| `target_id` | required | Target dataset |
+| `source_id` | required | Source dataset; must differ from `target_id` |
+| `target_id` | required | Target dataset; must differ from `source_id` |
 | `method` | `paste` | `paste`, `stalign` |
 
 ---

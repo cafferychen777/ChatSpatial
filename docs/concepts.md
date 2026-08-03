@@ -167,6 +167,13 @@ Most analyses fail because preprocessing wasn't run. Always preprocess first:
 "Preprocess the data"
 ```
 
+Preprocessing performs QC, normalization, and gene selection. For analyses that
+need PCA, UMAP, clusters, or neighbor graphs, follow it with:
+
+```
+"Compute embeddings and clusters"
+```
+
 ### 2. Wrong Species Parameter
 
 Cell communication analysis depends on species-specific resources. Use the resource that matches the organism, especially for mouse data.
@@ -210,4 +217,3 @@ Load → Preprocess → Domains → Deconvolve → Statistics → Communication 
 ```
 
 Best for: Comprehensive analysis for publication.
-

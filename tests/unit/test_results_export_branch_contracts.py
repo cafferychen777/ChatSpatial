@@ -91,7 +91,9 @@ def test_extract_rank_genes_groups_missing_or_failing_returns_none(
     adata.uns["rank_genes_groups"] = {"names": np.array([])}
     fake_scanpy_bad = SimpleNamespace(
         get=SimpleNamespace(
-            rank_genes_groups_df=lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("boom"))
+            rank_genes_groups_df=lambda *_a, **_k: (_ for _ in ()).throw(
+                RuntimeError("boom")
+            )
         )
     )
     monkeypatch.setitem(sys.modules, "scanpy", fake_scanpy_bad)
@@ -143,10 +145,20 @@ def test_extract_squidpy_result_handles_non_dict_missing_cluster_and_empty_metri
     minimal_spatial_adata,
 ) -> None:
     adata = minimal_spatial_adata.copy()
-    assert re._extract_squidpy_spatial_result(adata, "domain_co_occurrence", ["bad"]) is None
-    assert re._extract_squidpy_spatial_result(adata, "nope_nhood_enrichment", {"zscore": np.eye(2)}) is None
+    assert (
+        re._extract_squidpy_spatial_result(adata, "domain_co_occurrence", ["bad"])
+        is None
+    )
+    assert (
+        re._extract_squidpy_spatial_result(
+            adata, "nope_nhood_enrichment", {"zscore": np.eye(2)}
+        )
+        is None
+    )
 
-    adata.obs["domain"] = [f"d{i % 3}" for i in range(adata.n_obs)]  # non-categorical branch
+    adata.obs["domain"] = [
+        f"d{i % 3}" for i in range(adata.n_obs)
+    ]  # non-categorical branch
     out_empty = re._extract_squidpy_spatial_result(
         adata,
         "domain_nhood_enrichment",
@@ -169,16 +181,23 @@ def test_extract_squidpy_result_rejects_unrecognized_key_suffix(
 ) -> None:
     adata = minimal_spatial_adata.copy()
     adata.obs["domain"] = pd.Categorical([f"d{i % 2}" for i in range(adata.n_obs)])
-    assert re._extract_squidpy_spatial_result(adata, "domain", {"zscore": np.eye(2)}) is None
+    assert (
+        re._extract_squidpy_spatial_result(adata, "domain", {"zscore": np.eye(2)})
+        is None
+    )
 
 
-def test_extract_from_obs_and_var_return_none_for_non_matching_key(minimal_spatial_adata) -> None:
+def test_extract_from_obs_and_var_return_none_for_non_matching_key(
+    minimal_spatial_adata,
+) -> None:
     adata = minimal_spatial_adata.copy()
     assert re._extract_from_obs(adata, "not_present") is None
     assert re._extract_from_var(adata, "not_present") is None
 
 
-def test_extract_from_obs_and_var_support_prefix_wildcard(minimal_spatial_adata) -> None:
+def test_extract_from_obs_and_var_support_prefix_wildcard(
+    minimal_spatial_adata,
+) -> None:
     adata = minimal_spatial_adata.copy()
     adata.obs["score_alpha"] = np.arange(adata.n_obs)
     adata.obs["score_beta"] = np.arange(adata.n_obs)
@@ -253,7 +272,9 @@ def test_extract_as_dataframe_routes_obsm_location(minimal_spatial_adata) -> Non
     assert list(out.columns) == ["latent_0", "latent_1"]
 
 
-def test_infer_obsm_columns_prefers_metadata_and_falls_back(minimal_spatial_adata) -> None:
+def test_infer_obsm_columns_prefers_metadata_and_falls_back(
+    minimal_spatial_adata,
+) -> None:
     adata = minimal_spatial_adata.copy()
 
     # Deconvolution: uns["deconvolution_{method}_cell_types"]
@@ -270,19 +291,13 @@ def test_infer_obsm_columns_prefers_metadata_and_falls_back(minimal_spatial_adat
 
     # CCC spatial (per-method key): uns["ccc_liana"]["lr_pairs"] takes priority
     adata.uns["ccc_liana"] = {"lr_pairs": ["X^Y", "Y^Z"]}
-    cols_method = re._infer_obsm_columns(
-        adata, "ccc_spatial_scores_liana", 2
-    )
+    cols_method = re._infer_obsm_columns(adata, "ccc_spatial_scores_liana", 2)
     assert cols_method == ["X^Y", "Y^Z"]
-    cols_method_pvals = re._infer_obsm_columns(
-        adata, "ccc_spatial_pvals_liana", 2
-    )
+    cols_method_pvals = re._infer_obsm_columns(adata, "ccc_spatial_pvals_liana", 2)
     assert cols_method_pvals == ["X^Y", "Y^Z"]
 
     # CCC spatial (per-method key missing → falls back to shared)
-    cols_fallback = re._infer_obsm_columns(
-        adata, "ccc_spatial_scores_cellphonedb", 2
-    )
+    cols_fallback = re._infer_obsm_columns(adata, "ccc_spatial_scores_cellphonedb", 2)
     assert cols_fallback == ["A^B", "B^C"]
 
     # Fallback: numeric indices
@@ -378,7 +393,9 @@ def test_result_timestamps_are_explicit_utc() -> None:
     assert timestamp.utcoffset() == timedelta(0)
 
 
-def test_sanitize_for_json_preserves_numeric_types_and_rejects_nonfinite_values() -> None:
+def test_sanitize_for_json_preserves_numeric_types_and_rejects_nonfinite_values() -> (
+    None
+):
     sanitized = re._sanitize_for_json(
         {
             1: np.int64(3),
@@ -498,16 +515,14 @@ def test_extract_ccc_per_method_key(
     }
     adata.uns["ccc_liana"] = ccc_storage
 
-    df = re._extract_as_dataframe(
-        adata, "uns", "ccc_liana", "test"
-    )
+    df = re._extract_as_dataframe(adata, "uns", "ccc_liana", "test")
     assert df is not None
     assert isinstance(df, pd.DataFrame)
     assert "source" in df.columns
     assert len(df) == 2
 
 
-def test_export_analysis_result_updates_index_when_all_exports_fail(
+def test_export_analysis_result_records_errors_when_all_exports_fail(
     minimal_spatial_adata, monkeypatch, tmp_path: Path
 ) -> None:
     """Audit trail must be recorded even when every export raises an exception."""
@@ -528,3 +543,15 @@ def test_export_analysis_result_updates_index_when_all_exports_fail(
     loaded = json.loads(index_path.read_text(encoding="utf-8"))
     assert "fail" in loaded["analyses"]
     assert loaded["analyses"]["fail"]["method"] == "fail_method"
+    assert loaded["analyses"]["fail"]["errors"] == [
+        {
+            "location": "obs",
+            "key": "nonexistent_key_a",
+            "error": "Declared result was not found or is not exportable",
+        },
+        {
+            "location": "obs",
+            "key": "nonexistent_key_b",
+            "error": "Declared result was not found or is not exportable",
+        },
+    ]

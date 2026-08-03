@@ -171,13 +171,14 @@ def export_analysis_result(
 
     analysis_dir = get_analysis_dir(data_id, analysis_name)
     exported_files: list[Path] = []
+    export_errors: list[dict[str, str]] = []
 
     # Export based on storage location
     for location, keys in results_keys.items():
         for key in keys:
             try:
                 df = _extract_as_dataframe(adata, location, key, analysis_name)
-                if df is not None and len(df) > 0:
+                if df is not None:
                     _warn_large_export(df, location=location, key=key)
                     # Sanitize key for filename
                     safe_key = key.replace("/", "_").replace("\\", "_")
@@ -187,11 +188,29 @@ def export_analysis_result(
                         df.to_csv(staging_path, index=True)
                     exported_files.append(filepath)
                     logger.info(f"Exported {analysis_name} result to {filepath}")
+                else:
+                    message = "Declared result was not found or is not exportable"
+                    export_errors.append(
+                        {"location": str(location), "key": str(key), "error": message}
+                    )
+                    logger.warning("%s: %s/%s", message, location, key)
             except Exception as e:
+                export_errors.append(
+                    {"location": str(location), "key": str(key), "error": str(e)}
+                )
                 logger.warning(f"Failed to export {key} from {location}: {e}")
 
-    # Always update index for audit trail, even when no files were exported
-    _update_index(data_id, analysis_name, method, metadata, exported_files)
+    # Always update the index. Partial optional exports remain usable, while
+    # missing or failed declared artifacts are explicit rather than silently
+    # indistinguishable from an analysis that intentionally exports no files.
+    _update_index(
+        data_id,
+        analysis_name,
+        method,
+        metadata,
+        exported_files,
+        export_errors=export_errors,
+    )
 
     return exported_files
 
@@ -623,6 +642,7 @@ def _update_index(
     method: str,
     metadata: dict[str, Any],
     exported_files: list[Path],
+    export_errors: list[dict[str, str]] | None = None,
 ) -> None:
     """Update the _index.json with export information."""
     index_path = get_results_dir(data_id) / "_index.json"
@@ -646,6 +666,7 @@ def _update_index(
             "statistics": _sanitize_for_json(metadata.get("statistics", {})),
             "exported_at": _now(),
             "files": [file.name for file in exported_files],
+            "errors": export_errors or [],
         }
         index["updated_at"] = _now()
 

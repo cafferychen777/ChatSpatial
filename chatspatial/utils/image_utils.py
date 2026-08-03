@@ -8,9 +8,11 @@ This module provides:
 
 import threading
 import uuid
-from collections.abc import Generator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Generator
+from contextlib import asynccontextmanager, contextmanager
 from typing import TYPE_CHECKING, Any, Optional
+
+import anyio
 
 from ..config import get_default_output_dir
 
@@ -23,6 +25,7 @@ if TYPE_CHECKING:
 # =============================================================================
 
 _PLOTTING_STATE_LOCK = threading.RLock()
+_ASYNC_PLOTTING_LOCK = anyio.Lock()
 
 
 @contextmanager
@@ -75,6 +78,19 @@ def isolated_figure_scope() -> Generator[None, None, None]:
         created_figures = set(plt.get_fignums()) - existing_figures
         for figure_number in created_figures:
             plt.close(figure_number)
+
+
+@asynccontextmanager
+async def serialized_figure_scope() -> AsyncIterator[None]:
+    """Serialize complete Matplotlib lifecycles across async tool calls.
+
+    Matplotlib state is process-global. A thread lock cannot distinguish
+    coroutines running on the same event-loop thread, so async callers must
+    hold this lock from figure creation through export and cleanup.
+    """
+    async with _ASYNC_PLOTTING_LOCK:
+        with isolated_figure_scope():
+            yield
 
 
 if TYPE_CHECKING:

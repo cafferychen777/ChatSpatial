@@ -525,10 +525,7 @@ async def _store_results(
     # Export results to CSV for reproducibility
     export_analysis_result(spatial_adata, data_id, analysis_key)
 
-    # Save updated data
-    await ctx.set_adata(data_id, spatial_adata)
-
-    return DeconvolutionResult(
+    result = DeconvolutionResult(
         data_id=data_id,
         method=method,
         dominant_type_key=dominant_key,
@@ -536,8 +533,8 @@ async def _store_results(
         cell_types=cell_types,
         proportions_key=proportions_key,
         n_spots=len(full_proportions),
-        genes_used=result_stats.get(
-            "genes_used", result_stats.get("common_genes", 0)
-        ),
+        genes_used=result_stats.get("genes_used", result_stats.get("common_genes", 0)),
         statistics=result_stats,
     )
+    await ctx.set_adata(data_id, spatial_adata)
+    return result

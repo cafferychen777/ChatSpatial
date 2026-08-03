@@ -8,11 +8,11 @@ these tests fail immediately.
 
 from __future__ import annotations
 
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
-from packaging.specifiers import SpecifierSet
 import pytest
+from packaging.specifiers import SpecifierSet
 
 
 @pytest.mark.unit
@@ -40,7 +40,7 @@ def test_docs_build_python_satisfies_package_requires_python():
     declared_python = next(
         line.split('"')[1]
         for line in rtd_config.splitlines()
-        if 'python:' in line and '"' in line
+        if "python:" in line and '"' in line
     )
 
     assert f"{declared_python}.0" in SpecifierSet(requires_python)
@@ -71,10 +71,11 @@ def test_spatial_statistics_registry_matches_literal():
 
 
 @pytest.mark.unit
-def test_every_tool_has_annotations():
+@pytest.mark.asyncio
+async def test_every_tool_has_annotations():
     """Every registered MCP tool must have ToolAnnotations (inline, not a dict)."""
     from chatspatial.server import mcp
 
-    tools = mcp._tool_manager.list_tools()
+    tools = await mcp.list_tools()
     missing = [t.name for t in tools if t.annotations is None]
     assert not missing, f"Tools without annotations: {missing}"

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 import sys
+from contextlib import contextmanager
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
@@ -271,7 +271,7 @@ async def test_preprocess_data_reuses_raw_matrix_for_counts_layer_when_aligned(
 async def test_preprocess_data_warns_when_hvgs_too_low(monkeypatch: pytest.MonkeyPatch):
     _install_lightweight_preprocess_mocks(monkeypatch)
 
-    adata = _make_adata(n_obs=20, n_vars=120)
+    adata = _make_adata(n_obs=20, n_vars=600)
     ctx = DummyCtx(adata)
     params = PreprocessingParameters(
         normalization="log",
@@ -285,6 +285,56 @@ async def test_preprocess_data_warns_when_hvgs_too_low(monkeypatch: pytest.Monke
     await preprocess_data("d2", ctx, params)
 
     assert any("recommended minimum of 500" in w for w in ctx.warnings)
+
+
+@pytest.mark.asyncio
+async def test_preprocess_data_reports_effective_hvgs_for_small_panels(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _install_lightweight_preprocess_mocks(monkeypatch)
+
+    adata = _make_adata(n_obs=20, n_vars=80)
+    ctx = DummyCtx(adata)
+    params = PreprocessingParameters(
+        normalization="log",
+        n_hvgs=30,
+        filter_genes_min_cells=1,
+        filter_cells_min_genes=1,
+        remove_mito_genes=False,
+        filter_mito_pct=None,
+    )
+
+    result = await preprocess_data("small_panel", ctx, params)
+
+    assert result.n_hvgs == 80
+    assert not any("HVGs" in warning for warning in ctx.warnings)
+
+
+@pytest.mark.asyncio
+async def test_preprocess_data_warns_when_subsampling_a_small_panel(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _install_lightweight_preprocess_mocks(monkeypatch)
+
+    adata = _make_adata(n_obs=20, n_vars=80)
+    ctx = DummyCtx(adata)
+    params = PreprocessingParameters(
+        normalization="log",
+        n_hvgs=40,
+        subsample_genes=30,
+        filter_genes_min_cells=1,
+        filter_cells_min_genes=1,
+        remove_mito_genes=False,
+        filter_mito_pct=None,
+    )
+
+    result = await preprocess_data("subsampled_panel", ctx, params)
+
+    assert result.n_hvgs == 30
+    assert any(
+        "Using 30 of 80 available genes in a small panel" in warning
+        for warning in ctx.warnings
+    )
 
 
 @pytest.mark.asyncio
@@ -367,7 +417,7 @@ async def test_preprocess_data_unknown_normalization_raises(
 
 
 @pytest.mark.asyncio
-async def test_preprocess_data_gene_subsample_requires_nonempty_hvgs(
+async def test_preprocess_data_rejects_empty_hvg_selection(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
@@ -384,14 +434,13 @@ async def test_preprocess_data_gene_subsample_requires_nonempty_hvgs(
     ctx = DummyCtx(adata)
     params = PreprocessingParameters(
         normalization="log",
-        subsample_genes=20,
         n_hvgs=20,
         filter_genes_min_cells=1,
         filter_cells_min_genes=1,
         filter_mito_pct=None,
     )
 
-    with pytest.raises(DataError, match="no genes were marked as highly variable"):
+    with pytest.raises(DataError, match="HVG selection produced no usable genes"):
         await preprocess_data("d5", ctx, params)
 
 
@@ -1224,6 +1273,7 @@ async def test_preprocess_data_scale_failure_warns_and_continues(
     monkeypatch: pytest.MonkeyPatch,
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
+
     def _partially_mutate_then_fail(adata, **_kwargs):
         adata.X[:] = -999
         raise RuntimeError("scale boom")
@@ -1524,7 +1574,8 @@ async def test_preprocess_data_gene_subsample_requires_hvg_column_presence(
     ctx = DummyCtx(adata)
 
     with pytest.raises(
-        ProcessingError, match="Gene subsampling failed: no HVGs identified"
+        ProcessingError,
+        match="HVG selection failed: no highly_variable annotations were produced",
     ):
         await preprocess_data(
             "d38",

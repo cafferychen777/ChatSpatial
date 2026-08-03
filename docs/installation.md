@@ -11,7 +11,8 @@ a containerized runtime, use the [Docker / GHCR](docker.md) guide instead.
 
 ## Requirements
 
-- **Python 3.11-3.13** (3.12 recommended)
+- **Python 3.11-3.14** (3.12 recommended)
+- **MCP Python SDK 2.x** (installed automatically with ChatSpatial)
 - **8GB+ RAM** (16GB+ for large datasets)
 - **macOS, Linux, or Windows**
 - **Docker** only if you choose the container runtime

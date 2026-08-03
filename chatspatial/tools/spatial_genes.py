@@ -132,23 +132,30 @@ async def identify_spatial_genes(
         - SPARK-X: ~2-5 min for 3000 spots × 20000 genes
         - SpatialDE: ~15-30 min (scales with spot count squared)
     """
-    # Get data via ToolContext
-    adata = await ctx.get_adata(data_id)
+    # All backends publish result columns and metadata incrementally. Keep that
+    # work on an isolated candidate so dependency, export, or metadata failures
+    # cannot contaminate the managed dataset.
+    source_adata = await ctx.get_adata(data_id)
 
     # Validate spatial coordinates exist
-    require_spatial_coords(adata, spatial_key=params.spatial_key)
+    require_spatial_coords(source_adata, spatial_key=params.spatial_key)
+
+    adata = source_adata.copy()
 
     # Route to appropriate method
     if params.method == "spatialde":
-        return await _identify_spatial_genes_spatialde(data_id, adata, params, ctx)
+        result = await _identify_spatial_genes_spatialde(data_id, adata, params, ctx)
     elif params.method == "sparkx":
-        return await _identify_spatial_genes_sparkx(data_id, adata, params, ctx)
+        result = await _identify_spatial_genes_sparkx(data_id, adata, params, ctx)
     elif params.method == "flashs":
-        return await _identify_spatial_genes_flashs(data_id, adata, params, ctx)
+        result = await _identify_spatial_genes_flashs(data_id, adata, params, ctx)
     else:
         raise ParameterError(
             f"Unsupported method: {params.method}. Available methods: spatialde, sparkx, flashs"
         )
+
+    await ctx.set_adata(data_id, adata)
+    return result
 
 
 async def _identify_spatial_genes_spatialde(

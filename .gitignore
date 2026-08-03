@@ -311,6 +311,7 @@ chatspatial/tests/
 *.mcprc
 .mcp/
 .mcp.json
+.playwright-mcp/
 
 # Test configuration (should be in pyproject.toml)
 pytest.ini

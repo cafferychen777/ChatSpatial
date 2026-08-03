@@ -561,9 +561,7 @@ def _create_enrichmap_single_score(
     feature = (
         raw_feature[0]
         if isinstance(raw_feature, list) and raw_feature
-        else raw_feature
-        if isinstance(raw_feature, str)
-        else None
+        else raw_feature if isinstance(raw_feature, str) else None
     )
     if not feature:
         raise DataNotFoundError(

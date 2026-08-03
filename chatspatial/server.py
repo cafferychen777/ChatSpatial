@@ -2,10 +2,11 @@
 Main server implementation for ChatSpatial using the Spatial MCP Adapter.
 """
 
-from typing import Any, Optional, TypeVar
+from typing import Annotated, Optional, TypeVar
 
-from mcp.server.fastmcp import Context
+from mcp.server.mcpserver import Context
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
 # Initialize runtime configuration at the application boundary. Importing the
 # configuration module alone remains side-effect free for library consumers.
@@ -13,7 +14,7 @@ from mcp.types import ToolAnnotations
 # - Environment variables (TQDM_DISABLE, DASK_*)
 # - Warning filters
 # - Scanpy settings
-from . import config
+from . import __version__, config
 
 config.init_runtime()
 
@@ -23,11 +24,13 @@ from .models.analysis import CNVResult  # noqa: E402
 from .models.analysis import ConditionComparisonResult  # noqa: E402
 from .models.analysis import DeconvolutionResult  # noqa: E402
 from .models.analysis import DifferentialExpressionResult  # noqa: E402
+from .models.analysis import EmbeddingResult  # noqa: E402
 from .models.analysis import EnrichmentResult  # noqa: E402
 from .models.analysis import IntegrationResult  # noqa: E402
 from .models.analysis import PreprocessingResult  # noqa: E402
 from .models.analysis import RNAVelocityResult  # noqa: E402
 from .models.analysis import SpatialDomainResult  # noqa: E402
+from .models.analysis import SpatialRegistrationResult  # noqa: E402
 from .models.analysis import SpatialStatisticsResult  # noqa: E402
 from .models.analysis import SpatialVariableGenesResult  # noqa: E402
 from .models.analysis import TrajectoryResult  # noqa: E402
@@ -50,21 +53,26 @@ from .models.data import SpatialStatisticsParameters  # noqa: E402
 from .models.data import SpatialVariableGenesParameters  # noqa: E402
 from .models.data import TrajectoryParameters  # noqa: E402
 from .models.data import VisualizationParameters  # noqa: E402
-from .tools.embeddings import EmbeddingParameters  # noqa: E402
 from .spatial_mcp_adapter import ToolContext  # noqa: E402
 from .spatial_mcp_adapter import create_spatial_mcp_server  # noqa: E402
+from .spatial_mcp_adapter import serialize_dataset_access  # noqa: E402
+from .tools.embeddings import EmbeddingParameters  # noqa: E402
 from .utils.mcp_utils import (  # noqa: E402
     mcp_tool_error_handler,
     suppress_output_async,
 )
 
 # Create MCP server and adapter
-mcp, adapter = create_spatial_mcp_server("ChatSpatial")
+mcp, adapter = create_spatial_mcp_server(
+    "ChatSpatial",
+    server_version=__version__,
+)
 
 # Get data manager from adapter
 data_manager = adapter.data_manager
 
 P = TypeVar("P")
+R = TypeVar("R")
 
 
 def _resolve_params(params: Optional[P], default_factory: type[P]) -> P:
@@ -72,11 +80,17 @@ def _resolve_params(params: Optional[P], default_factory: type[P]) -> P:
     return params if params is not None else default_factory()
 
 
+def _finalize_result(ctx: ToolContext, result: R) -> R:
+    """Attach request-scoped warnings to a completed public result."""
+    return ctx.finalize(result)
+
+
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=False,
-        openWorldHint=True,
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True,
     )
 )
 @mcp_tool_error_handler()
@@ -101,14 +115,9 @@ async def load_data(
 
     await ctx.info(f"Loading data from {data_path} (type: {data_type})")
 
-    # Load data using data manager
-    data_id = await data_manager.load_dataset(data_path, data_type, name)
-    dataset_info = await data_manager.get_dataset(data_id)
-
-    await ctx.info(
-        f"Successfully loaded {dataset_info['type']} data with "
-        f"{dataset_info['n_cells']} cells and {dataset_info['n_genes']} genes"
-    )
+    # Stage the dataset first. It becomes visible only after the complete public
+    # result has passed validation below.
+    data_id, dataset_info = await data_manager.stage_dataset(data_path, data_type, name)
 
     # Convert column info from dict to ColumnInfo objects
     obs_columns = (
@@ -122,8 +131,7 @@ async def load_data(
         else None
     )
 
-    # Return comprehensive dataset information
-    return SpatialDataset(
+    result = SpatialDataset(
         id=data_id,
         name=dataset_info["name"],
         data_type=dataset_info["type"],  # Use normalized type from dataset_info
@@ -139,22 +147,33 @@ async def load_data(
         top_highly_variable_genes=dataset_info.get("top_highly_variable_genes"),
         top_expressed_genes=dataset_info.get("top_expressed_genes"),
     )
+    await ctx.info(
+        f"Successfully loaded {dataset_info['type']} data with "
+        f"{dataset_info['n_cells']} cells and {dataset_info['n_genes']} genes"
+    )
+    await data_manager.publish_dataset(data_id, dataset_info)
+    return result
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=False,
-        openWorldHint=False,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=False,
+        open_world_hint=False,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id")
 async def preprocess_data(
     data_id: str,
     params: Optional[PreprocessingParameters] = None,
     context: Optional[Context] = None,
 ) -> PreprocessingResult:
-    """Preprocess spatial transcriptomics data (QC, normalization, HVGs, PCA, clustering, spatial neighbors).
+    """Run QC, filtering, normalization, and highly variable gene selection.
+
+    This tool does not compute PCA, UMAP, clustering, or neighbor graphs. Run
+    compute_embeddings() afterward when downstream tools require those artifacts.
 
     Args:
         data_id: Dataset ID
@@ -172,25 +191,24 @@ async def preprocess_data(
     # Call preprocessing function
     result = await preprocess_func(data_id, ctx, resolved_params)
 
-    # Save preprocessing result
-    await data_manager.save_result(data_id, "preprocessing", result)
-
-    return result
+    return _finalize_result(ctx, result)
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=False,
-        openWorldHint=False,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=False,
+        open_world_hint=False,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id")
 async def compute_embeddings(
     data_id: str,
     params: Optional[EmbeddingParameters] = None,
     context: Optional[Context] = None,
-) -> dict[str, Any]:
+) -> EmbeddingResult:
     """Compute dimensionality reduction (PCA, UMAP), clustering, and neighbor graphs.
 
     Args:
@@ -203,19 +221,19 @@ async def compute_embeddings(
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
     async with suppress_output_async():
         result = await compute_embeddings_func(data_id, ctx, resolved)
-    dumped = result.model_dump()
-    await data_manager.save_result(data_id, "embeddings", dumped)
-    return dumped
+    return _finalize_result(ctx, result)
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=False,
-        openWorldHint=True,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=False,
+        open_world_hint=True,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id")
 async def visualize_data(
     data_id: str,
     params: Optional[VisualizationParameters] = None,
@@ -235,20 +253,24 @@ async def visualize_data(
 
         result = await visualize_func(data_id, ctx, resolved_params)
 
-    if result:
-        return result
-    else:
-        return "Visualization generation failed, please check the data and parameter settings."
+    if not result:
+        result = (
+            "Visualization generation failed, please check the data and parameter "
+            "settings."
+        )
+    return ctx.finalize(result)
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=False,
-        openWorldHint=True,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=False,
+        open_world_hint=True,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id", "params.reference_data_id")
 async def annotate_cell_types(
     data_id: str,
     params: Optional[AnnotationParameters] = None,
@@ -274,25 +296,19 @@ async def annotate_cell_types(
     async with suppress_output_async():
         result = await annotate_cell_types(data_id, ctx, resolved_params)
 
-    # Save annotation result (keyed by method + reference to allow coexistence)
-    from .tools.annotation import _build_annotation_suffix
-
-    cache_key = f"annotation_{_build_annotation_suffix(resolved_params.method, resolved_params.reference_data_id)}"
-    await data_manager.save_result(data_id, cache_key, result)
-
-    # Visualization should be done separately via visualization tools
-
-    return result
+    return _finalize_result(ctx, result)
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=True,
-        openWorldHint=False,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=True,
+        open_world_hint=False,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id")
 async def analyze_spatial_statistics(
     data_id: str,
     params: Optional[SpatialStatisticsParameters] = None,
@@ -317,24 +333,19 @@ async def analyze_spatial_statistics(
     # Call spatial statistics analysis function with ToolContext
     result = await _analyze_spatial_statistics(data_id, ctx, resolved_params)
 
-    # Save spatial statistics result (keyed by analysis_type to allow coexistence)
-    cache_key = f"spatial_statistics_{resolved_params.analysis_type}"
-    await data_manager.save_result(data_id, cache_key, result)
-
-    # Note: Visualization should be created separately using create_visualization tool
-    # This maintains clean separation between analysis and visualization
-
-    return result
+    return _finalize_result(ctx, result)
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=True,
-        openWorldHint=False,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=True,
+        open_world_hint=False,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id")
 async def find_markers(
     data_id: str,
     params: DifferentialExpressionParameters,
@@ -350,22 +361,20 @@ async def find_markers(
 
     from .tools.differential import differential_expression
 
-    from .tools.differential import _build_de_key
-
     result = await differential_expression(data_id, ctx, params)
-    cache_key = _build_de_key(params.method, params.group1, params.group2)
-    await data_manager.save_result(data_id, cache_key, result)
-    return result
+    return _finalize_result(ctx, result)
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=True,
-        openWorldHint=False,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=True,
+        open_world_hint=False,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id")
 async def compare_conditions(
     data_id: str,
     params: ConditionComparisonParameters,
@@ -382,21 +391,19 @@ async def compare_conditions(
     from .tools.condition_comparison import compare_conditions as _compare_conditions
 
     result = await _compare_conditions(data_id, ctx, params)
-    # Use a parametric key so multiple comparisons on the same dataset
-    # don't silently overwrite each other.
-    cache_key = f"condition_comparison_{params.condition1}_vs_{params.condition2}"
-    await data_manager.save_result(data_id, cache_key, result)
-    return result
+    return _finalize_result(ctx, result)
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=True,
-        openWorldHint=False,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=True,
+        open_world_hint=False,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id")
 async def analyze_cnv(
     data_id: str,
     params: CNVParameters,
@@ -410,23 +417,23 @@ async def analyze_cnv(
     """
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
-    from .tools.cnv_analysis import _build_cnv_key, infer_cnv
+    from .tools.cnv_analysis import infer_cnv
 
     result = await infer_cnv(data_id=data_id, ctx=ctx, params=params)
 
-    cache_key = _build_cnv_key(params)
-    await data_manager.save_result(data_id, cache_key, result)
-    return result
+    return _finalize_result(ctx, result)
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=False,
-        openWorldHint=False,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=False,
+        open_world_hint=False,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id")
 async def analyze_velocity_data(
     data_id: str,
     params: Optional[RNAVelocityParameters] = None,
@@ -442,30 +449,26 @@ async def analyze_velocity_data(
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Lazy import velocity analysis tool
-    from .tools.velocity import _build_velocity_key, analyze_rna_velocity
+    from .tools.velocity import analyze_rna_velocity
 
     resolved_params = _resolve_params(params, RNAVelocityParameters)
 
     # Call RNA velocity function with ToolContext
     result = await analyze_rna_velocity(data_id, ctx, resolved_params)
 
-    # Save velocity result (keyed by method+params to allow coexistence)
-    cache_key = _build_velocity_key(resolved_params)
-    await data_manager.save_result(data_id, cache_key, result)
-
-    # Visualization should be done separately via visualization tools
-
-    return result
+    return _finalize_result(ctx, result)
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=False,
-        openWorldHint=False,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=False,
+        open_world_hint=False,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id")
 async def analyze_trajectory_data(
     data_id: str,
     params: Optional[TrajectoryParameters] = None,
@@ -481,32 +484,31 @@ async def analyze_trajectory_data(
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Lazy import trajectory function
-    from .tools.trajectory import _build_trajectory_key, analyze_trajectory
+    from .tools.trajectory import analyze_trajectory
 
     resolved_params = _resolve_params(params, TrajectoryParameters)
 
     # Call trajectory function
     result = await analyze_trajectory(data_id, ctx, resolved_params)
 
-    # Save trajectory result (keyed by method+params to allow coexistence)
-    cache_key = _build_trajectory_key(resolved_params)
-    await data_manager.save_result(data_id, cache_key, result)
-
-    # Visualization should be done separately via visualization tools
-
-    return result
+    return _finalize_result(ctx, result)
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=False,
-        openWorldHint=False,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=False,
+        open_world_hint=False,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_ids")
 async def integrate_samples(
-    data_ids: list[str],
+    data_ids: Annotated[
+        list[str],
+        Field(min_length=2, description="Two or more distinct dataset IDs."),
+    ],
     params: Optional[IntegrationParameters] = None,
     context: Optional[Context] = None,
 ) -> IntegrationResult:
@@ -528,21 +530,19 @@ async def integrate_samples(
     # Note: integrate_func uses ctx.add_dataset() to store the integrated dataset
     result = await integrate_func(data_ids, ctx, resolved_params)
 
-    # Save integration result
-    integrated_id = result.data_id
-    await data_manager.save_result(integrated_id, "integration", result)
-
-    return result
+    return _finalize_result(ctx, result)
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=False,
-        openWorldHint=True,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=False,
+        open_world_hint=True,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id", "params.reference_data_id")
 async def deconvolve_data(
     data_id: str,
     params: DeconvolutionParameters,  # No default - LLM must provide parameters
@@ -558,28 +558,24 @@ async def deconvolve_data(
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
     # Lazy import deconvolution tool
-    from .tools.deconvolution import _build_deconvolution_key, deconvolve_spatial_data
+    from .tools.deconvolution import deconvolve_spatial_data
 
     # Call deconvolution function with ToolContext
     result = await deconvolve_spatial_data(data_id, ctx, params)
 
-    # Save deconvolution result (keyed by method+ref to allow coexistence)
-    cache_key = _build_deconvolution_key(params.method, params.reference_data_id)
-    await data_manager.save_result(data_id, cache_key, result)
-
-    # Visualization should be done separately via visualization tools
-
-    return result
+    return _finalize_result(ctx, result)
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=False,
-        openWorldHint=False,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=False,
+        open_world_hint=False,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id")
 async def identify_spatial_domains(
     data_id: str,
     params: Optional[SpatialDomainParameters] = None,
@@ -602,23 +598,19 @@ async def identify_spatial_domains(
     # Call spatial domains function with ToolContext
     result = await identify_domains_func(data_id, ctx, resolved_params)
 
-    # Save spatial domains result (keyed by method + params for coexistence)
-    from .tools.spatial_domains import _build_domain_suffix
-
-    cache_key = f"spatial_domains_{_build_domain_suffix(resolved_params.method, resolved_params.resolution, resolved_params.n_domains)}"
-    await data_manager.save_result(data_id, cache_key, result)
-
-    return result
+    return _finalize_result(ctx, result)
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=True,
-        openWorldHint=True,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=True,
+        open_world_hint=True,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id")
 async def analyze_cell_communication(
     data_id: str,
     params: CellCommunicationParameters,  # No default - LLM must provide parameters
@@ -642,23 +634,19 @@ async def analyze_cell_communication(
     async with suppress_output_async():
         result = await analyze_comm_func(data_id, ctx, params)
 
-    # Save communication result (keyed by method to allow coexistence)
-    cache_key = f"cell_communication_{params.method}"
-    await data_manager.save_result(data_id, cache_key, result)
-
-    # Visualization should be done separately via visualization tools
-
-    return result
+    return _finalize_result(ctx, result)
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=True,
-        openWorldHint=True,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=True,
+        open_world_hint=True,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id")
 async def analyze_enrichment(
     data_id: str,
     params: EnrichmentParameters,
@@ -678,23 +666,19 @@ async def analyze_enrichment(
     # Call enrichment analysis (all business logic is in tools/enrichment.py)
     result = await analyze_enrichment_func(data_id, ctx, params)
 
-    # Save result (keyed by method + database to allow coexistence)
-    from .tools.enrichment import _build_enrichment_key
-
-    cache_key = _build_enrichment_key(params.method, params.gene_set_database)
-    await data_manager.save_result(data_id, cache_key, result)
-
-    return result
+    return _finalize_result(ctx, result)
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=True,
-        openWorldHint=False,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=True,
+        open_world_hint=False,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id")
 async def find_spatial_genes(
     data_id: str,
     params: Optional[SpatialVariableGenesParameters] = None,
@@ -717,31 +701,25 @@ async def find_spatial_genes(
     # Call spatial genes function with ToolContext
     result = await identify_spatial_genes(data_id, ctx, resolved_params)
 
-    # Spatial-gene analyses are read-only; durable results live in the result cache.
-
-    # Save spatial genes result (keyed by method to allow coexistence)
-    cache_key = f"spatial_genes_{resolved_params.method}"
-    await data_manager.save_result(data_id, cache_key, result)
-
-    # Visualization should be done separately via visualization tools
-
-    return result
+    return _finalize_result(ctx, result)
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=False,
-        openWorldHint=False,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=False,
+        open_world_hint=False,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "source_id", "target_id")
 async def register_spatial_data(
     source_id: str,
     target_id: str,
     params: Optional[RegistrationParameters] = None,
     context: Optional[Context] = None,
-) -> dict[str, Any]:
+) -> SpatialRegistrationResult:
     """Register/align spatial transcriptomics data across sections
 
     Args:
@@ -766,11 +744,7 @@ async def register_spatial_data(
         source_id, target_id, ctx, resolved_params
     )
 
-    # Save registration result for both datasets (registration is bilateral)
-    await data_manager.save_result(source_id, "registration", result)
-    await data_manager.save_result(target_id, "registration", result)
-
-    return result
+    return _finalize_result(ctx, result)
 
 
 # ============== Data Export/Reload Tools ==============
@@ -778,12 +752,14 @@ async def register_spatial_data(
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=True,
-        openWorldHint=True,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=True,
+        open_world_hint=True,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id")
 async def export_data(
     data_id: str,
     path: Optional[str] = None,
@@ -802,37 +778,29 @@ async def export_data(
 
     from .utils.persistence import export_adata
 
-    if context:
-        await context.info(f"Exporting dataset '{data_id}'...")
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
+    await ctx.info(f"Exporting dataset '{data_id}'...")
 
     # Get dataset info
     dataset_info = await data_manager.get_dataset(data_id)
     adata = dataset_info["adata"]
 
-    try:
-        export_path = export_adata(data_id, adata, PathLib(path) if path else None)
-        absolute_path = export_path.resolve()
-
-        if context:
-            await context.info(f"Dataset exported to: {absolute_path}")
-
-        return f"Dataset '{data_id}' exported to: {absolute_path}"
-
-    except Exception as e:
-        error_msg = f"Failed to export dataset: {e}"
-        if context:
-            await context.error(error_msg)
-        raise
+    export_path = export_adata(data_id, adata, PathLib(path) if path else None)
+    absolute_path = export_path.resolve()
+    await ctx.info(f"Dataset exported to: {absolute_path}")
+    return ctx.finalize(f"Dataset '{data_id}' exported to: {absolute_path}")
 
 
 @mcp.tool(
     annotations=ToolAnnotations(
-        readOnlyHint=False,
-        idempotentHint=True,
-        openWorldHint=True,
+        read_only_hint=False,
+        destructive_hint=True,
+        idempotent_hint=True,
+        open_world_hint=True,
     )
 )
 @mcp_tool_error_handler()
+@serialize_dataset_access(data_manager, "data_id")
 async def reload_data(
     data_id: str,
     path: Optional[str] = None,
@@ -851,33 +819,16 @@ async def reload_data(
 
     from .utils.persistence import load_adata_from_active
 
-    if context:
-        await context.info(f"Reloading dataset '{data_id}'...")
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
+    await ctx.info(f"Reloading dataset '{data_id}'...")
 
-    try:
-        adata = load_adata_from_active(data_id, PathLib(path) if path else None)
+    adata = load_adata_from_active(data_id, PathLib(path) if path else None)
+    await data_manager.update_adata(data_id, adata)
+    await ctx.info(f"Dataset '{data_id}' reloaded successfully")
 
-        # Update the in-memory dataset
-        await data_manager.update_adata(data_id, adata)
-
-        if context:
-            await context.info(f"Dataset '{data_id}' reloaded successfully")
-
-        return (
-            f"Dataset '{data_id}' reloaded: "
-            f"{adata.n_obs} cells × {adata.n_vars} genes"
-        )
-
-    except FileNotFoundError as e:
-        error_msg = str(e)
-        if context:
-            await context.error(error_msg)
-        raise
-    except Exception as e:
-        error_msg = f"Failed to reload dataset: {e}"
-        if context:
-            await context.error(error_msg)
-        raise
+    return ctx.finalize(
+        f"Dataset '{data_id}' reloaded: " f"{adata.n_obs} cells × {adata.n_vars} genes"
+    )
 
 
 # CLI entry point is in __main__.py (single source of truth)

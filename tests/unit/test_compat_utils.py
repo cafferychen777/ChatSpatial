@@ -14,6 +14,35 @@ def test_numpy2_compat_assert_array_equal_works_with_legacy_keywords():
         np.testing.assert_array_equal(x=np.array([1, 2]), y=np.array([1, 2]))
 
 
+def test_numpy2_compat_wrapper_preserves_modern_positional_arguments():
+    received = []
+
+    def original(*args, **kwargs):
+        received.append((args, kwargs))
+
+    wrapper = compat._make_numpy2_compat_wrapper(original)
+    actual = np.array([1])
+    desired = np.array([1])
+
+    wrapper(actual, desired, "detail", False, strict=True)
+
+    assert received == [((actual, desired, "detail", False), {"strict": True})]
+
+
+def test_numpy2_compat_overlapping_scopes_restore_after_last_owner():
+    original = np.testing.assert_array_equal
+    first_cleanup = compat._patch_numpy_testing()
+    wrapper = np.testing.assert_array_equal
+    second_cleanup = compat._patch_numpy_testing()
+
+    first_cleanup()
+    assert np.testing.assert_array_equal is wrapper
+    np.testing.assert_array_equal(x=np.array([1]), y=np.array([1]))
+
+    second_cleanup()
+    assert np.testing.assert_array_equal is original
+
+
 def test_numpy2_compat_unpatch_leaves_no_residual_state():
     """After unpatch, np.testing.assert_array_equal has no compat marker."""
     original = np.testing.assert_array_equal

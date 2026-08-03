@@ -283,9 +283,7 @@ async def analyze_spatial_statistics(
         # Export results to CSV for reproducibility
         export_analysis_result(adata, data_id, f"spatial_stats_{params.analysis_type}")
 
-        await ctx.set_adata(data_id, adata)
-
-        return SpatialStatisticsResult(
+        tool_result = SpatialStatisticsResult(
             data_id=data_id,
             analysis_type=params.analysis_type,
             n_features_analyzed=summary["n_features_analyzed"],
@@ -295,6 +293,8 @@ async def analyze_spatial_statistics(
             results_key=summary.get("results_key"),
             statistics=result,  # Excluded from MCP response via Field(exclude=True)
         )
+        await ctx.set_adata(data_id, adata)
+        return tool_result
 
     except ChatSpatialError:
         raise

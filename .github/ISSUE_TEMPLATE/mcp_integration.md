@@ -10,7 +10,8 @@ assignees: ''
 **MCP Client Information**
 - Client: [e.g. Claude Desktop, other MCP client]
 - Client version: [e.g. 1.0.0]
-- Transport method: [e.g. stdio, SSE]
+- Transport method: [e.g. stdio, Streamable HTTP]
+- Negotiated protocol version: [e.g. 2026-07-28, 2025-11-25]
 
 **Issue Description**
 A clear and concise description of the MCP integration issue.

@@ -20,6 +20,9 @@ class DummyCtx:
     async def get_adata(self, data_id: str):
         return self.datasets[data_id]
 
+    async def set_adatas(self, updates: dict[str, object]) -> None:
+        self.datasets.update(updates)
+
 
 class _IdentityImageTransform:
     def to_image(self, coords):
@@ -124,11 +127,70 @@ async def test_register_spatial_slices_mcp_happy_path_records_metadata(
         DummyCtx({"src": src, "tgt": tgt}),
         params=RegistrationParameters(method="paste"),
     )
-    assert out["registration_completed"] is True
-    assert out["spatial_key_registered"] == "spatial_registered"
+    assert out.registration_completed is True
+    assert out.spatial_key_registered == "spatial_registered"
     assert len(captured) == 2
     assert captured[0]["analysis_name"] == "registration_paste"
     assert captured[0]["results_keys"] == {"obsm": ["spatial_registered"]}
+    assert "spatial_registered" not in src.obsm
+    assert "spatial_registered" not in tgt.obsm
+
+
+@pytest.mark.asyncio
+async def test_register_spatial_slices_mcp_late_failure_preserves_both_sources(
+    minimal_spatial_adata,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    src = minimal_spatial_adata.copy()
+    tgt = minimal_spatial_adata.copy()
+    ctx = DummyCtx({"src": src, "tgt": tgt})
+
+    def _fake_register_slices(adata_list, params, *, ctx=None):
+        del params, ctx
+        for adata in adata_list:
+            adata.obsm["spatial_registered"] = adata.obsm["spatial"] + 1
+        return adata_list
+
+    export_calls = 0
+
+    def _fail_second_export(*_args, **_kwargs):
+        nonlocal export_calls
+        export_calls += 1
+        if export_calls == 2:
+            raise RuntimeError("target export failed")
+        return []
+
+    monkeypatch.setattr(reg, "register_slices", _fake_register_slices)
+    monkeypatch.setattr(reg, "store_analysis_metadata", lambda *_a, **_k: None)
+    monkeypatch.setattr(reg, "export_analysis_result", _fail_second_export)
+
+    with pytest.raises(ProcessingError, match="target export failed"):
+        await reg.register_spatial_slices_mcp(
+            "src",
+            "tgt",
+            ctx,
+            params=RegistrationParameters(method="paste"),
+        )
+
+    assert ctx.datasets["src"] is src
+    assert ctx.datasets["tgt"] is tgt
+    assert "spatial_registered" not in src.obsm
+    assert "spatial_registered" not in tgt.obsm
+
+
+@pytest.mark.asyncio
+async def test_register_spatial_slices_mcp_rejects_same_dataset(
+    minimal_spatial_adata,
+):
+    ctx = DummyCtx({"same": minimal_spatial_adata.copy()})
+
+    with pytest.raises(ParameterError, match="distinct datasets"):
+        await reg.register_spatial_slices_mcp(
+            "same",
+            "same",
+            ctx,
+            params=RegistrationParameters(method="paste"),
+        )
 
 
 @pytest.mark.asyncio
@@ -319,7 +381,9 @@ def test_paste_pot_compat_patch_accepts_df_g_argument(monkeypatch: pytest.Monkey
         "my_fused_gromov_wasserstein": _original,
     }
     pairwise_align = types.FunctionType(
-        compile("def pairwise_align():\n    return None", "<fake_paste>", "exec").co_consts[0],
+        compile(
+            "def pairwise_align():\n    return None", "<fake_paste>", "exec"
+        ).co_consts[0],
         pairwise_globals,
     )
     fake_paste = types.SimpleNamespace(pairwise_align=pairwise_align)
@@ -588,15 +652,18 @@ async def test_register_spatial_slices_mcp_passes_context_to_dependency_owner(
     monkeypatch.setattr(reg, "store_analysis_metadata", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(reg, "export_analysis_result", lambda *_args, **_kwargs: None)
 
+    ctx = DummyCtx({"src": src, "tgt": tgt})
     out = await reg.register_spatial_slices_mcp(
         "src",
         "tgt",
-        DummyCtx({"src": src, "tgt": tgt}),
+        ctx,
         params=RegistrationParameters(method="stalign"),
     )
 
-    assert out["method"] == "stalign"
-    assert seen["ctx"].datasets == {"src": src, "tgt": tgt}
+    assert out.method == "stalign"
+    assert seen["ctx"] is ctx
+    assert ctx.datasets["src"] is not src
+    assert ctx.datasets["tgt"] is not tgt
 
 
 # =============================================================================
@@ -824,7 +891,7 @@ async def test_register_mcp_metadata_contains_paste_params(
         use_gpu=False,
     )
     result = await reg.register_spatial_slices_mcp("src", "tgt", ctx, params)
-    assert result["registration_completed"] is True
+    assert result.registration_completed is True
 
     # Both source and target metadata calls must have method-specific params
     assert len(captured_params) == 2
@@ -868,7 +935,7 @@ async def test_register_mcp_metadata_contains_stalign_params(
         stalign_use_expression=False,
     )
     result = await reg.register_spatial_slices_mcp("src", "tgt", ctx, params)
-    assert result["registration_completed"] is True
+    assert result.registration_completed is True
 
     assert len(captured_params) == 2
     for p in captured_params:

@@ -6,10 +6,12 @@ computations. While analysis tools compute these lazily using ensure_* functions
 users can use this tool to control computation parameters directly.
 """
 
-from typing import Literal, Optional
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
+from ..models.analysis import EmbeddingResult
+from ..models.base import StrictParameters
 from ..spatial_mcp_adapter import ToolContext
 from ..utils.adata_utils import get_spatial_key, store_analysis_metadata
 from ..utils.compute import (
@@ -25,7 +27,7 @@ from ..utils.exceptions import DataNotFoundError
 from ..utils.results_export import export_analysis_result
 
 
-class EmbeddingParameters(BaseModel):
+class EmbeddingParameters(StrictParameters):
     """Parameters for embedding computation."""
 
     # What to compute
@@ -135,16 +137,6 @@ class EmbeddingParameters(BaseModel):
         default=0,
         description="Random seed for reproducibility",
     )
-
-
-class EmbeddingResult(BaseModel):
-    """Result of embedding computation."""
-
-    data_id: str
-    computed: list[str]
-    skipped: list[str]
-    n_clusters: Optional[int] = None
-    pca_variance_ratio: Optional[float] = None
 
 
 async def compute_embeddings(
@@ -378,12 +370,12 @@ async def compute_embeddings(
 
         export_analysis_result(adata, data_id, f"embeddings_{params.clustering_method}")
 
-    await ctx.set_adata(data_id, adata)
-
-    return EmbeddingResult(
+    result = EmbeddingResult(
         data_id=data_id,
         computed=computed,
         skipped=skipped,
         n_clusters=n_clusters,
         pca_variance_ratio=pca_variance_ratio,
     )
+    await ctx.set_adata(data_id, adata)
+    return result

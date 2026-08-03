@@ -705,20 +705,6 @@ async def preprocess_data(
             "Computed n_hvgs=0; forcing to 1 to avoid selecting all genes."
         )
 
-    # Statistical warning: Very low HVG count may lead to unstable clustering
-    # Based on literature consensus: 500-5000 genes recommended, 1000-2000 typical
-    # References:
-    # - Bioconductor OSCA: "any value from 500 to 5000 is reasonable"
-    # - Single-cell best practices: typical range 1000-2000
-    if n_hvgs < 500:
-        await ctx.warning(
-            f"Using only {n_hvgs} HVGs is below the recommended minimum of 500 genes.\n"
-            f"   • Literature consensus: 500-5000 genes (typical: 1000-2000)\n"
-            f"   • Low gene counts may lead to unstable clustering results\n"
-            f"   • Recommended: Use n_hvgs=1000-2000 for most analyses\n"
-            f"   • Current dataset: {adata.n_obs} cells × {adata.n_vars} total genes"
-        )
-
     if not use_existing_sct_hvgs:
         # Check if we should use all genes (for very small gene sets like MERFISH)
         if adata.n_vars < 100:
@@ -760,20 +746,41 @@ async def preprocess_data(
         if n_ribo_hvg > 0:
             adata.var.loc[adata.var["ribo"], "highly_variable"] = False
 
+    # Establish the post-selection invariant once, before any downstream use.
+    # The effective count can differ from the request for small targeted panels
+    # and after mitochondrial/ribosomal exclusions.
+    if "highly_variable" not in adata.var:
+        raise ProcessingError(
+            "HVG selection failed: no highly_variable annotations were produced."
+        )
+
+    selected_hvg_count = int(adata.var["highly_variable"].sum())
+    if selected_hvg_count == 0:
+        raise DataError(
+            "HVG selection produced no usable genes. Check the normalization, "
+            "HVG, and mitochondrial/ribosomal exclusion parameters."
+        )
+
+    # Warn only when the selection excludes available genes. Selecting every
+    # gene in a curated panel is intentional and has no actionable HVG warning.
+    if selected_hvg_count < adata.n_vars and adata.n_vars < 500:
+        await ctx.warning(
+            f"Using {selected_hvg_count} of {adata.n_vars} available genes in a small panel.\n"
+            f"   • Small panels are already curated and often benefit from retaining all genes\n"
+            f"   • Consider increasing n_hvgs or removing subsample_genes\n"
+            f"   • Current dataset: {adata.n_obs} cells × {adata.n_vars} total genes"
+        )
+    elif adata.n_vars >= 500 and selected_hvg_count < 500:
+        await ctx.warning(
+            f"Using only {selected_hvg_count} HVGs is below the recommended minimum of 500 genes.\n"
+            f"   • Literature consensus: 500-5000 genes (typical: 1000-2000)\n"
+            f"   • Low gene counts may lead to unstable clustering results\n"
+            f"   • Recommended: Use n_hvgs=1000-2000 for most analyses\n"
+            f"   • Current dataset: {adata.n_obs} cells × {adata.n_vars} total genes"
+        )
+
     # Apply gene subsampling if requested
     if requested_gene_count is not None and requested_gene_count < adata.n_vars:
-        # Ensure HVG selection was successful
-        if "highly_variable" not in adata.var:
-            raise ProcessingError(
-                "Gene subsampling failed: no HVGs identified. Run HVG selection first."
-            )
-
-        if not adata.var["highly_variable"].any():
-            raise DataError(
-                "Gene subsampling requested but no genes were marked as highly variable. "
-                "Check HVG selection parameters or data quality."
-            )
-
         # Use properly identified HVGs
         adata = adata[:, adata.var["highly_variable"]].copy()
 
@@ -809,31 +816,24 @@ async def preprocess_data(
     if scale_error is not None:
         qc_metrics["scale_error"] = scale_error
 
-    # Store preprocessing metadata for downstream tools
-    # PCA, UMAP, clustering, and spatial neighbors are computed lazily
-    # by analysis tools using ensure_* functions from utils.compute
+    # Store only metadata describing work completed by preprocessing.
+    # Embedding and clustering parameters belong to compute_embeddings.
     adata.uns["preprocessing"]["completed"] = True
-    adata.uns["preprocessing"]["n_pcs"] = params.n_pcs
-    adata.uns["preprocessing"]["n_neighbors"] = params.n_neighbors
-    adata.uns["preprocessing"]["clustering_resolution"] = params.clustering_resolution
     adata.uns["preprocessing"]["scale_requested"] = params.scale
     adata.uns["preprocessing"]["scale_applied"] = scale_applied
     if scale_error is not None:
         adata.uns["preprocessing"]["scale_error"] = scale_error
 
-    # Store the processed AnnData object back via ToolContext
-    await ctx.set_adata(data_id, adata)
-
-    # Return preprocessing result
-    # Note: clusters=0 indicates clustering not yet performed
-    # Analysis tools will compute clustering lazily when needed
-    return PreprocessingResult(
+    # clusters=0 indicates that compute_embeddings has not run yet.
+    result = PreprocessingResult(
         data_id=data_id,
         n_cells=adata.n_obs,
         n_genes=adata.n_vars,
         n_hvgs=(
             int(sum(adata.var.highly_variable)) if "highly_variable" in adata.var else 0
         ),
-        clusters=0,  # Clustering computed lazily by analysis tools
+        clusters=0,
         qc_metrics=qc_metrics,
     )
+    await ctx.set_adata(data_id, adata)
+    return result

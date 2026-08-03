@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     import anndata as ad
     from ..spatial_mcp_adapter import ToolContext
 
+from ..models.analysis import SpatialRegistrationResult
 from ..models.data import RegistrationParameters
 from ..utils.adata_utils import (
     ensure_unique_var_names,
@@ -735,7 +736,7 @@ async def register_spatial_slices_mcp(
     target_id: str,
     ctx: "ToolContext",
     params: Optional[RegistrationParameters] = None,
-) -> dict:
+) -> SpatialRegistrationResult:
     """
     MCP wrapper for spatial registration.
 
@@ -746,34 +747,47 @@ async def register_spatial_slices_mcp(
         params: Registration parameters (method, alignment settings, etc.)
 
     Returns:
-        Registration result dictionary
+        Validated registration result
     """
     if params is None:
         params = RegistrationParameters()
 
     if params.method not in {"paste", "stalign"}:
         raise ParameterError(f"Unknown method: {params.method}")
+    if source_id == target_id:
+        raise ParameterError("source_id and target_id must identify distinct datasets")
 
-    # Get data
+    # Read managed sources without modifying them. Registration backends return
+    # detached workspaces; publication candidates are created only after the
+    # expensive alignment has succeeded.
     source_adata = await ctx.get_adata(source_id)
     target_adata = await ctx.get_adata(target_id)
 
     try:
+        source_candidate = source_adata.copy()
+        target_candidate = target_adata.copy()
         registered = register_slices(
-            [source_adata, target_adata],
+            [source_candidate, target_candidate],
             params,
             ctx=ctx,
         )
 
-        # Copy registered coordinates back (in-place modification)
+        # Copy registered coordinates into isolated publication candidates.
         if "spatial_registered" in registered[0].obsm:
-            source_adata.obsm["spatial_registered"] = registered[0].obsm[
-                "spatial_registered"
-            ]
+            source_candidate.obsm["spatial_registered"] = np.array(
+                registered[0].obsm["spatial_registered"], copy=True
+            )
         if "spatial_registered" in registered[1].obsm:
-            target_adata.obsm["spatial_registered"] = registered[1].obsm[
-                "spatial_registered"
-            ]
+            target_candidate.obsm["spatial_registered"] = np.array(
+                registered[1].obsm["spatial_registered"], copy=True
+            )
+
+        if "spatial_registered" not in source_candidate.obsm or (
+            "spatial_registered" not in target_candidate.obsm
+        ):
+            raise ProcessingError(
+                "Registration backend did not return registered coordinates for both datasets"
+            )
 
         # Store metadata and export results for both datasets
         method = params.method
@@ -803,42 +817,47 @@ async def register_spatial_slices_mcp(
             **method_params,
         }
         statistics = {
-            "n_source_spots": source_adata.n_obs,
-            "n_target_spots": target_adata.n_obs,
+            "n_source_spots": source_candidate.n_obs,
+            "n_target_spots": target_candidate.n_obs,
         }
 
         # Export source dataset registration results
         store_analysis_metadata(
-            source_adata,
+            source_candidate,
             analysis_name=f"registration_{method}",
             method=method,
             parameters=parameters,
             results_keys=results_keys,
             statistics=statistics,
         )
-        export_analysis_result(source_adata, source_id, f"registration_{method}")
+        export_analysis_result(source_candidate, source_id, f"registration_{method}")
 
         # Export target dataset registration results
         store_analysis_metadata(
-            target_adata,
+            target_candidate,
             analysis_name=f"registration_{method}",
             method=method,
             parameters={**parameters, "source_id": source_id},
             results_keys=results_keys,
             statistics=statistics,
         )
-        export_analysis_result(target_adata, target_id, f"registration_{method}")
+        export_analysis_result(target_candidate, target_id, f"registration_{method}")
 
-        result = {
-            "method": method,
-            "source_id": source_id,
-            "target_id": target_id,
-            "n_source_spots": source_adata.n_obs,
-            "n_target_spots": target_adata.n_obs,
-            "registration_completed": True,
-            "spatial_key_registered": "spatial_registered",
-        }
-
+        result = SpatialRegistrationResult(
+            method=method,
+            source_id=source_id,
+            target_id=target_id,
+            n_source_spots=source_candidate.n_obs,
+            n_target_spots=target_candidate.n_obs,
+            registration_completed=True,
+            spatial_key_registered="spatial_registered",
+        )
+        await ctx.set_adatas(
+            {
+                source_id: source_candidate,
+                target_id: target_candidate,
+            }
+        )
         return result
 
     except ChatSpatialError:

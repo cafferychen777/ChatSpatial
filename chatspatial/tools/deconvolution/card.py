@@ -82,9 +82,7 @@ def deconvolve(
         imputed_proportions = None
         imputed_coordinates = None
 
-        with r_env.local_context(
-            anndata=True, pandas=True, numpy=True
-        ) as r_context:
+        with r_env.local_context(anndata=True, pandas=True, numpy=True) as r_context:
             r_context["sc_count"] = reference_data.X.T
             r_context["spatial_count"] = spatial_data.X.T
 
@@ -93,19 +91,22 @@ def deconvolve(
             r_context["gene_names_spatial"] = ro.StrVector(spatial_data.var_names)
             r_context["spot_names"] = ro.StrVector(spatial_data.obs_names)
 
-            ro.r("""
+            ro.r(
+                """
                     rownames(sc_count) <- gene_names_ref
                     colnames(sc_count) <- cell_names
                     rownames(spatial_count) <- gene_names_spatial
                     colnames(spatial_count) <- spot_names
-                """)
+                """
+            )
 
             r_context["sc_meta"] = ro.conversion.py2rpy(sc_meta)
             r_context["spatial_location"] = ro.conversion.py2rpy(spatial_location)
             r_context["minCountGene"] = minCountGene
             r_context["minCountSpot"] = minCountSpot
 
-            ro.r("""
+            ro.r(
+                """
                     capture.output(
                         CARD_obj <- createCARDObject(
                             sc_count = sc_count,
@@ -124,7 +125,8 @@ def deconvolve(
                         CARD_obj <- CARD_deconvolution(CARD_object = CARD_obj),
                         file = "/dev/null"
                     )
-                """)
+                """
+            )
 
             row_names = list(ro.r("rownames(CARD_obj@Proportion_CARD)"))
             col_names = list(ro.r("colnames(CARD_obj@Proportion_CARD)"))
@@ -136,7 +138,8 @@ def deconvolve(
             )
 
             if imputation:
-                ro.r(f"""
+                ro.r(
+                    f"""
                         capture.output(
                             CARD_impute <- CARD.imputation(
                                 CARD_object = CARD_obj,
@@ -145,7 +148,8 @@ def deconvolve(
                             ),
                             file = "/dev/null"
                         )
-                """)
+                """
+                )
 
                 imputed_row_names = list(ro.r("rownames(CARD_impute@refined_prop)"))
                 imputed_col_names = list(ro.r("colnames(CARD_impute@refined_prop)"))

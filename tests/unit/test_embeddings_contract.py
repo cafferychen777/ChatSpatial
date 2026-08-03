@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
 from chatspatial.tools import embeddings as emb
 from chatspatial.utils.exceptions import DataNotFoundError
@@ -24,6 +25,29 @@ class DummyCtx:
 
     async def warning(self, msg: str):
         self.warnings.append(msg)
+
+
+@pytest.mark.asyncio
+async def test_compute_embeddings_validates_result_before_publication(
+    minimal_spatial_adata,
+):
+    adata = minimal_spatial_adata.copy()
+    adata.uns["pca"] = {"variance_ratio": np.array([np.nan])}
+    ctx = DummyCtx(adata)
+    params = emb.EmbeddingParameters(
+        compute_pca=False,
+        compute_neighbors=False,
+        compute_umap=False,
+        compute_clustering=False,
+        compute_diffmap=False,
+        compute_spatial_neighbors=False,
+    )
+
+    with pytest.raises(ValidationError, match="finite number"):
+        await emb.compute_embeddings("d1", ctx, params)
+
+    assert ctx._adata is adata
+    assert ctx.set_calls == 0
 
 
 @pytest.mark.asyncio
@@ -81,7 +105,9 @@ async def test_compute_embeddings_happy_path_leiden_with_metadata_export(
 
 
 @pytest.mark.asyncio
-async def test_compute_embeddings_louvain_and_skip_paths(minimal_spatial_adata, monkeypatch):
+async def test_compute_embeddings_louvain_and_skip_paths(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     adata.obs["louvain_key"] = ["0"] * adata.n_obs
     ctx = DummyCtx(adata)
@@ -90,7 +116,9 @@ async def test_compute_embeddings_louvain_and_skip_paths(minimal_spatial_adata, 
     monkeypatch.setattr(emb, "ensure_neighbors", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(emb, "ensure_umap", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(emb, "ensure_diffmap", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(emb, "ensure_spatial_neighbors", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        emb, "ensure_spatial_neighbors", lambda *_args, **_kwargs: False
+    )
     monkeypatch.setattr(emb, "ensure_leiden", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(emb, "ensure_louvain", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(emb, "store_analysis_metadata", lambda *_args, **_kwargs: None)
@@ -137,7 +165,9 @@ async def test_compute_embeddings_force_removes_existing_artifacts(
     monkeypatch.setattr(emb, "ensure_neighbors", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(emb, "ensure_umap", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(emb, "ensure_diffmap", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(emb, "ensure_spatial_neighbors", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        emb, "ensure_spatial_neighbors", lambda *_args, **_kwargs: False
+    )
     monkeypatch.setattr(emb, "ensure_leiden", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(emb, "ensure_louvain", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(emb, "store_analysis_metadata", lambda *_args, **_kwargs: None)
@@ -273,10 +303,10 @@ async def test_compute_embeddings_spatial_neighbor_error_is_non_fatal(
 
     monkeypatch.setattr(emb, "ensure_spatial_neighbors", _spatial_fail)
 
-    out = await emb.compute_embeddings(
-        "d4", ctx, emb.EmbeddingParameters(force=True)
+    out = await emb.compute_embeddings("d4", ctx, emb.EmbeddingParameters(force=True))
+    assert any(
+        "spatial neighbors (error: no spatial coordinates)" in s for s in out.skipped
     )
-    assert any("spatial neighbors (error: no spatial coordinates)" in s for s in out.skipped)
     assert any("Could not compute spatial neighbors" in w for w in ctx.warnings)
     np.testing.assert_array_equal(
         ctx._adata.obsp["spatial_connectivities"], previous_connectivities
@@ -421,4 +451,6 @@ async def test_compute_embeddings_louvain_missing_key_reports_skip_message(
         ),
     )
 
-    assert any("not_written (missing; clustering not computed)" in s for s in out.skipped)
+    assert any(
+        "not_written (missing; clustering not computed)" in s for s in out.skipped
+    )

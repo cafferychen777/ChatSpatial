@@ -5,21 +5,24 @@ Tools for MCP server: error handling decorator and output suppression.
 
 Error Handling Design:
 ======================
-All tool errors are raised as exceptions, which FastMCP converts to
+All tool errors are raised as exceptions, which MCPServer converts to
 ``CallToolResult(isError=True)`` protocol responses automatically.
 
 The ``mcp_tool_error_handler`` decorator enriches error messages before
-they reach FastMCP:
+they reach MCPServer:
 
 User-understandable errors (clean message, no traceback):
 - ParameterError, DataError, DataNotFoundError, DataCompatibilityError
 - DependencyError, ValueError (legacy)
 
-Code/algorithm errors (message + traceback for debugging):
-- ProcessingError, all other exceptions
+Code/algorithm errors:
+- Preserve the concise exception message for the client
+- Record the complete traceback in server logs
+- Expose a traceback only when explicitly enabled for local debugging
 """
 
 import contextvars
+import logging
 import sys
 import threading
 import traceback
@@ -33,6 +36,8 @@ from .exceptions import (
     DependencyError,
     ParameterError,
 )
+
+logger = logging.getLogger(__name__)
 
 # Exceptions that don't need traceback (message is self-explanatory)
 # These are "user errors" - the error message is sufficient for understanding
@@ -156,16 +161,19 @@ async def suppress_output_async() -> AsyncIterator[None]:
 # =============================================================================
 # MCP Tool Error Handler
 # =============================================================================
-def mcp_tool_error_handler(include_traceback: bool = True):
+def mcp_tool_error_handler(include_traceback: bool = False):
     """
     Decorator for MCP tools that enriches error messages before re-raising.
 
-    All exceptions are re-raised for FastMCP to convert into
+    All exceptions are re-raised for MCPServer to convert into
     ``CallToolResult(isError=True)`` protocol responses. The decorator
-    only adds traceback detail to non-user errors for debugging.
+    logs non-user errors with traceback details on the server. Tracebacks are
+    excluded from client-visible messages by default to avoid disclosing local
+    paths and implementation details.
 
     Args:
-        include_traceback: Append traceback to non-user error messages.
+        include_traceback: Append traceback to non-user error messages. Enable
+            only for trusted local debugging.
     """
 
     def decorator(func):
@@ -177,6 +185,7 @@ def mcp_tool_error_handler(include_traceback: bool = True):
                 # User errors already have clear messages — re-raise as-is
                 raise
             except Exception as e:
+                logger.exception("MCP tool %s failed", func.__name__)
                 if include_traceback:
                     tb = traceback.format_exc()
                     # Enrich message in-place — preserves exception type
