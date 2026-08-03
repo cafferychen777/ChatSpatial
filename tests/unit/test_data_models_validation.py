@@ -244,6 +244,18 @@ def test_spatial_domain_includes_banksy_literal():
     assert params.method == "banksy"
 
 
+def test_spatial_domain_includes_aestetik_literal():
+    params = SpatialDomainParameters(method="aestetik")
+    assert params.method == "aestetik"
+    assert params.aestetik_transcriptomics_key == "X_pca"
+    assert params.aestetik_morphology_key == "X_pca_morphology"
+
+
+def test_spatial_domain_rejects_even_aestetik_window_size():
+    with pytest.raises(ValidationError):
+        SpatialDomainParameters(method="aestetik", aestetik_window_size=4)
+
+
 def test_spatial_variable_genes_default_is_flashs():
     params = SpatialVariableGenesParameters()
     assert params.method == "flashs"

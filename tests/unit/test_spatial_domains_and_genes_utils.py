@@ -1861,3 +1861,288 @@ async def test_identify_domains_graphst_generic_error_is_wrapped(
             SpatialDomainParameters(method="graphst"),
             DummyCtx(adata),
         )
+
+
+def _aestetik_adata(minimal_spatial_adata):
+    """Return an AnnData carrying both AESTETIK representations and a lattice."""
+    adata = minimal_spatial_adata.copy()
+    n_obs = adata.n_obs
+    adata.obsm["X_pca"] = np.tile(np.arange(4, dtype=float), (n_obs, 1))
+    adata.obsm["X_pca_morphology"] = np.tile(np.arange(3, dtype=float), (n_obs, 1))
+    adata.obs["array_row"] = np.arange(n_obs) % 6
+    adata.obs["array_col"] = np.arange(n_obs) // 6
+    return adata
+
+
+def _install_fake_aestetik(monkeypatch: pytest.MonkeyPatch, estimator_cls) -> None:
+    import sys
+    import types
+
+    module = types.ModuleType("aestetik")
+    module.AESTETIK = estimator_cls
+    monkeypatch.setitem(sys.modules, "aestetik", module)
+    monkeypatch.setattr(sd, "require", _required_dependency)
+
+
+@pytest.mark.asyncio
+async def test_identify_domains_aestetik_success_path(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = _aestetik_adata(minimal_spatial_adata)
+    recorded: dict = {}
+
+    class _FakeAestetik:
+        def __init__(self, **kwargs):
+            recorded.update(kwargs)
+
+        def fit(self, X):
+            recorded["x_array"] = X.obs["x_array"].to_numpy()
+            recorded["y_array"] = X.obs["y_array"].to_numpy()
+            self.embedding_ = np.ones((X.n_obs, 5))
+            self.labels_ = np.array(
+                ["0"] * (X.n_obs // 2) + ["1"] * (X.n_obs - X.n_obs // 2)
+            )
+            return self
+
+    _install_fake_aestetik(monkeypatch, _FakeAestetik)
+
+    labels, emb_key, stats = await sd._identify_domains_aestetik(
+        adata,
+        SpatialDomainParameters(method="aestetik", n_domains=2),
+        DummyCtx(adata),
+    )
+
+    assert len(labels) == adata.n_obs
+    assert emb_key == "X_aestetik"
+    assert adata.obsm["X_aestetik"].shape == (adata.n_obs, 5)
+    assert stats["method"] == "aestetik"
+    assert stats["n_clusters"] == 2
+    assert stats["lattice_source"] == "array_row/array_col"
+
+    # The combined key must not alias the transcriptomics key, otherwise
+    # AESTETIK overwrites its own transcriptomics input before grid building.
+    assert recorded["used_obsm_transcriptomics"] == "X_pca"
+    assert recorded["used_obsm_combined"] != recorded["used_obsm_transcriptomics"]
+    assert recorded["n_cluster"] == 2
+    assert recorded["refine_cluster"] is False
+    np.testing.assert_array_equal(recorded["x_array"], adata.obs["array_row"])
+    np.testing.assert_array_equal(recorded["y_array"], adata.obs["array_col"])
+
+
+@pytest.mark.asyncio
+async def test_identify_domains_aestetik_uses_resolution_for_graph_clustering(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = _aestetik_adata(minimal_spatial_adata)
+    recorded: dict = {}
+
+    class _FakeAestetik:
+        def __init__(self, **kwargs):
+            recorded.update(kwargs)
+
+        def fit(self, X):
+            self.embedding_ = np.ones((X.n_obs, 2))
+            self.labels_ = np.zeros(X.n_obs, dtype=int)
+            return self
+
+    _install_fake_aestetik(monkeypatch, _FakeAestetik)
+
+    await sd._identify_domains_aestetik(
+        adata,
+        SpatialDomainParameters(
+            method="aestetik", aestetik_clustering_method="leiden", resolution=0.8
+        ),
+        DummyCtx(adata),
+    )
+
+    assert recorded["n_cluster"] == 0.8
+
+
+@pytest.mark.asyncio
+async def test_identify_domains_aestetik_reuses_existing_x_array_columns(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = _aestetik_adata(minimal_spatial_adata)
+    adata.obs["x_array"] = np.arange(adata.n_obs) % 4
+    adata.obs["y_array"] = np.arange(adata.n_obs) // 4
+
+    class _FakeAestetik:
+        def __init__(self, **kwargs):
+            del kwargs
+
+        def fit(self, X):
+            self.embedding_ = np.ones((X.n_obs, 2))
+            self.labels_ = np.zeros(X.n_obs, dtype=int)
+            return self
+
+    _install_fake_aestetik(monkeypatch, _FakeAestetik)
+
+    _labels, _emb_key, stats = await sd._identify_domains_aestetik(
+        adata,
+        SpatialDomainParameters(method="aestetik"),
+        DummyCtx(adata),
+    )
+
+    assert stats["lattice_source"] == "x_array/y_array"
+    np.testing.assert_array_equal(adata.obs["x_array"], np.arange(adata.n_obs) % 4)
+
+
+@pytest.mark.asyncio
+async def test_identify_domains_aestetik_requires_morphology_embedding(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = _aestetik_adata(minimal_spatial_adata)
+    del adata.obsm["X_pca_morphology"]
+
+    class _FakeAestetik:
+        def __init__(self, **kwargs):
+            raise AssertionError("estimator must not be constructed")
+
+    _install_fake_aestetik(monkeypatch, _FakeAestetik)
+
+    with pytest.raises(DataNotFoundError, match="morphology"):
+        await sd._identify_domains_aestetik(
+            adata,
+            SpatialDomainParameters(method="aestetik"),
+            DummyCtx(adata),
+        )
+
+
+@pytest.mark.asyncio
+async def test_identify_domains_aestetik_rejects_non_finite_representation(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = _aestetik_adata(minimal_spatial_adata)
+    adata.obsm["X_pca_morphology"][0, 0] = np.nan
+
+    class _FakeAestetik:
+        def __init__(self, **kwargs):
+            raise AssertionError("estimator must not be constructed")
+
+    _install_fake_aestetik(monkeypatch, _FakeAestetik)
+
+    with pytest.raises(DataNotFoundError, match="NaN or infinite"):
+        await sd._identify_domains_aestetik(
+            adata,
+            SpatialDomainParameters(method="aestetik"),
+            DummyCtx(adata),
+        )
+
+
+@pytest.mark.asyncio
+async def test_identify_domains_aestetik_requires_lattice_coordinates(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = _aestetik_adata(minimal_spatial_adata)
+    del adata.obs["array_row"]
+    del adata.obs["array_col"]
+
+    class _FakeAestetik:
+        def __init__(self, **kwargs):
+            raise AssertionError("estimator must not be constructed")
+
+    _install_fake_aestetik(monkeypatch, _FakeAestetik)
+
+    with pytest.raises(DataNotFoundError, match="lattice coordinates"):
+        await sd._identify_domains_aestetik(
+            adata,
+            SpatialDomainParameters(method="aestetik"),
+            DummyCtx(adata),
+        )
+
+
+@pytest.mark.asyncio
+async def test_identify_domains_aestetik_rejects_non_integer_lattice(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = _aestetik_adata(minimal_spatial_adata)
+    adata.obs["array_row"] = np.linspace(0.5, 5.5, adata.n_obs)
+
+    class _FakeAestetik:
+        def __init__(self, **kwargs):
+            raise AssertionError("estimator must not be constructed")
+
+    _install_fake_aestetik(monkeypatch, _FakeAestetik)
+
+    with pytest.raises(DataNotFoundError, match="non-integer"):
+        await sd._identify_domains_aestetik(
+            adata,
+            SpatialDomainParameters(method="aestetik"),
+            DummyCtx(adata),
+        )
+
+
+@pytest.mark.asyncio
+async def test_identify_domains_aestetik_rejects_label_length_mismatch(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = _aestetik_adata(minimal_spatial_adata)
+
+    class _FakeAestetik:
+        def __init__(self, **kwargs):
+            del kwargs
+
+        def fit(self, X):
+            self.embedding_ = np.ones((X.n_obs, 2))
+            self.labels_ = np.zeros(X.n_obs - 1, dtype=int)
+            return self
+
+    _install_fake_aestetik(monkeypatch, _FakeAestetik)
+
+    with pytest.raises(ProcessingError, match="cluster labels"):
+        await sd._identify_domains_aestetik(
+            adata,
+            SpatialDomainParameters(method="aestetik"),
+            DummyCtx(adata),
+        )
+
+
+@pytest.mark.asyncio
+async def test_identify_domains_aestetik_missing_estimator_is_reported(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    import sys
+    import types
+
+    adata = _aestetik_adata(minimal_spatial_adata)
+    monkeypatch.setitem(sys.modules, "aestetik", types.ModuleType("aestetik"))
+    monkeypatch.setattr(sd, "require", _required_dependency)
+
+    with pytest.raises(DependencyError, match="fit/predict API"):
+        await sd._identify_domains_aestetik(
+            adata,
+            SpatialDomainParameters(method="aestetik"),
+            DummyCtx(adata),
+        )
+
+
+@pytest.mark.asyncio
+async def test_identify_domains_aestetik_timeout_is_wrapped(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    import asyncio as _asyncio
+
+    adata = _aestetik_adata(minimal_spatial_adata)
+
+    class _FakeAestetik:
+        def __init__(self, **kwargs):
+            del kwargs
+
+        def fit(self, X):
+            del X
+            return self
+
+    _install_fake_aestetik(monkeypatch, _FakeAestetik)
+
+    async def _raise_timeout(_future, timeout=None):
+        del _future, timeout
+        raise _asyncio.TimeoutError()
+
+    monkeypatch.setattr("asyncio.wait_for", _raise_timeout)
+
+    with pytest.raises(ProcessingError, match="AESTETIK timeout"):
+        await sd._identify_domains_aestetik(
+            adata,
+            SpatialDomainParameters(method="aestetik", timeout=1),
+            DummyCtx(adata),
+        )

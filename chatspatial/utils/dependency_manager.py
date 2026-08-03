@@ -188,6 +188,11 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
         "pip install 'chatspatial[spatial-domains]'",
         "Spatial domain identification using neighborhood feature augmentation",
     ),
+    "aestetik": DependencyInfo(
+        "aestetik",
+        "pip install 'chatspatial[aestetik]'",
+        "Multi-modal autoencoder over expression, morphology, and spatial context",
+    ),
     "paste": DependencyInfo(
         "paste",
         "pip install paste-bio",
