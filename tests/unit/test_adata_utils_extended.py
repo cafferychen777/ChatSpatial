@@ -679,7 +679,8 @@ def test_check_is_integer_counts_and_ensure_counts_layer(minimal_spatial_adata):
 
     adata3 = minimal_spatial_adata.copy()
     adata3.raw = None
-    adata3.layers.clear()
+    for layer_key in tuple(key for key in adata3.layers if key is not None):
+        del adata3.layers[layer_key]
     # X contains integer counts (Poisson) → should create layer from X
     created = au.ensure_counts_layer(adata3)
     assert created is True
@@ -885,7 +886,8 @@ def test_ensure_counts_layer_raises_when_no_valid_source(
     """ensure_counts_layer raises when no raw, no counts, and X is normalized."""
     adata = minimal_spatial_adata.copy()
     adata.raw = None
-    adata.layers.clear()
+    for layer_key in tuple(key for key in adata.layers if key is not None):
+        del adata.layers[layer_key]
     adata.X = np.asarray(adata.X, dtype=float) + 0.5  # normalized
     with pytest.raises(DataNotFoundError):
         au.ensure_counts_layer(adata)

@@ -10,11 +10,14 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 import seaborn as sns
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import require_spatial_coords, validate_obs_column
+from ...utils.adata_utils import (
+    is_categorical_or_string,
+    require_spatial_coords,
+    validate_obs_column,
+)
 from ...utils.dependency_manager import require
 from ...utils.exceptions import DataNotFoundError, ParameterError
 from .core import create_figure_from_params, plot_spatial_feature, resolve_figure_size
@@ -138,7 +141,7 @@ async def _create_spatial_cnv(
     if not colormap:
         colormap = (
             "RdBu_r"
-            if not pd.api.types.is_categorical_dtype(adata.obs[feature_to_plot])
+            if not is_categorical_or_string(adata.obs[feature_to_plot])
             else "tab20"
         )
 

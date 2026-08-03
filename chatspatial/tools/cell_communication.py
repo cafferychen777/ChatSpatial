@@ -84,6 +84,23 @@ CCC_UNS_KEY = "ccc"  # Main storage in adata.uns
 CCC_SPATIAL_SCORES_KEY = "ccc_spatial_scores"  # Spatial scores in adata.obsm
 CCC_SPATIAL_PVALS_KEY = "ccc_spatial_pvals"  # Spatial p-values in adata.obsm
 CELLPHONEDB_DATABASE_VERSION = "v5.0.0"
+CELLPHONEDB_REQUIRED_TABLES = (
+    "protein_table.csv",
+    "interaction_table.csv",
+    "gene_table.csv",
+    "complex_composition_table.csv",
+    "complex_table.csv",
+    "multidata_table.csv",
+    "gene_synonym_to_gene_name.csv",
+    "receptor_to_transcription_factor.csv",
+)
+FASTCCC_REQUIRED_TABLES = (
+    "protein_table.csv",
+    "interaction_table.csv",
+    "gene_table.csv",
+    "complex_composition_table.csv",
+    "complex_table.csv",
+)
 _CELLPHONEDB_DOWNLOAD_LOCK = threading.Lock()
 
 
@@ -865,6 +882,21 @@ def _download_cellphonedb_release(
                 shutil.copyfileobj(source, destination)
 
 
+def _is_complete_cellphonedb_archive(path: Path) -> bool:
+    """Return whether an archive contains the tables shared by CCC backends."""
+    if not path.is_file() or not zipfile.is_zipfile(path):
+        return False
+    try:
+        with zipfile.ZipFile(path) as archive:
+            members: dict[str, int] = defaultdict(int)
+            for name in archive.namelist():
+                if name and not name.endswith("/"):
+                    members[Path(name).name] += 1
+    except (OSError, zipfile.BadZipFile):
+        return False
+    return all(members[name] == 1 for name in CELLPHONEDB_REQUIRED_TABLES)
+
+
 def _ensure_cellphonedb_database(output_dir: str) -> str:
     """Return an atomically cached, validated CellPhoneDB database path."""
 
@@ -872,12 +904,12 @@ def _ensure_cellphonedb_database(output_dir: str) -> str:
     cache_dir.mkdir(parents=True, exist_ok=True)
     db_path = cache_dir / "cellphonedb.zip"
 
-    if db_path.is_file() and zipfile.is_zipfile(db_path):
+    if _is_complete_cellphonedb_archive(db_path):
         return str(db_path)
 
     with _CELLPHONEDB_DOWNLOAD_LOCK:
         # Another caller may have populated the cache while this caller waited.
-        if db_path.is_file() and zipfile.is_zipfile(db_path):
+        if _is_complete_cellphonedb_archive(db_path):
             return str(db_path)
         db_path.unlink(missing_ok=True)
 
@@ -896,11 +928,9 @@ def _ensure_cellphonedb_database(output_dir: str) -> str:
                 )
 
                 staged_database = Path(staging_dir) / "cellphonedb.zip"
-                if not staged_database.is_file() or not zipfile.is_zipfile(
-                    staged_database
-                ):
+                if not _is_complete_cellphonedb_archive(staged_database):
                     raise DependencyError(
-                        "CellPhoneDB download did not produce a valid "
+                        "CellPhoneDB download did not produce a complete "
                         "cellphonedb.zip archive."
                     )
                 os.replace(staged_database, db_path)
@@ -921,6 +951,59 @@ def _ensure_cellphonedb_database(output_dir: str) -> str:
                 f"'{CELLPHONEDB_DATABASE_VERSION}')"
             )
             raise DependencyError(error_msg) from e
+
+
+def _ensure_fastccc_database_dir(output_dir: str) -> str:
+    """Extract FastCCC tables from the shared, versioned CellPhoneDB cache."""
+    cache_dir = Path(output_dir)
+    database_dir = cache_dir / "fastccc"
+
+    def _is_complete_directory() -> bool:
+        return all((database_dir / name).is_file() for name in FASTCCC_REQUIRED_TABLES)
+
+    if _is_complete_directory():
+        return str(database_dir)
+
+    archive_path = Path(_ensure_cellphonedb_database(str(cache_dir)))
+    with _CELLPHONEDB_DOWNLOAD_LOCK:
+        if _is_complete_directory():
+            return str(database_dir)
+
+        with (
+            zipfile.ZipFile(archive_path) as archive,
+            tempfile.TemporaryDirectory(dir=cache_dir, prefix=".fastccc-") as staging,
+        ):
+            members_by_name: dict[str, list[str]] = defaultdict(list)
+            for member in archive.namelist():
+                if member and not member.endswith("/"):
+                    members_by_name[Path(member).name].append(member)
+
+            invalid = [
+                name
+                for name in FASTCCC_REQUIRED_TABLES
+                if len(members_by_name[name]) != 1
+            ]
+            if invalid:
+                raise DependencyError(
+                    "CellPhoneDB archive has missing or ambiguous FastCCC tables: "
+                    f"{', '.join(invalid)}"
+                )
+
+            staging_dir = Path(staging)
+            for name in FASTCCC_REQUIRED_TABLES:
+                with (
+                    archive.open(members_by_name[name][0]) as source,
+                    (staging_dir / name).open("wb") as destination,
+                ):
+                    shutil.copyfileobj(source, destination)
+
+            database_dir.mkdir(parents=True, exist_ok=True)
+            for name in FASTCCC_REQUIRED_TABLES:
+                os.replace(staging_dir / name, database_dir / name)
+
+    if not _is_complete_directory():
+        raise DependencyError("FastCCC database extraction did not complete")
+    return str(database_dir)
 
 
 async def _analyze_communication_cellphonedb(
@@ -1841,6 +1924,7 @@ async def _analyze_communication_fastccc(
     Returns:
         CCCStorage with unified results
     """
+    import asyncio
     import glob
     import os
     import tempfile
@@ -1919,25 +2003,11 @@ async def _analyze_communication_fastccc(
             # Save to h5ad
             temp_adata.write_h5ad(counts_file)
 
-            # Get database directory path (FastCCC uses CellPhoneDB database format)
-            # FastCCC expects a directory containing interaction_table.csv and other files
-            # Check for bundled database in chatspatial package
-            chatspatial_pkg_dir = os.path.dirname(os.path.dirname(__file__))
-            database_dir = os.path.join(
-                chatspatial_pkg_dir,
-                "data",
-                "cellphonedb_v5",
-                "cellphonedb-data-5.0.0",
+            cache_dir = get_cache_dir() / "cellphonedb" / CELLPHONEDB_DATABASE_VERSION
+            database_dir = await asyncio.to_thread(
+                _ensure_fastccc_database_dir,
+                str(cache_dir),
             )
-
-            # Verify required files exist
-            required_file = os.path.join(database_dir, "interaction_table.csv")
-            if not os.path.exists(required_file):
-                raise ProcessingError(
-                    f"FastCCC requires CellPhoneDB database files. "
-                    f"Expected directory: {database_dir} with interaction_table.csv. "
-                    f"Please download from: https://github.com/ventolab/cellphonedb-data"
-                )
 
             # Output directory for results
             output_dir = os.path.join(temp_dir, "results")

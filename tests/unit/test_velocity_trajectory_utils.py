@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from types import ModuleType, SimpleNamespace
 import warnings
+from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -84,6 +84,7 @@ def test_preprocess_for_velocity_maps_validation_error(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
+
     def _raise_validate(*_args, **_kwargs):
         raise DataNotFoundError("velocity layers missing")
 
@@ -151,9 +152,7 @@ def test_compute_rna_velocity_validates_mode_before_dependency_resolution(
 
 
 def test_velocity_metadata_contains_only_selected_method_parameters():
-    scvelo_params = vel.RNAVelocityParameters(
-        method="scvelo", scvelo_mode="dynamical"
-    )
+    scvelo_params = vel.RNAVelocityParameters(method="scvelo", scvelo_mode="dynamical")
     scvelo_metadata = vel._velocity_parameters_for_metadata(scvelo_params)
     assert scvelo_metadata["mode"] == "dynamical"
     assert "n_epochs" not in scvelo_metadata
@@ -690,9 +689,9 @@ async def test_analyze_velocity_with_velovi_success_handles_zero_latent_time(
     adata_prepared.layers["Ms"] = np.ones((adata.n_obs, adata.n_vars), dtype=float)
     adata_prepared.layers["Mu"] = np.ones((adata.n_obs, adata.n_vars), dtype=float)
     called = {"setup": False, "train": False, "stored": False}
-    canonical_time = np.arange(
-        adata.n_obs * adata.n_vars, dtype=float
-    ).reshape(adata.n_obs, adata.n_vars)
+    canonical_time = np.arange(adata.n_obs * adata.n_vars, dtype=float).reshape(
+        adata.n_obs, adata.n_vars
+    )
     canonical_time[:, 0] = 0.0
     canonical_velocity = np.arange(
         1, adata.n_obs * adata.n_vars + 1, dtype=float
@@ -730,9 +729,7 @@ async def test_analyze_velocity_with_velovi_success_handles_zero_latent_time(
                 columns=adata_prepared.var_names,
             ).iloc[::-1, ::-1]
 
-        def get_velocity(
-            self, n_samples: int, velo_statistic: str, return_numpy: bool
-        ):
+        def get_velocity(self, n_samples: int, velo_statistic: str, return_numpy: bool):
             assert n_samples == 25
             assert velo_statistic == "mean"
             assert return_numpy is False
@@ -921,9 +918,7 @@ async def test_prepare_velovi_data_raises_on_scv_preprocessing_failure(
     fake_scv.pp = SimpleNamespace(
         filter_and_normalize=_raise_pp,
     )
-    with pytest.raises(
-        ProcessingError, match="VELOVI preprocessing failed"
-    ):
+    with pytest.raises(ProcessingError, match="VELOVI preprocessing failed"):
         await vel._prepare_velovi_data(adata, None, scv=fake_scv)
 
 
@@ -942,9 +937,7 @@ async def test_prepare_velovi_data_raises_on_moments_failure(
     fake_scv.pp = SimpleNamespace(filter_and_normalize=lambda *_a, **_k: None)
     monkeypatch.setattr(vel, "_compute_velocity_moments", _raise_moments)
 
-    with pytest.raises(
-        ProcessingError, match="Moments computation failed"
-    ):
+    with pytest.raises(ProcessingError, match="Moments computation failed"):
         await vel._prepare_velovi_data(adata, None, scv=fake_scv)
 
 
@@ -953,7 +946,8 @@ async def test_prepare_velovi_data_requires_spliced_and_unspliced_layers(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    adata.layers.clear()
+    for layer_key in tuple(key for key in adata.layers if key is not None):
+        del adata.layers[layer_key]
     monkeypatch.setattr(
         vel,
         "require",
@@ -1046,9 +1040,7 @@ def test_normalize_velovi_cell_gene_output_aligns_labeled_axes(
         columns=adata.var_names,
     ).iloc[::-1, ::-1]
 
-    normalized = vel._normalize_velovi_cell_gene_output(
-        result, adata, "velocity"
-    )
+    normalized = vel._normalize_velovi_cell_gene_output(result, adata, "velocity")
 
     np.testing.assert_array_equal(normalized, expected.astype(np.float32))
 
@@ -1085,9 +1077,7 @@ def test_normalize_velovi_cell_gene_output_rejects_invalid_labels(
     )
 
     with pytest.raises(DataCompatibilityError, match=message):
-        vel._normalize_velovi_cell_gene_output(
-            mutate(result), adata, "velocity"
-        )
+        vel._normalize_velovi_cell_gene_output(mutate(result), adata, "velocity")
 
 
 def test_normalize_velovi_cell_gene_output_rejects_wrong_array_shape(
@@ -1135,9 +1125,7 @@ def test_normalize_velovi_latent_representation_rejects_invalid_output(
     else:
         result = np.full((minimal_spatial_adata.n_obs, 2), np.nan)
     with pytest.raises(DataCompatibilityError, match="latent representation"):
-        vel._normalize_velovi_latent_representation(
-            result, minimal_spatial_adata
-        )
+        vel._normalize_velovi_latent_representation(result, minimal_spatial_adata)
 
 
 def test_validate_velovi_workspace_axis_rejects_reordered_cells(
@@ -1585,9 +1573,7 @@ def test_infer_pseudotime_palantir_auto_selects_root_from_first_component(
 
 def test_normalize_palantir_outputs_aligns_labels_and_rejects_invalid_values():
     obs_names = pd.Index(["c1", "c2", "c3"])
-    matrix = pd.DataFrame(
-        {"fate": [0.3, 0.1, 0.2]}, index=["c3", "c1", "c2"]
-    )
+    matrix = pd.DataFrame({"fate": [0.3, 0.1, 0.2]}, index=["c3", "c1", "c2"])
 
     aligned = traj._normalize_palantir_matrix(
         matrix, obs_names, name="branch probabilities"
@@ -1613,13 +1599,15 @@ def test_compute_dpt_trajectory_valid_root_and_fillna(
     monkeypatch.setattr(traj, "ensure_neighbors", lambda *_a, **_k: None)
     monkeypatch.setattr(traj, "ensure_diffmap", lambda *_a, **_k: None)
 
-    fake_scanpy = ModuleType("scanpy")
-    fake_scanpy.tl = SimpleNamespace(
-        dpt=lambda _a: _a.obs.__setitem__(
-            "dpt_pseudotime",
-            pd.Series([0.2, np.nan] + [0.1] * (_a.n_obs - 2), index=_a.obs_names),
+    def _assign_dpt_pseudotime(adata):
+        pseudotime = pd.Series(
+            [0.2, np.nan] + [0.1] * (adata.n_obs - 2),
+            index=adata.obs_names,
         )
-    )
+        adata.obs = adata.obs.assign(dpt_pseudotime=pseudotime)
+
+    fake_scanpy = ModuleType("scanpy")
+    fake_scanpy.tl = SimpleNamespace(dpt=_assign_dpt_pseudotime)
     monkeypatch.setitem(__import__("sys").modules, "scanpy", fake_scanpy)
 
     root = adata.obs_names[3]

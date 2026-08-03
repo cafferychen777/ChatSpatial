@@ -49,7 +49,9 @@ def test_resolve_cluster_key_param_metadata_and_error(minimal_spatial_adata):
     adata = minimal_spatial_adata.copy()
     assert viz_ss._resolve_cluster_key(adata, "neighborhood", "group") == "group"
 
-    adata.uns["spatial_stats_neighborhood_metadata"] = {"parameters": {"cluster_key": "group"}}
+    adata.uns["spatial_stats_neighborhood_metadata"] = {
+        "parameters": {"cluster_key": "group"}
+    }
     assert viz_ss._resolve_cluster_key(adata, "neighborhood", None) == "group"
 
     adata2 = minimal_spatial_adata.copy()
@@ -73,7 +75,9 @@ async def test_create_spatial_statistics_visualization_routes_all_subtypes(
     def _fake_sync(*_args, **_kwargs):
         return sentinel
 
-    monkeypatch.setattr(viz_ss, "_create_neighborhood_enrichment_visualization", _fake_async)
+    monkeypatch.setattr(
+        viz_ss, "_create_neighborhood_enrichment_visualization", _fake_async
+    )
     monkeypatch.setattr(viz_ss, "_create_co_occurrence_visualization", _fake_async)
     monkeypatch.setattr(viz_ss, "_create_ripley_visualization", _fake_async)
     monkeypatch.setattr(viz_ss, "_create_moran_visualization", _fake_sync)
@@ -95,7 +99,9 @@ async def test_create_spatial_statistics_visualization_routes_all_subtypes(
         )
         assert out is sentinel
 
-    with pytest.raises(ParameterError, match="Unsupported subtype for spatial_statistics"):
+    with pytest.raises(
+        ParameterError, match="Unsupported subtype for spatial_statistics"
+    ):
         await viz_ss.create_spatial_statistics_visualization(
             minimal_spatial_adata,
             VisualizationParameters(plot_type="statistics", subtype="unknown"),
@@ -112,7 +118,9 @@ async def test_neighborhood_visualization_validates_data_and_calls_squidpy(
     with pytest.raises(DataNotFoundError, match="Neighborhood enrichment not found"):
         await viz_ss._create_neighborhood_enrichment_visualization(
             adata,
-            VisualizationParameters(plot_type="statistics", subtype="neighborhood", cluster_key="group"),
+            VisualizationParameters(
+                plot_type="statistics", subtype="neighborhood", cluster_key="group"
+            ),
         )
 
     adata.uns["group_nhood_enrichment"] = {"dummy": True}
@@ -129,11 +137,15 @@ async def test_neighborhood_visualization_validates_data_and_calls_squidpy(
     )
 
     fig, ax = plt.subplots()
-    monkeypatch.setattr(viz_ss, "create_figure_from_params", lambda *_a, **_k: (fig, [ax]))
+    monkeypatch.setattr(
+        viz_ss, "create_figure_from_params", lambda *_a, **_k: (fig, [ax])
+    )
 
     out = await viz_ss._create_neighborhood_enrichment_visualization(
         adata,
-        VisualizationParameters(plot_type="statistics", subtype="neighborhood", cluster_key="group"),
+        VisualizationParameters(
+            plot_type="statistics", subtype="neighborhood", cluster_key="group"
+        ),
     )
     assert out is fig
     assert called["cluster_key"] == "group"
@@ -152,7 +164,9 @@ async def test_co_occurrence_visualization_handles_missing_and_figsize_logic(
     with pytest.raises(DataNotFoundError, match="Co-occurrence not found"):
         await viz_ss._create_co_occurrence_visualization(
             adata,
-            VisualizationParameters(plot_type="statistics", subtype="co_occurrence", cluster_key="group"),
+            VisualizationParameters(
+                plot_type="statistics", subtype="co_occurrence", cluster_key="group"
+            ),
         )
 
     adata.uns["group_co_occurrence"] = {"dummy": True}
@@ -167,7 +181,9 @@ async def test_co_occurrence_visualization_handles_missing_and_figsize_logic(
 
     out = await viz_ss._create_co_occurrence_visualization(
         adata,
-        VisualizationParameters(plot_type="statistics", subtype="co_occurrence", cluster_key="group"),
+        VisualizationParameters(
+            plot_type="statistics", subtype="co_occurrence", cluster_key="group"
+        ),
     )
     assert called["figsize"] is None
     assert 1 <= len(called["clusters"]) <= 4
@@ -208,13 +224,46 @@ async def test_co_occurrence_visualization_uses_custom_figsize_and_title(
 
 
 @pytest.mark.asyncio
-async def test_ripley_visualization_missing_and_success(minimal_spatial_adata, monkeypatch):
+async def test_co_occurrence_visualization_supports_string_dtype(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    labels = ["B", "A"] * (adata.n_obs // 2) + ["B"] * (adata.n_obs % 2)
+    adata.obs["group"] = pd.Series(labels, index=adata.obs_names, dtype="string")
+    adata.uns["group_co_occurrence"] = {"dummy": True}
+    monkeypatch.setattr(viz_ss, "require", _required_dependency)
+    captured: dict[str, object] = {}
+
+    def _co(*_args, **kwargs):
+        captured["clusters"] = kwargs.get("clusters")
+        plt.figure()
+
+    monkeypatch.setitem(sys.modules, "squidpy", _fake_squidpy_module(co_occurrence=_co))
+
+    fig = await viz_ss._create_co_occurrence_visualization(
+        adata,
+        VisualizationParameters(
+            plot_type="statistics",
+            subtype="co_occurrence",
+            cluster_key="group",
+        ),
+    )
+    assert captured["clusters"] == ["A", "B"]
+    fig.clf()
+
+
+@pytest.mark.asyncio
+async def test_ripley_visualization_missing_and_success(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     monkeypatch.setattr(viz_ss, "require", _required_dependency)
     with pytest.raises(DataNotFoundError, match="Ripley results not found"):
         await viz_ss._create_ripley_visualization(
             adata,
-            VisualizationParameters(plot_type="statistics", subtype="ripley", cluster_key="group"),
+            VisualizationParameters(
+                plot_type="statistics", subtype="ripley", cluster_key="group"
+            ),
         )
 
     adata.uns["group_ripley_L"] = {"dummy": True}
@@ -226,11 +275,18 @@ async def test_ripley_visualization_missing_and_success(minimal_spatial_adata, m
 
     monkeypatch.setitem(sys.modules, "squidpy", _fake_squidpy_module(ripley=_ripley))
     fig, ax = plt.subplots()
-    monkeypatch.setattr(viz_ss, "create_figure_from_params", lambda *_a, **_k: (fig, [ax]))
+    monkeypatch.setattr(
+        viz_ss, "create_figure_from_params", lambda *_a, **_k: (fig, [ax])
+    )
 
     out = await viz_ss._create_ripley_visualization(
         adata,
-        VisualizationParameters(plot_type="statistics", subtype="ripley", cluster_key="group", title="Ripley Title"),
+        VisualizationParameters(
+            plot_type="statistics",
+            subtype="ripley",
+            cluster_key="group",
+            title="Ripley Title",
+        ),
     )
     assert out is fig
     assert called["cluster_key"] == "group"
@@ -257,7 +313,9 @@ def test_moran_visualization_missing_and_zero_pvalue_branch(minimal_spatial_adat
     )
     fig = viz_ss._create_moran_visualization(
         adata,
-        VisualizationParameters(plot_type="statistics", subtype="moran", show_colorbar=True),
+        VisualizationParameters(
+            plot_type="statistics", subtype="moran", show_colorbar=True
+        ),
     )
     assert len(fig.axes) >= 1
     assert "Moran's I" in fig.axes[0].get_title()
@@ -337,13 +395,17 @@ def test_moran_visualization_rejects_missing_requested_feature(minimal_spatial_a
 
 
 @pytest.mark.asyncio
-async def test_centrality_visualization_missing_and_success(minimal_spatial_adata, monkeypatch):
+async def test_centrality_visualization_missing_and_success(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     monkeypatch.setattr(viz_ss, "require", _required_dependency)
     with pytest.raises(DataNotFoundError, match="Centrality scores not found"):
         await viz_ss._create_centrality_visualization(
             adata,
-            VisualizationParameters(plot_type="statistics", subtype="centrality", cluster_key="group"),
+            VisualizationParameters(
+                plot_type="statistics", subtype="centrality", cluster_key="group"
+            ),
         )
 
     adata.uns["group_centrality_scores"] = pd.DataFrame(
@@ -379,7 +441,9 @@ async def test_centrality_visualization_missing_and_success(minimal_spatial_adat
 
 
 @pytest.mark.asyncio
-async def test_centrality_visualization_uses_custom_figsize(minimal_spatial_adata, monkeypatch):
+async def test_centrality_visualization_uses_custom_figsize(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     adata.uns["group_centrality_scores"] = pd.DataFrame(
         {"degree": [0.2, 0.5], "closeness": [0.3, 0.4]}
@@ -460,7 +524,9 @@ async def test_getis_ord_visualization_validation_and_success(
         fig = await viz_ss._create_getis_ord_visualization(
             adata,
             VisualizationParameters(
-                plot_type="statistics", subtype="getis_ord", feature=["gene_0", "gene_1"]
+                plot_type="statistics",
+                subtype="getis_ord",
+                feature=["gene_0", "gene_1"],
             ),
             context=ctx,
         )

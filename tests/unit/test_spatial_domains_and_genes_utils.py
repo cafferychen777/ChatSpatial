@@ -593,8 +593,8 @@ async def test_identify_domains_spagcn_success_with_dummy_histology_fallback(
     ez_mod.detect_spatial_domains_ez_mode = lambda ad, *args, **kwargs: ["0"] * ad.n_obs
     pkg = types.ModuleType("SpaGCN")
     pkg.ez_mode = ez_mod
-    sys.modules["SpaGCN"] = pkg
-    sys.modules["SpaGCN.ez_mode"] = ez_mod
+    monkeypatch.setitem(sys.modules, "SpaGCN", pkg)
+    monkeypatch.setitem(sys.modules, "SpaGCN.ez_mode", ez_mod)
 
     params = SpatialDomainParameters(
         method="spagcn",
@@ -639,8 +639,8 @@ async def test_identify_domains_spagcn_timeout_is_wrapped(
     ez_mod.detect_spatial_domains_ez_mode = lambda ad, *args, **kwargs: ["0"] * ad.n_obs
     pkg = types.ModuleType("SpaGCN")
     pkg.ez_mode = ez_mod
-    sys.modules["SpaGCN"] = pkg
-    sys.modules["SpaGCN.ez_mode"] = ez_mod
+    monkeypatch.setitem(sys.modules, "SpaGCN", pkg)
+    monkeypatch.setitem(sys.modules, "SpaGCN.ez_mode", ez_mod)
 
     async def _raise_timeout(_future, timeout=None):
         del _future, timeout
@@ -688,8 +688,8 @@ async def test_identify_domains_spagcn_rejects_mismatched_coordinate_length(
     ez_mod.detect_spatial_domains_ez_mode = lambda ad, *args, **kwargs: ["0"] * ad.n_obs
     pkg = types.ModuleType("SpaGCN")
     pkg.ez_mode = ez_mod
-    sys.modules["SpaGCN"] = pkg
-    sys.modules["SpaGCN.ez_mode"] = ez_mod
+    monkeypatch.setitem(sys.modules, "SpaGCN", pkg)
+    monkeypatch.setitem(sys.modules, "SpaGCN.ez_mode", ez_mod)
 
     with pytest.raises(DataError, match="doesn't match data"):
         await sd._identify_domains_spagcn(
@@ -731,7 +731,7 @@ async def test_identify_domains_stagate_success_returns_embeddings_and_stats(
     torch_mod = types.ModuleType("torch")
     torch_mod.__version__ = "2.8.0"
     torch_mod.device = lambda x: f"device:{x}"
-    sys.modules["torch"] = torch_mod
+    monkeypatch.setitem(sys.modules, "torch", torch_mod)
 
     class _FakeSTAGATE:
         @staticmethod
@@ -792,7 +792,7 @@ async def test_identify_domains_stagate_stats_failure_logs_debug_and_continues(
     torch_mod = types.ModuleType("torch")
     torch_mod.__version__ = "2.8.0"
     torch_mod.device = lambda x: f"device:{x}"
-    sys.modules["torch"] = torch_mod
+    monkeypatch.setitem(sys.modules, "torch", torch_mod)
 
     class _FakeSTAGATE:
         @staticmethod
@@ -846,7 +846,7 @@ async def test_identify_domains_stagate_timeout_is_wrapped(
     torch_mod = types.ModuleType("torch")
     torch_mod.__version__ = "2.8.0"
     torch_mod.device = lambda x: x
-    sys.modules["torch"] = torch_mod
+    monkeypatch.setitem(sys.modules, "torch", torch_mod)
 
     class _FakeSTAGATE:
         @staticmethod
@@ -893,7 +893,7 @@ async def test_identify_domains_graphst_mclust_path_success(
     torch_mod = types.ModuleType("torch")
     torch_mod.__version__ = "2.8.0"
     torch_mod.device = lambda x: f"device:{x}"
-    sys.modules["torch"] = torch_mod
+    monkeypatch.setitem(sys.modules, "torch", torch_mod)
 
     class _FakeGraphST:
         def __init__(self, adata_graphst, device=None, random_seed=0):
@@ -908,8 +908,8 @@ async def test_identify_domains_graphst_mclust_path_success(
     graphst_sub.GraphST = _FakeGraphST
     graphst_pkg = types.ModuleType("GraphST")
     graphst_pkg.GraphST = graphst_sub
-    sys.modules["GraphST"] = graphst_pkg
-    sys.modules["GraphST.GraphST"] = graphst_sub
+    monkeypatch.setitem(sys.modules, "GraphST", graphst_pkg)
+    monkeypatch.setitem(sys.modules, "GraphST.GraphST", graphst_sub)
 
     monkeypatch.setattr(sd, "require", _required_dependency)
     monkeypatch.setattr(
@@ -962,7 +962,7 @@ async def test_identify_domains_graphst_timeout_is_wrapped(
     torch_mod = types.ModuleType("torch")
     torch_mod.__version__ = "2.8.0"
     torch_mod.device = lambda x: x
-    sys.modules["torch"] = torch_mod
+    monkeypatch.setitem(sys.modules, "torch", torch_mod)
 
     class _FakeGraphST:
         def __init__(self, adata_graphst, device=None, random_seed=0):
@@ -975,8 +975,8 @@ async def test_identify_domains_graphst_timeout_is_wrapped(
     graphst_sub.GraphST = _FakeGraphST
     graphst_pkg = types.ModuleType("GraphST")
     graphst_pkg.GraphST = graphst_sub
-    sys.modules["GraphST"] = graphst_pkg
-    sys.modules["GraphST.GraphST"] = graphst_sub
+    monkeypatch.setitem(sys.modules, "GraphST", graphst_pkg)
+    monkeypatch.setitem(sys.modules, "GraphST.GraphST", graphst_sub)
 
     monkeypatch.setattr(sd, "require", _required_dependency)
 
@@ -1015,9 +1015,9 @@ async def test_identify_domains_banksy_success_path(
     embed_mod = types.ModuleType("banksy.embed_banksy")
     embed_mod.generate_banksy_matrix = lambda *_a, **_k: (None, banksy_matrix)
 
-    sys.modules["banksy"] = types.ModuleType("banksy")
-    sys.modules["banksy.initialize_banksy"] = init_mod
-    sys.modules["banksy.embed_banksy"] = embed_mod
+    monkeypatch.setitem(sys.modules, "banksy", types.ModuleType("banksy"))
+    monkeypatch.setitem(sys.modules, "banksy.initialize_banksy", init_mod)
+    monkeypatch.setitem(sys.modules, "banksy.embed_banksy", embed_mod)
 
     monkeypatch.setattr(sd, "require", _required_dependency)
     monkeypatch.setattr(
@@ -1026,12 +1026,16 @@ async def test_identify_domains_banksy_success_path(
         lambda a, n_comps=20: a.obsm.__setitem__("X_pca", np.ones((a.n_obs, n_comps))),
     )
     monkeypatch.setattr(sd.sc.pp, "neighbors", lambda *_a, **_k: None)
+
+    def _assign_banksy_clusters(a, resolution=0.5, key_added="banksy_cluster"):
+        del resolution
+        labels = ["0"] * (a.n_obs // 2) + ["1"] * (a.n_obs - a.n_obs // 2)
+        a.obs = a.obs.assign(**{key_added: labels})
+
     monkeypatch.setattr(
         sd.sc.tl,
         "leiden",
-        lambda a, resolution=0.5, key_added="banksy_cluster": a.obs.__setitem__(
-            key_added, ["0"] * (a.n_obs // 2) + ["1"] * (a.n_obs - a.n_obs // 2)
-        ),
+        _assign_banksy_clusters,
     )
 
     labels, emb_key, stats = await sd._identify_domains_banksy(
@@ -1063,9 +1067,9 @@ async def test_identify_domains_banksy_timeout_is_wrapped(
     embed_mod = types.ModuleType("banksy.embed_banksy")
     embed_mod.generate_banksy_matrix = lambda *_a, **_k: (None, adata.copy())
 
-    sys.modules["banksy"] = types.ModuleType("banksy")
-    sys.modules["banksy.initialize_banksy"] = init_mod
-    sys.modules["banksy.embed_banksy"] = embed_mod
+    monkeypatch.setitem(sys.modules, "banksy", types.ModuleType("banksy"))
+    monkeypatch.setitem(sys.modules, "banksy.initialize_banksy", init_mod)
+    monkeypatch.setitem(sys.modules, "banksy.embed_banksy", embed_mod)
 
     monkeypatch.setattr(sd, "require", _required_dependency)
 
@@ -1641,12 +1645,15 @@ async def test_identify_domains_banksy_uses_alternative_spatial_key(
         lambda a, n_comps=20: a.obsm.__setitem__("X_pca", np.ones((a.n_obs, n_comps))),
     )
     monkeypatch.setattr(sd.sc.pp, "neighbors", lambda *_a, **_k: None)
+
+    def _assign_banksy_clusters(a, resolution=0.5, key_added="banksy_cluster"):
+        del resolution
+        a.obs = a.obs.assign(**{key_added: ["0"] * a.n_obs})
+
     monkeypatch.setattr(
         sd.sc.tl,
         "leiden",
-        lambda a, resolution=0.5, key_added="banksy_cluster": a.obs.__setitem__(
-            key_added, ["0"] * a.n_obs
-        ),
+        _assign_banksy_clusters,
     )
 
     labels, emb_key, _stats = await sd._identify_domains_banksy(

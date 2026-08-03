@@ -20,6 +20,7 @@ from ...models.data import VisualizationParameters
 from ...utils.adata_utils import (
     get_cluster_key,
     get_gene_expression,
+    is_categorical_or_string,
     require_spatial_coords,
 )
 from ...utils.compute import ensure_umap
@@ -260,9 +261,7 @@ async def _create_single_feature_plot(
     elif feature in adata.obs.columns:
         # Observation column
         values = adata.obs[feature]
-        is_categorical = (
-            pd.api.types.is_categorical_dtype(values) or values.dtype == object
-        )
+        is_categorical = is_categorical_or_string(values)
 
         if is_categorical:
             cat_series = pd.Categorical(values)
@@ -435,9 +434,7 @@ async def _create_multi_feature_plot(
         elif feature in adata.obs.columns:
             # Categorical obs column
             values = adata.obs[feature]
-            is_categorical = (
-                pd.api.types.is_categorical_dtype(values) or values.dtype == object
-            )
+            is_categorical = is_categorical_or_string(values)
 
             if is_categorical:
                 cat_series = pd.Categorical(values)

@@ -45,9 +45,7 @@ def test_parse_lr_pairs_underscore_treated_as_gene():
 def test_parse_lr_pairs_mixed_raises():
     """Mixing LR pairs with regular features raises ParameterError."""
     with pytest.raises(ParameterError, match="Cannot mix"):
-        viz_feature._parse_lr_pairs_from_features(
-            ["geneA", "CCL5^CCR5"]
-        )
+        viz_feature._parse_lr_pairs_from_features(["geneA", "CCL5^CCR5"])
 
 
 @pytest.mark.asyncio
@@ -133,7 +131,9 @@ async def test_create_single_feature_plot_feature_not_found(minimal_spatial_adat
     with pytest.raises(DataNotFoundError, match="Feature 'missing' not found"):
         await viz_feature._create_single_feature_plot(
             minimal_spatial_adata,
-            VisualizationParameters(plot_type="feature", basis="spatial", feature="missing"),
+            VisualizationParameters(
+                plot_type="feature", basis="spatial", feature="missing"
+            ),
             "missing",
             "spatial",
             minimal_spatial_adata.obsm["spatial"],
@@ -156,11 +156,15 @@ async def test_create_single_feature_plot_gene_branch(minimal_spatial_adata):
 @pytest.mark.asyncio
 async def test_create_single_feature_plot_categorical_obs_branch(minimal_spatial_adata):
     adata = minimal_spatial_adata.copy()
-    adata.obs["cluster"] = pd.Categorical(["A"] * (adata.n_obs // 2) + ["B"] * (adata.n_obs - adata.n_obs // 2))
+    adata.obs["cluster"] = pd.Categorical(
+        ["A"] * (adata.n_obs // 2) + ["B"] * (adata.n_obs - adata.n_obs // 2)
+    )
 
     fig = await viz_feature._create_single_feature_plot(
         adata,
-        VisualizationParameters(plot_type="feature", basis="spatial", feature="cluster"),
+        VisualizationParameters(
+            plot_type="feature", basis="spatial", feature="cluster"
+        ),
         "cluster",
         "spatial",
         adata.obsm["spatial"],
@@ -170,11 +174,15 @@ async def test_create_single_feature_plot_categorical_obs_branch(minimal_spatial
 
 
 @pytest.mark.asyncio
-async def test_create_single_feature_plot_does_not_mutate_obs_dtype(minimal_spatial_adata):
+async def test_create_single_feature_plot_does_not_mutate_obs_dtype(
+    minimal_spatial_adata,
+):
     """Regression: viz must not convert obs column dtype as side effect."""
     adata = minimal_spatial_adata.copy()
-    adata.obs["label"] = ["A", "B"] * (adata.n_obs // 2) + ["A"] * (adata.n_obs % 2)
-    assert adata.obs["label"].dtype == object  # pre-condition
+    labels = ["A", "B"] * (adata.n_obs // 2) + ["A"] * (adata.n_obs % 2)
+    adata.obs["label"] = pd.Series(labels, index=adata.obs_names, dtype="string")
+    original_dtype = adata.obs["label"].dtype
+    assert isinstance(original_dtype, pd.StringDtype)
 
     fig = await viz_feature._create_single_feature_plot(
         adata,
@@ -185,7 +193,7 @@ async def test_create_single_feature_plot_does_not_mutate_obs_dtype(minimal_spat
     )
     assert fig is not None
     # Must NOT have been mutated to Categorical
-    assert adata.obs["label"].dtype == object
+    assert adata.obs["label"].dtype == original_dtype
     plt.close(fig)
 
 
@@ -194,7 +202,9 @@ async def test_create_multi_feature_plot_cleans_temp_column(minimal_spatial_adat
     adata = minimal_spatial_adata.copy()
     fig = await viz_feature._create_multi_feature_plot(
         adata,
-        VisualizationParameters(plot_type="feature", basis="spatial", feature=["gene_0", "gene_1"]),
+        VisualizationParameters(
+            plot_type="feature", basis="spatial", feature=["gene_0", "gene_1"]
+        ),
         context=None,
         features=["gene_0", "gene_1"],
         basis="spatial",
@@ -215,7 +225,9 @@ async def test_create_feature_visualization_requires_spatial_coordinates(
     with pytest.raises((DataNotFoundError, DataError), match="[Ss]patial coordinates"):
         await viz_feature.create_feature_visualization(
             adata,
-            VisualizationParameters(plot_type="feature", basis="spatial", feature="gene_0"),
+            VisualizationParameters(
+                plot_type="feature", basis="spatial", feature="gene_0"
+            ),
         )
 
 
@@ -248,13 +260,17 @@ async def test_create_feature_visualization_umap_missing_when_not_computable(
     with pytest.raises(DataNotFoundError, match="UMAP embedding not found"):
         await viz_feature.create_feature_visualization(
             adata,
-            VisualizationParameters(plot_type="feature", basis="umap", feature="gene_0"),
+            VisualizationParameters(
+                plot_type="feature", basis="umap", feature="gene_0"
+            ),
             context=DummyCtx(),
         )
 
 
 @pytest.mark.asyncio
-async def test_create_feature_visualization_requires_pca_embedding(minimal_spatial_adata):
+async def test_create_feature_visualization_requires_pca_embedding(
+    minimal_spatial_adata,
+):
     with pytest.raises(DataNotFoundError, match="PCA embedding not found"):
         await viz_feature.create_feature_visualization(
             minimal_spatial_adata,
@@ -300,7 +316,9 @@ async def test_create_feature_visualization_pca_uses_first_two_components_and_de
     )
     sentinel = plt.figure()
 
-    monkeypatch.setattr(viz_feature, "get_cluster_key", lambda *_args, **_kwargs: "group")
+    monkeypatch.setattr(
+        viz_feature, "get_cluster_key", lambda *_args, **_kwargs: "group"
+    )
 
     async def _validated(*_args, **_kwargs):
         return ["group"]
@@ -329,7 +347,9 @@ async def test_create_single_feature_plot_numeric_obs_branch_hides_axes(
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["score"] = np.linspace(0, 1, adata.n_obs)
-    adata.obsm["X_pca"] = np.column_stack([np.arange(adata.n_obs), np.arange(adata.n_obs)])
+    adata.obsm["X_pca"] = np.column_stack(
+        [np.arange(adata.n_obs), np.arange(adata.n_obs)]
+    )
 
     fig = await viz_feature._create_single_feature_plot(
         adata,
@@ -400,7 +420,9 @@ async def test_create_single_feature_plot_numeric_obs_branch_adds_colorbar(
 ):
     adata = minimal_spatial_adata.copy()
     adata.obs["score"] = np.linspace(0, 1, adata.n_obs)
-    adata.obsm["X_pca"] = np.column_stack([np.arange(adata.n_obs), np.arange(adata.n_obs)])
+    adata.obsm["X_pca"] = np.column_stack(
+        [np.arange(adata.n_obs), np.arange(adata.n_obs)]
+    )
     calls = {"count": 0}
 
     monkeypatch.setattr(
@@ -430,7 +452,9 @@ async def test_create_multi_feature_plot_umap_handles_gene_and_numeric_obs(
     minimal_spatial_adata,
 ):
     adata = minimal_spatial_adata.copy()
-    adata.obsm["X_umap"] = np.column_stack([np.arange(adata.n_obs), np.arange(adata.n_obs)])
+    adata.obsm["X_umap"] = np.column_stack(
+        [np.arange(adata.n_obs), np.arange(adata.n_obs)]
+    )
     adata.obs["score"] = np.linspace(0, 10, adata.n_obs)
 
     fig = await viz_feature._create_multi_feature_plot(
@@ -468,7 +492,9 @@ async def test_create_multi_feature_plot_breaks_when_axes_shorter_than_features(
 
     out = await viz_feature._create_multi_feature_plot(
         adata,
-        VisualizationParameters(plot_type="feature", basis="spatial", show_colorbar=False),
+        VisualizationParameters(
+            plot_type="feature", basis="spatial", show_colorbar=False
+        ),
         context=None,
         features=["gene_0", "gene_1"],
         basis="spatial",
@@ -483,7 +509,9 @@ async def test_create_multi_feature_plot_umap_sqrt_with_colorbars(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    adata.obsm["X_umap"] = np.column_stack([np.arange(adata.n_obs), np.arange(adata.n_obs)])
+    adata.obsm["X_umap"] = np.column_stack(
+        [np.arange(adata.n_obs), np.arange(adata.n_obs)]
+    )
     adata.obs["score"] = np.linspace(0, 10, adata.n_obs)
     calls = {"count": 0}
     monkeypatch.setattr(
@@ -556,7 +584,9 @@ async def test_create_lr_pairs_visualization_limits_pairs_and_reports_titles(
     minimal_spatial_adata,
 ):
     adata = minimal_spatial_adata.copy()
-    adata.obsm["X_umap"] = np.column_stack([np.arange(adata.n_obs), np.arange(adata.n_obs)])
+    adata.obsm["X_umap"] = np.column_stack(
+        [np.arange(adata.n_obs), np.arange(adata.n_obs)]
+    )
     ctx = DummyCtx()
     lr_pairs = [
         ("gene_0", "gene_1"),
@@ -630,14 +660,18 @@ async def test_create_lr_pairs_visualization_umap_spearman_with_colorbars(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    adata.obsm["X_umap"] = np.column_stack([np.arange(adata.n_obs), np.arange(adata.n_obs)])
+    adata.obsm["X_umap"] = np.column_stack(
+        [np.arange(adata.n_obs), np.arange(adata.n_obs)]
+    )
     calls = {"count": 0}
     monkeypatch.setattr(
         viz_feature.plt,
         "colorbar",
         lambda *_args, **_kwargs: calls.__setitem__("count", calls["count"] + 1),
     )
-    monkeypatch.setattr(viz_feature, "spearmanr", lambda *_args, **_kwargs: (0.33, 0.02))
+    monkeypatch.setattr(
+        viz_feature, "spearmanr", lambda *_args, **_kwargs: (0.33, 0.02)
+    )
 
     fig = await viz_feature._create_lr_pairs_visualization(
         adata,

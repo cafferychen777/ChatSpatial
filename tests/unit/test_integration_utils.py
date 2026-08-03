@@ -6,6 +6,7 @@ import warnings
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
+import pandas as pd
 import pytest
 import scipy.sparse as sp
 from anndata import AnnData, ImplicitModificationWarning
@@ -718,10 +719,55 @@ def test_integrate_multiple_samples_cleans_var_na_and_diffmap_artifacts(
         )
 
     assert out.var["flag"].dtype == bool
-    assert out.var["symbol"].dtype == object
+    assert pd.api.types.is_string_dtype(out.var["symbol"].dtype)
     assert not out.var["symbol"].isna().any()
     assert "X_diffmap" not in out.obsm
     assert "diffmap_evals" not in out.uns
+
+
+def test_integrate_multiple_samples_normalizes_string_boolean_var_metadata(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    ad1 = minimal_spatial_adata[:, :4].copy()
+    ad2 = minimal_spatial_adata[:, 2:6].copy()
+    ad1.obs["batch"] = "b1"
+    ad2.obs["batch"] = "b2"
+    ad1.var["flag"] = pd.Series(
+        ["True", "False", "True", "False"],
+        index=ad1.var_names,
+        dtype="string",
+    )
+    ad2.var["flag"] = pd.Series(
+        ["False", "True", "False", "True"],
+        index=ad2.var_names,
+        dtype="string",
+    )
+    ad1.obs_names = [f"{name}_b1" for name in ad1.obs_names]
+    ad2.obs_names = [f"{name}_b2" for name in ad2.obs_names]
+
+    _install_classical_integration_mocks(monkeypatch, {})
+    monkeypatch.setattr("scanpy.tl.umap", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "scanpy.pp.highly_variable_genes",
+        lambda adata, **_kwargs: _set_hvg_value(adata, True),
+    )
+    monkeypatch.setattr(
+        "scanpy.tl.pca",
+        lambda adata, n_comps, **_kwargs: _set_obsm(
+            adata,
+            "X_pca",
+            np.zeros((adata.n_obs, min(n_comps, 3)), dtype=np.float32),
+        ),
+    )
+    monkeypatch.setattr("scanpy.pp.neighbors", lambda *_args, **_kwargs: None)
+
+    out = integrate_multiple_samples(
+        [ad1, ad2], method="not_real", batch_key="batch", n_pcs=3
+    )
+
+    assert out.var["flag"].dtype == bool
+    assert out.var.loc["gene_2", "flag"]
+    assert not out.var.loc["gene_3", "flag"]
 
 
 def test_integrate_multiple_samples_raises_when_hvg_recalc_still_empty(

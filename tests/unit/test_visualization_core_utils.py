@@ -110,7 +110,9 @@ async def test_get_validated_features_supports_genes_obs_obsm_and_truncation(
 
 
 @pytest.mark.asyncio
-async def test_get_validated_features_genes_only_warns_for_non_genes(minimal_spatial_adata):
+async def test_get_validated_features_genes_only_warns_for_non_genes(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     adata.obs["cluster"] = ["A"] * adata.n_obs
     ctx = _Ctx()
@@ -133,7 +135,9 @@ async def test_get_validated_features_returns_empty_when_feature_is_none(
     assert validated == []
 
 
-def test_validate_and_prepare_feature_handles_gene_obs_and_missing(minimal_spatial_adata):
+def test_validate_and_prepare_feature_handles_gene_obs_and_missing(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     adata.obs["cluster"] = pd.Categorical(["A"] * adata.n_obs)
 
@@ -224,7 +228,9 @@ def test_plot_spatial_feature_supports_continuous_and_categorical_values(
     assert not ax.axison
     plt.close(fig)
 
-    adata.obs["cluster"] = pd.Categorical(["A"] * (adata.n_obs // 2) + ["B"] * (adata.n_obs - adata.n_obs // 2))
+    adata.obs["cluster"] = pd.Categorical(
+        ["A"] * (adata.n_obs // 2) + ["B"] * (adata.n_obs - adata.n_obs // 2)
+    )
     fig2, ax2 = plt.subplots()
     categorical_values = adata.obs["cluster"].values
     mappable2 = viz_core.plot_spatial_feature(
@@ -246,7 +252,9 @@ def test_plot_spatial_feature_validates_required_inputs_and_feature_presence(
     with pytest.raises(DataNotFoundError, match="Feature 'missing' not found"):
         viz_core.plot_spatial_feature(adata, ax=ax, feature="missing")
 
-    with pytest.raises(ParameterError, match="Either feature or values must be provided"):
+    with pytest.raises(
+        ParameterError, match="Either feature or values must be provided"
+    ):
         viz_core.plot_spatial_feature(adata, ax=ax, feature=None, values=None)
     plt.close(fig)
 
@@ -256,8 +264,9 @@ def test_plot_spatial_feature_handles_object_string_obs_column(
 ):
     """Regression: object/string obs columns must be treated as categorical."""
     adata = minimal_spatial_adata.copy()
-    adata.obs["label"] = ["A", "B"] * (adata.n_obs // 2) + ["A"] * (adata.n_obs % 2)
-    assert adata.obs["label"].dtype == object
+    labels = ["A", "B"] * (adata.n_obs // 2) + ["A"] * (adata.n_obs % 2)
+    adata.obs["label"] = pd.Series(labels, index=adata.obs_names, dtype="string")
+    assert isinstance(adata.obs["label"].dtype, pd.StringDtype)
 
     fig, ax = plt.subplots()
     mappable = viz_core.plot_spatial_feature(
@@ -287,12 +296,17 @@ def test_plot_spatial_feature_handles_categorical_with_nan(
 def test_get_categorical_columns_and_infer_basis(minimal_spatial_adata):
     adata = minimal_spatial_adata.copy()
     adata.obs["cluster"] = pd.Categorical(["A"] * adata.n_obs)
-    adata.obs["sample"] = ["s1"] * adata.n_obs
+    adata.obs["sample"] = pd.Series(
+        ["s1"] * adata.n_obs,
+        index=adata.obs_names,
+        dtype="string",
+    )
     adata.obsm["X_tsne"] = np.zeros((adata.n_obs, 2))
 
-    cols = viz_core.get_categorical_columns(adata, limit=1)
-    assert len(cols) == 1
-    assert cols[0] in {"group", "cluster", "sample"}
+    cols = viz_core.get_categorical_columns(adata)
+    assert "cluster" in cols
+    assert "sample" in cols
+    assert viz_core.get_categorical_columns(adata, limit=1) == cols[:1]
 
     assert viz_core.infer_basis(adata, preferred="tsne") == "tsne"
     assert viz_core.infer_basis(adata, priority=["pca", "umap", "spatial"]) == "spatial"

@@ -202,7 +202,7 @@ async def _create_co_occurrence_visualization(
         )
 
     col = adata.obs[cluster_key]
-    if pd.api.types.is_categorical_dtype(col):
+    if isinstance(col.dtype, pd.CategoricalDtype):
         categories = col.cat.categories.tolist()
     else:
         # Cast to str to handle mixed-type labels (e.g. str + int)

@@ -78,6 +78,8 @@ def _patch_required_dependency(
     monkeypatch: pytest.MonkeyPatch,
     dependency_name: str,
     dependency: object,
+    *,
+    configure_fastccc_database: bool = True,
 ) -> None:
     def _require(
         requested_dependency: str,
@@ -91,6 +93,20 @@ def _patch_required_dependency(
         return dependency
 
     monkeypatch.setattr(ccc, "require", _require)
+    if dependency_name == "fastccc" and configure_fastccc_database:
+        monkeypatch.setattr(
+            ccc,
+            "_ensure_fastccc_database_dir",
+            lambda _output_dir: "/fake/cpdb",
+        )
+        monkeypatch.setattr(
+            ccc,
+            "_build_fastccc_lri_pair_map",
+            lambda _database_dir: {
+                "L1^R1": "L1^R1",
+                "L2-R2": "L2^R2",
+            },
+        )
 
 
 def test_standardize_lr_pair_normalizes_separators():
@@ -1035,7 +1051,8 @@ def _install_fake_cellphonedb_download(
 
 def _write_valid_cellphonedb_archive(path: Path) -> None:
     with zipfile.ZipFile(path, "w") as archive:
-        archive.writestr("gene_table.csv", "id\n")
+        for name in ccc.CELLPHONEDB_REQUIRED_TABLES:
+            archive.writestr(name, "id\n")
 
 
 def _valid_cellphonedb_archive_bytes() -> bytes:
@@ -1181,6 +1198,46 @@ def test_ensure_cellphonedb_database_replaces_corrupt_cache(
     assert zipfile.is_zipfile(db_file)
 
 
+def test_ensure_fastccc_database_extracts_shared_archive(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    archive_path = tmp_path / "cellphonedb.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        for name in ccc.CELLPHONEDB_REQUIRED_TABLES:
+            archive.writestr(name, f"content-{name}")
+
+    monkeypatch.setattr(
+        ccc,
+        "_ensure_cellphonedb_database",
+        lambda _output_dir: str(archive_path),
+    )
+
+    database_dir = Path(ccc._ensure_fastccc_database_dir(str(tmp_path)))
+
+    assert database_dir == tmp_path / "fastccc"
+    for name in ccc.FASTCCC_REQUIRED_TABLES:
+        assert (database_dir / name).read_text() == f"content-{name}"
+
+
+def test_ensure_fastccc_database_reuses_complete_extraction(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    database_dir = tmp_path / "fastccc"
+    database_dir.mkdir()
+    for name in ccc.FASTCCC_REQUIRED_TABLES:
+        (database_dir / name).write_text("cached")
+
+    monkeypatch.setattr(
+        ccc,
+        "_ensure_cellphonedb_database",
+        lambda _output_dir: (_ for _ in ()).throw(
+            AssertionError("complete extraction must not re-open the archive")
+        ),
+    )
+
+    assert ccc._ensure_fastccc_database_dir(str(tmp_path)) == str(database_dir)
+
+
 @pytest.mark.asyncio
 async def test_analyze_communication_fastccc_success_single_method(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
@@ -1228,14 +1285,6 @@ async def test_analyze_communication_fastccc_success_single_method(
                 "var_names": _adata.var_names,
             },
         )(),
-    )
-
-    import os.path as osp
-
-    orig_exists = osp.exists
-    monkeypatch.setattr(
-        "os.path.exists",
-        lambda p: True if str(p).endswith("interaction_table.csv") else orig_exists(p),
     )
 
     params = CellCommunicationParameters(
@@ -1569,15 +1618,6 @@ async def test_analyze_communication_fastccc_success_standard_path(
         )(),
     )
 
-    real_exists = __import__("os").path.exists
-
-    def _fake_exists(path):
-        if path.endswith("interaction_table.csv"):
-            return True
-        return real_exists(path)
-
-    monkeypatch.setattr("os.path.exists", _fake_exists)
-
     params = CellCommunicationParameters(
         method="fastccc",
         species="human",
@@ -1627,14 +1667,6 @@ async def test_analyze_communication_fastccc_cauchy_without_outputs_raises(
         )(),
     )
 
-    real_exists = __import__("os").path.exists
-
-    def _fake_exists(path):
-        if path.endswith("interaction_table.csv"):
-            return True
-        return real_exists(path)
-
-    monkeypatch.setattr("os.path.exists", _fake_exists)
     monkeypatch.setattr("glob.glob", lambda _pattern: [])
 
     params = CellCommunicationParameters(
@@ -2129,14 +2161,6 @@ async def test_analyze_communication_fastccc_normalizes_when_values_too_large(
             },
         )(),
     )
-    import os.path as osp
-
-    _orig_exists = osp.exists
-    monkeypatch.setattr(
-        "os.path.exists",
-        lambda p: True if str(p).endswith("interaction_table.csv") else _orig_exists(p),
-    )
-
     out = await ccc._analyze_communication_fastccc(
         adata,
         CellCommunicationParameters(
@@ -2168,7 +2192,12 @@ async def test_analyze_communication_fastccc_missing_database_files_raises(
         pd.DataFrame(),
         None,
     )
-    _patch_required_dependency(monkeypatch, "fastccc", fake_fastccc)
+    _patch_required_dependency(
+        monkeypatch,
+        "fastccc",
+        fake_fastccc,
+        configure_fastccc_database=False,
+    )
 
     monkeypatch.setattr(
         ccc,
@@ -2185,9 +2214,17 @@ async def test_analyze_communication_fastccc_missing_database_files_raises(
             },
         )(),
     )
-    monkeypatch.setattr("os.path.exists", lambda _p: False)
+    monkeypatch.setattr(
+        ccc,
+        "_ensure_fastccc_database_dir",
+        lambda _output_dir: (_ for _ in ()).throw(
+            ProcessingError("FastCCC requires a complete CellPhoneDB database")
+        ),
+    )
 
-    with pytest.raises(ProcessingError, match="requires CellPhoneDB database files"):
+    with pytest.raises(
+        ProcessingError, match="requires a complete CellPhoneDB database"
+    ):
         await ccc._analyze_communication_fastccc(
             adata,
             CellCommunicationParameters(
@@ -2239,13 +2276,6 @@ async def test_analyze_communication_fastccc_cauchy_reads_saved_outputs_and_none
                 "source": "X",
             },
         )(),
-    )
-    import os.path as osp
-
-    _orig_exists = osp.exists
-    monkeypatch.setattr(
-        "os.path.exists",
-        lambda p: True if str(p).endswith("interaction_table.csv") else _orig_exists(p),
     )
     import glob as glob_mod
 
@@ -2305,14 +2335,6 @@ async def test_analyze_communication_fastccc_none_pvalues_sets_zero_significant(
             },
         )(),
     )
-    import os.path as osp
-
-    _orig_exists = osp.exists
-    monkeypatch.setattr(
-        "os.path.exists",
-        lambda p: True if str(p).endswith("interaction_table.csv") else _orig_exists(p),
-    )
-
     out = await ccc._analyze_communication_fastccc(
         adata,
         CellCommunicationParameters(
@@ -2336,9 +2358,9 @@ def _install_fake_rpy2(
     top_pathways: list[str] | None = None,
     top_lr: list[str] | None = None,
 ):
-    from contextlib import contextmanager
     import sys
     import types
+    from contextlib import contextmanager
 
     class _Conv:
         def __add__(self, _other):
@@ -2595,9 +2617,7 @@ def test_analyze_communication_cellchat_r_preserves_no_gene_overlap_error(
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = pd.Categorical(["T"] * adata.n_obs)
 
-    _r_exec, fake_ro = _install_fake_rpy2(
-        monkeypatch, cellchat_genes=["NOT_IN_DATA"]
-    )
+    _r_exec, fake_ro = _install_fake_rpy2(monkeypatch, cellchat_genes=["NOT_IN_DATA"])
 
     monkeypatch.setattr(ccc, "validate_obs_column", lambda *_a, **_k: None)
     monkeypatch.setattr(ccc, "get_spatial_key", lambda *_a, **_k: None)
@@ -2670,14 +2690,6 @@ async def test_analyze_communication_fastccc_cauchy_reads_percentages_when_prese
             {"X": np.asarray(adata.X), "var_names": adata.var_names},
         )(),
     )
-    import os.path as osp
-
-    _orig_exists = osp.exists
-    monkeypatch.setattr(
-        "os.path.exists",
-        lambda p: True if str(p).endswith("interaction_table.csv") else _orig_exists(p),
-    )
-
     out = await ccc._analyze_communication_fastccc(
         adata,
         CellCommunicationParameters(

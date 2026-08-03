@@ -166,14 +166,25 @@ def test_require_includes_feature_install_and_description(
 def test_validate_r_environment_reports_missing_runtime_dependencies(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    def _missing_rpy2(name: str, *_args, **_kwargs):
-        if name == "rpy2":
-            raise DependencyError("rpy2 is required")
-        return object()
-
-    monkeypatch.setattr(dm, "require", _missing_rpy2)
+    monkeypatch.setattr(
+        dm,
+        "require_module",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            DependencyError("rpy2 is required")
+        ),
+    )
     with pytest.raises(DependencyError, match="rpy2 is required"):
         dm.validate_r_environment()
+
+    monkeypatch.setattr(
+        dm,
+        "require_module",
+        lambda _dependency, module_name, *_args, **_kwargs: (
+            SimpleNamespace(openrlib=object())
+            if module_name == "rpy2.rinterface_lib"
+            else object()
+        ),
+    )
 
     def _missing_anndata2ri(name: str, *_args, **_kwargs):
         if name == "anndata2ri":

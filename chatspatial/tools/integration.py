@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Optional, Union
 
 import anndata as ad
 import numpy as np
+import pandas as pd
 import scanpy as sc
 
 from ..models.analysis import IntegrationResult
@@ -199,17 +200,26 @@ def integrate_multiple_samples(
             index_unique=None,
         )
 
-        # FIX: Clean var columns with NA values in object dtype
+        # Clean label-like var columns with missing values. Pandas 3 infers
+        # StringDtype instead of object dtype, so branch on semantic type.
         # Problem: outer join creates NA values in var columns when genes don't exist in all samples
         # When object columns contain NA, H5AD save corrupts var.index (becomes 0,1,2...)
         # and moves gene names to _index column
         # Solution: Fill NA with appropriate values or convert types
         for col in combined.var.columns:
-            if combined.var[col].dtype == "object" and combined.var[col].isna().any():
+            if (
+                pd.api.types.is_object_dtype(combined.var[col].dtype)
+                or pd.api.types.is_string_dtype(combined.var[col].dtype)
+            ) and combined.var[col].isna().any():
                 # For boolean-like columns (highly_variable, etc.), fill NA with False
                 unique_vals = combined.var[col].dropna().unique()
                 if set(unique_vals).issubset({True, False, "True", "False"}):
-                    combined.var[col] = combined.var[col].fillna(False).astype(bool)
+                    combined.var[col] = (
+                        combined.var[col]
+                        .map({True: True, False: False, "True": True, "False": False})
+                        .fillna(False)
+                        .astype(bool)
+                    )
                 else:
                     # For string columns, fill NA with empty string
                     combined.var[col] = combined.var[col].fillna("").astype(str)
@@ -501,8 +511,6 @@ def integrate_multiple_samples(
         # with harmonypy >= 0.1.0, see: https://github.com/scverse/scanpy/issues/3940)
         harmonypy = require("harmonypy", feature="Harmony integration")
         try:
-            import pandas as pd
-
             X_pca = combined.obsm["X_pca"]
             n_cells = combined.n_obs
             meta_data = pd.DataFrame({batch_key: combined.obs[batch_key].values})

@@ -408,8 +408,23 @@ def ensure_categorical(adata: "ad.AnnData", column: str) -> None:
     """Ensure a column is categorical dtype, converting if needed."""
     if column not in adata.obs.columns:
         raise DataError(f"Column '{column}' not found in adata.obs")
-    if not pd.api.types.is_categorical_dtype(adata.obs[column]):
+    if not isinstance(adata.obs[column].dtype, pd.CategoricalDtype):
         adata.obs[column] = adata.obs[column].astype("category")
+
+
+def is_categorical_or_string(values: Any) -> bool:
+    """Return whether values carry labels rather than continuous magnitudes.
+
+    Pandas 3 uses ``StringDtype`` for inferred text columns instead of object
+    dtype. Keep semantic type detection independent of that storage change and
+    avoid the deprecated ``is_categorical_dtype`` predicate.
+    """
+    dtype = getattr(values, "dtype", values)
+    return (
+        isinstance(dtype, pd.CategoricalDtype)
+        or pd.api.types.is_object_dtype(dtype)
+        or pd.api.types.is_string_dtype(dtype)
+    )
 
 
 # =============================================================================

@@ -19,7 +19,11 @@ import seaborn as sns
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from ...models.data import VisualizationParameters
-from ...utils.adata_utils import get_gene_expression, require_spatial_coords
+from ...utils.adata_utils import (
+    get_gene_expression,
+    is_categorical_or_string,
+    require_spatial_coords,
+)
 from ...utils.exceptions import DataNotFoundError, ParameterError
 
 if TYPE_CHECKING:
@@ -393,7 +397,7 @@ def validate_and_prepare_feature(
     # Observation column
     if feature in adata.obs.columns:
         data = adata.obs[feature]
-        is_cat = pd.api.types.is_categorical_dtype(data) or data.dtype == object
+        is_cat = is_categorical_or_string(data)
         return np.asarray(data), feature, is_cat
 
     raise DataNotFoundError(f"Feature '{feature}' not found in data")
@@ -633,7 +637,7 @@ def plot_spatial_feature(
     # Get values to plot
     if values is not None:
         plot_values = values
-        is_categorical = pd.api.types.is_categorical_dtype(values)
+        is_categorical = is_categorical_or_string(values)
     elif feature is not None:
         if feature in adata.var_names:
             # Use unified utility for gene expression extraction
@@ -643,9 +647,7 @@ def plot_spatial_feature(
             col = adata.obs[feature]
             plot_values = col.values
             # Treat both Categorical and object/string dtypes as categorical
-            is_categorical = pd.api.types.is_categorical_dtype(col) or (
-                col.dtype == object
-            )
+            is_categorical = is_categorical_or_string(col)
         else:
             raise DataNotFoundError(f"Feature '{feature}' not found")
     else:
@@ -742,9 +744,7 @@ def get_categorical_columns(
         List of categorical column names
     """
     categorical_cols = [
-        col
-        for col in adata.obs.columns
-        if adata.obs[col].dtype.name in ["object", "category"]
+        col for col in adata.obs.columns if is_categorical_or_string(adata.obs[col])
     ]
     if limit is not None:
         return categorical_cols[:limit]
