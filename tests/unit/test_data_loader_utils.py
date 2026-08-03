@@ -120,6 +120,8 @@ def test_add_spatial_info_handles_barcode_suffix_alignment(
     out = dl._add_spatial_info_to_adata(adata, str(spatial_dir))
     assert "spatial" in out.obsm
     assert out.obsm["spatial"].shape[1] == 2
+    np.testing.assert_array_equal(out.obs["array_row"], np.arange(adata.n_obs))
+    np.testing.assert_array_equal(out.obs["array_col"], np.arange(adata.n_obs))
     assert "spatial" in out.uns and "sample_a" in out.uns["spatial"]
 
 

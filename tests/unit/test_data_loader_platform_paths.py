@@ -760,8 +760,8 @@ def test_add_spatial_info_supports_5_column_positions_and_suffix_removal(
     positions = pd.DataFrame(
         {
             0: [f"bc{i}-1" for i in range(adata.n_obs)],
-            1: np.arange(adata.n_obs),
-            2: np.arange(adata.n_obs),
+            1: np.arange(adata.n_obs) + 10,
+            2: np.arange(adata.n_obs) + 20,
             3: np.linspace(0, 50, adata.n_obs),
             4: np.linspace(10, 60, adata.n_obs),
         }
@@ -777,6 +777,8 @@ def test_add_spatial_info_supports_5_column_positions_and_suffix_removal(
 
     assert out.n_obs == adata.n_obs
     assert "in_tissue" in out.obs
+    np.testing.assert_array_equal(out.obs["array_row"], np.arange(adata.n_obs) + 10)
+    np.testing.assert_array_equal(out.obs["array_col"], np.arange(adata.n_obs) + 20)
     assert "sample_c" in out.uns["spatial"]
 
 
@@ -852,6 +854,8 @@ def test_add_spatial_info_supports_6_column_positions_without_header(
 
     out = dl._add_spatial_info_to_adata(adata, str(spatial_dir))
     assert out.obsm["spatial"].shape == (adata.n_obs, 2)
+    np.testing.assert_array_equal(out.obs["array_row"], np.arange(adata.n_obs))
+    np.testing.assert_array_equal(out.obs["array_col"], np.arange(adata.n_obs))
 
 
 def test_add_spatial_info_uses_fallback_library_id_when_parent_missing(

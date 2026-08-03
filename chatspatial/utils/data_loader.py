@@ -42,6 +42,16 @@ _TISSUE_POSITIONS_FILENAMES = (
     "tissue_positions_list.csv",
 )
 
+# Space Ranger metadata that belongs in ``adata.obs``. Pixel coordinates are
+# represented canonically by ``adata.obsm["spatial"]`` below, while the array
+# coordinates preserve the discrete Visium lattice required by grid-based
+# spatial methods.
+_TISSUE_POSITION_OBS_COLUMNS = (
+    "in_tissue",
+    "array_row",
+    "array_col",
+)
+
 
 def _find_tissue_positions_file(spatial_path: str) -> Optional[str]:
     """Return the supported Space Ranger tissue positions file, if present."""
@@ -640,9 +650,12 @@ def _add_spatial_info_to_adata(adata: Any, spatial_path: str) -> Any:
             ["pxl_col_in_fullres", "pxl_row_in_fullres"]
         ].values.astype(float)
 
-        # Add tissue information
-        if "in_tissue" in positions.columns:
-            adata.obs["in_tissue"] = positions["in_tissue"].values
+        # Preserve canonical Space Ranger spot metadata in observation order.
+        # Assign positionally after aligning ``positions`` to ``common_barcodes``
+        # so pandas cannot silently reindex values against barcode labels.
+        for column in _TISSUE_POSITION_OBS_COLUMNS:
+            if column in positions.columns:
+                adata.obs[column] = positions[column].to_numpy(copy=True)
 
         # Load scalefactors
         scalefactors_file = os.path.join(spatial_path, "scalefactors_json.json")
