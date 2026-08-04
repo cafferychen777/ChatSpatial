@@ -21,6 +21,7 @@ from .analysis import (
     SpatialStatisticsResult,
     SpatialVariableGenesResult,
     TrajectoryResult,
+    VirtualExpressionResult,
 )
 
 # Import parameter models from data module
@@ -33,6 +34,7 @@ from .data import (
     DeconvolutionParameters,
     DifferentialExpressionParameters,
     EnrichmentParameters,
+    HistologyExpressionParameters,
     IntegrationParameters,
     PreprocessingParameters,
     RNAVelocityParameters,
@@ -64,6 +66,7 @@ __all__ = [
     "SpatialStatisticsResult",
     "SpatialVariableGenesResult",
     "TrajectoryResult",
+    "VirtualExpressionResult",
     # Parameter models
     "AnnotationParameters",
     "CellCommunicationParameters",
@@ -73,6 +76,7 @@ __all__ = [
     "DeconvolutionParameters",
     "DifferentialExpressionParameters",
     "EnrichmentParameters",
+    "HistologyExpressionParameters",
     "IntegrationParameters",
     "PreprocessingParameters",
     "RNAVelocityParameters",

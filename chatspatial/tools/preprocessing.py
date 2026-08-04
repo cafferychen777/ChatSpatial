@@ -23,6 +23,7 @@ from ..utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
+from ..utils.provenance import reject_predicted_expression
 
 
 def _select_hvgs_by_variance(adata, n_hvgs: int) -> None:
@@ -88,6 +89,20 @@ async def preprocess_data(
 
     # Work on a copy and commit via ctx.set_adata only after all steps succeed.
     source_adata = await ctx.get_adata(data_id)
+
+    # QC, filtering, normalization and HVG selection all assume a measured
+    # count matrix. Refuse a predicted matrix here, before any step inspects
+    # the values, so the user gets the real reason and the right next step.
+    reject_predicted_expression(
+        source_adata,
+        operation="preprocess_data",
+        reason=(
+            "Quality control, count-based normalization and highly variable "
+            "gene selection are undefined for a model-predicted matrix, which "
+            "is already on a normalized scale."
+        ),
+        guidance="Run compute_embeddings directly on this dataset.",
+    )
 
     # Standardize data format at the entry point
     try:

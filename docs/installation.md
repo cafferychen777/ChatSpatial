@@ -89,10 +89,20 @@ uv pip install 'chatspatial[integration]'         # Harmony, BBKNN, Scanorama
 uv pip install 'chatspatial[deconvolution]'       # FlashDeconv, Cell2location
 uv pip install 'chatspatial[spatial-stats]'       # PySAL/ESDA extensions
 uv pip install 'chatspatial[spatial-domains]'     # SpaGCN and BANKSY
+uv pip install 'chatspatial[aestetik]'            # AESTETIK spatial domains
+uv pip install 'chatspatial[deepspotm]'           # DeepSpot-M virtual spatial transcriptomics
 ```
 
 ChatSpatial tools fail with targeted installation guidance if you call a method
 whose optional dependency is not installed.
+
+`aestetik` and `deepspotm` are deliberately excluded from `[full]`. DeepSpot-M
+is non-commercial software: its code is PolyForm Noncommercial 1.0.0 and its
+published weights are CC-BY-NC-SA-4.0, so installing it is an explicit choice.
+The weights are also gated, so request access at
+[ratschlab/DeepSpotM](https://huggingface.co/ratschlab/DeepSpotM) and run
+`huggingface-cli login` before the first prediction. ChatSpatial itself stays
+MIT; the package is imported only when the tool runs.
 
 FastCCC and the PyPI release of pyGPCCA currently require incompatible Jinja2
 versions. Keep `cell-communication`/`full` and `trajectory` in separate runtime

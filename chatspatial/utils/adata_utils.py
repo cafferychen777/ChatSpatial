@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 from scipy import sparse
 
 from .exceptions import DataError, DataNotFoundError, ParameterError
+from .provenance import is_predicted_expression, reject_predicted_expression
 
 # =============================================================================
 # Constants: Standard Field Names
@@ -1322,6 +1323,7 @@ def ensure_counts_layer(
         True if layer was created, False if already existed
 
     Raises:
+        DataCompatibilityError: If adata.X holds predicted expression.
         DataNotFoundError: If counts layer cannot be created
 
     Note:
@@ -1337,6 +1339,19 @@ def ensure_counts_layer(
         ensure_counts_layer(adata, error_message="scANVI requires raw counts")
     """
     from .exceptions import DataNotFoundError
+
+    # Refuse predicted expression before any value-based inspection. A model
+    # output is continuous and non-negative, so the integer check below would
+    # simply report "not counts" instead of naming the real reason.
+    reject_predicted_expression(
+        adata,
+        operation=f"Creating a '{layer_name}' counts layer",
+        reason="Model-predicted expression has no underlying count matrix.",
+        guidance=(
+            "Use a method that accepts normalized expression, or run this "
+            "step on a dataset loaded from a measured assay."
+        ),
+    )
 
     if layer_name in adata.layers:
         return False
@@ -1449,6 +1464,8 @@ def get_raw_data_source(
         RawDataResult with data matrix, var_names, source name, and validation info.
 
     Raises:
+        DataCompatibilityError: If integer counts are required but adata.X is
+            declared as predicted expression.
         DataError: If require_integer_counts=True and no integer counts found.
 
     Example:
@@ -1458,6 +1475,34 @@ def get_raw_data_source(
             # Safe to use for deconvolution/velocity
             pass
     """
+    predicted_expression = is_predicted_expression(adata)
+    if require_integer_counts:
+        # Refuse predicted expression before value-based count inspection.
+        # Callers that explicitly accept normalized expression may use X; this
+        # helper must not turn a count guard into a blanket producer ban.
+        reject_predicted_expression(
+            adata,
+            operation="Raw count access",
+            reason="Model-predicted expression has no underlying count matrix.",
+            guidance=(
+                "Use a method that accepts normalized expression, or run this "
+                "step on a dataset loaded from a measured assay."
+            ),
+        )
+    elif predicted_expression:
+        # The metadata describes X specifically. Keep normalized-expression
+        # consumers on that declared matrix rather than preferring an unrelated
+        # raw/counts slot, and never relabel integer-looking predictions as counts.
+        _, has_neg, has_dec = check_is_integer_counts(adata.X, sample_size)
+        return RawDataResult(
+            X=adata.X,
+            var_names=adata.var_names,
+            source="current",
+            is_integer_counts=False,
+            has_negatives=has_neg,
+            has_decimals=has_dec,
+        )
+
     sources_tried = []
 
     # Source 1: adata.raw (complete gene set)

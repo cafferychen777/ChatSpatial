@@ -33,7 +33,7 @@ async def test_server_discovery_and_tool_listing_across_protocol_eras(
         assert client.server_info.title == "ChatSpatial"
         assert client.server_info.version == __version__
         assert result.result_type == "complete"
-        assert len(result.tools) == 20
+        assert len(result.tools) == 21
         assert [tool.name for tool in result.tools] == [
             tool.name for tool in await mcp.list_tools()
         ]

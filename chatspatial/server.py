@@ -34,6 +34,7 @@ from .models.analysis import SpatialRegistrationResult  # noqa: E402
 from .models.analysis import SpatialStatisticsResult  # noqa: E402
 from .models.analysis import SpatialVariableGenesResult  # noqa: E402
 from .models.analysis import TrajectoryResult  # noqa: E402
+from .models.analysis import VirtualExpressionResult  # noqa: E402
 from .models.data import AnnotationParameters  # noqa: E402
 from .models.data import CellCommunicationParameters  # noqa: E402
 from .models.data import CNVParameters  # noqa: E402
@@ -42,6 +43,7 @@ from .models.data import ConditionComparisonParameters  # noqa: E402
 from .models.data import DeconvolutionParameters  # noqa: E402
 from .models.data import DifferentialExpressionParameters  # noqa: E402
 from .models.data import EnrichmentParameters  # noqa: E402
+from .models.data import HistologyExpressionParameters  # noqa: E402
 from .models.data import IntegrationParameters  # noqa: E402
 from .models.data import PreprocessingParameters  # noqa: E402
 from .models.data import RegistrationParameters  # noqa: E402
@@ -153,6 +155,52 @@ async def load_data(
     )
     await data_manager.publish_dataset(data_id, dataset_info)
     return result
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True,
+    )
+)
+@mcp_tool_error_handler()
+async def predict_spatial_expression_from_histology(
+    manifest_path: str,
+    tile_directory: str,
+    params: Optional[HistologyExpressionParameters] = None,
+    context: Optional[Context] = None,
+) -> VirtualExpressionResult:
+    """Generate virtual spatial transcriptomics from pre-cut H&E tiles with DeepSpot-M.
+
+    Takes 224x224 RGB tiles cut at roughly 20x (about 0.5 microns per pixel)
+    plus a v1 CSV manifest, and registers a spatial AnnData whose X holds
+    predicted log1p-CPM. Requires 'pip install chatspatial[deepspotm]' and
+    Hugging Face access to the gated weights. Non-commercial use only.
+
+    Args:
+        manifest_path: v1 CSV manifest with columns tile_id, tile_path, slide_id,
+            x_px, y_px, mpp_x, mpp_y. x_px/y_px are the tile's upper-left corner
+            in the level-0 slide frame. Optional grid_row/grid_col must appear
+            together and describe a regular lattice.
+        tile_directory: Directory that every manifest tile_path resolves against.
+        params: Model, gene panel, and execution parameters.
+
+    Returns:
+        VirtualExpressionResult with the registered data_id. Use export_data to
+        write the dataset to disk.
+    """
+    ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
+
+    from .tools.histology import predict_spatial_expression_from_histology as predict
+
+    resolved_params = _resolve_params(params, HistologyExpressionParameters)
+
+    async with suppress_output_async():
+        result = await predict(manifest_path, tile_directory, ctx, resolved_params)
+
+    return _finalize_result(ctx, result)
 
 
 @mcp.tool(

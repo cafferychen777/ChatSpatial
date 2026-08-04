@@ -67,6 +67,13 @@ from .exceptions import (
     ProcessingError,
 )
 from .mcp_utils import mcp_tool_error_handler, suppress_output
+from .provenance import (
+    get_expression_metadata,
+    get_expression_provenance,
+    is_predicted_expression,
+    reject_predicted_expression,
+    set_expression_provenance,
+)
 
 __all__ = [
     # Exceptions
@@ -113,6 +120,12 @@ __all__ = [
     "ensure_counts_layer",
     # Standardization
     "standardize_adata",
+    # Expression provenance
+    "set_expression_provenance",
+    "get_expression_metadata",
+    "get_expression_provenance",
+    "is_predicted_expression",
+    "reject_predicted_expression",
     # Dependency management
     "DependencyInfo",
     "REnvironment",

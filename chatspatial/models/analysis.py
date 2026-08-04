@@ -532,3 +532,36 @@ class ConditionComparisonResult(BaseAnalysisResult):
 
     # Summary statistics
     statistics: dict[str, int | str]
+
+
+class VirtualExpressionResult(BaseAnalysisResult):
+    """Result of virtual spatial transcriptomics generated from H&E tiles.
+
+    The generated dataset is registered with the data manager and reachable by
+    ``data_id``. Persistence stays with ``export_data``.
+    """
+
+    data_id: str
+    slide_id: str
+    n_tiles: int = Field(gt=0, description="Tiles scored, one observation each.")
+    n_genes: int = Field(gt=0, description="Genes predicted per tile.")
+
+    # Model identity, so a result can be traced back to a specific checkpoint.
+    model_repository: str
+    checkpoint_revision: str
+    gene_embedding_source: str
+
+    # Generic expression semantics, mirrored from adata.uns for the client.
+    expression_provenance: Literal["predicted"] = "predicted"
+    expression_units: Literal["log1p_cpm"] = "log1p_cpm"
+
+    # Tile geometry and coordinate scale.
+    tile_width_px: int = Field(gt=0)
+    tile_height_px: int = Field(gt=0)
+    mpp_x: float = Field(gt=0.0)
+    mpp_y: float = Field(gt=0.0)
+
+    manifest_sha256: str
+    lattice_columns_published: bool = Field(
+        description="Whether validated grid_row/grid_col were written to adata.obs."
+    )

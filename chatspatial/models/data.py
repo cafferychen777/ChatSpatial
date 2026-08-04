@@ -1986,3 +1986,79 @@ class ConditionComparisonParameters(StrictParameters):
         0.0,
         description="Minimum absolute log2 fold change. 0 = no filtering.",
     )
+
+
+class HistologyExpressionParameters(StrictParameters):
+    """Parameters for virtual spatial transcriptomics from pre-cut H&E tiles.
+
+    The tile manifest and tile directory are tool arguments, not parameters,
+    because they define the dataset rather than tune the prediction.
+    """
+
+    gene_embedding_source: Literal["evo2", "orthrus", "prott5", "scgpt", "apertus"] = (
+        Field(
+            "scgpt",
+            description="Frozen biological embedding the DeepSpot-M gene router reads.",
+        )
+    )
+
+    genes: Optional[Annotated[list[str], Field(min_length=1, max_length=20000)]] = (
+        Field(
+            None,
+            description="HGNC symbols to predict. None predicts the model's full panel.",
+        )
+    )
+
+    model_repository: str = Field(
+        "ratschlab/DeepSpotM",
+        description="Hugging Face repository id, or a local directory holding the checkpoint.",
+    )
+
+    model_revision: Optional[str] = Field(
+        None,
+        description=(
+            "Checkpoint revision (branch, tag, or commit). None selects 'main'; "
+            "remote references are resolved to an immutable commit SHA."
+        ),
+    )
+
+    batch_size: Annotated[int, Field(gt=0, le=256)] = Field(
+        16,
+        description="Tiles per forward pass. Lower this if the device runs out of memory.",
+    )
+
+    use_gpu: bool = Field(
+        True,
+        description="Use CUDA when available. Falls back to CPU with a warning.",
+    )
+
+    name: Optional[str] = Field(
+        None,
+        description="Display name for the registered dataset.",
+    )
+
+    timeout: Optional[int] = Field(
+        None,
+        gt=0,
+        description="Seconds allowed for model loading and inference (default: 600).",
+    )
+
+    @field_validator("genes")
+    @classmethod
+    def validate_genes(cls, v: Optional[list[str]]) -> Optional[list[str]]:
+        if v is None:
+            return v
+        cleaned = [symbol.strip() for symbol in v]
+        if any(not symbol for symbol in cleaned):
+            raise ValueError("genes must not contain blank symbols")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError("genes must not contain duplicate symbols")
+        return cleaned
+
+    @field_validator("model_repository")
+    @classmethod
+    def validate_model_repository(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("model_repository must not be blank")
+        return cleaned

@@ -121,7 +121,7 @@ async def test_all_tools_publish_output_schemas_and_explicit_safety_hints():
 
     tools = await mcp.list_tools()
 
-    assert len(tools) == 20
+    assert len(tools) == 21
     assert all(tool.output_schema is not None for tool in tools)
     assert all(tool.annotations is not None for tool in tools)
     assert all(tool.annotations.read_only_hint is not None for tool in tools)

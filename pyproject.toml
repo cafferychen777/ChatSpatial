@@ -228,6 +228,16 @@ aestetik = [
     "aestetik>=0.3.1,<0.4; python_version < '3.14'",
 ]
 
+# DeepSpot-M virtual spatial transcriptomics from H&E tiles. Deliberately its
+# own extra and deliberately absent from [full]: the code is PolyForm
+# Noncommercial 1.0.0 and the published weights are CC-BY-NC-SA-4.0 and gated,
+# so installing it is a decision the user has to make explicitly. ChatSpatial
+# itself stays MIT because the package is imported only when the tool runs.
+# The marker keeps the 3.14 CI leg resolvable; deepspotm supports 3.10 to 3.13.
+deepspotm = [
+    "deepspotm>=1.0.0,<2.0; python_version < '3.14'",
+]
+
 # HPC acceleration (requires system PETSc/SLEPc libraries)
 # Install: brew install petsc slepc (macOS) or apt install petsc-dev slepc-dev (Linux)
 hpc = [

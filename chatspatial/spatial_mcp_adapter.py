@@ -619,7 +619,7 @@ def create_spatial_mcp_server(
         Tuple of (MCPServer instance, SpatialMCPAdapter instance)
     """
     # Server instructions for LLM guidance on tool usage
-    instructions = """ChatSpatial provides spatial transcriptomics analysis through 66 methods across 15 analytical categories.
+    instructions = """ChatSpatial provides spatial transcriptomics analysis through 67 methods across 15 analytical categories.
 
 CORE WORKFLOW PATTERN:
 1. Always start with load_data() to import spatial transcriptomics data
@@ -627,6 +627,11 @@ CORE WORKFLOW PATTERN:
 3. Run compute_embeddings() before tools that require PCA, UMAP, clusters, or neighbor graphs
 4. Run the desired biological or spatial analysis tools
 5. Use visualize_data() to inspect results after each analysis step
+
+VIRTUAL SPATIAL TRANSCRIPTOMICS:
+- predict_spatial_expression_from_histology() is a second entry point, for samples that have no spatial assay. It takes pre-cut 224x224 H&E tiles plus a coordinate manifest and registers a dataset whose expression matrix is predicted rather than measured.
+- Those datasets skip preprocess_data(): the matrix is already log1p-CPM. Start at compute_embeddings() instead.
+- Count-based methods reject them, because there is no underlying count matrix. Machine-readable semantics live in adata.uns["chatspatial"]["expression"].
 
 CRITICAL OPERATIONAL CONSTRAINTS:
 - Preprocessing creates filtered gene sets for efficiency but preserves raw data in adata.raw
@@ -657,8 +662,8 @@ For multi-step analyses, preserve data_id across operations to maintain analysis
         server_name,
         title="ChatSpatial",
         description=(
-            "Schema-enforced spatial transcriptomics analysis with 20 tools "
-            "covering 66 methods across 15 analytical categories."
+            "Schema-enforced spatial transcriptomics analysis with 21 tools "
+            "covering 67 methods across 15 analytical categories."
         ),
         instructions=instructions,
         website_url="https://github.com/cafferychen777/ChatSpatial",

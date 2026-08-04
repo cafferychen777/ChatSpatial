@@ -82,6 +82,35 @@ def test_aestetik_extra_is_bounded_and_excludes_python_314() -> None:
 
 
 @pytest.mark.unit
+def test_deepspotm_extra_is_bounded_and_excluded_from_full() -> None:
+    """A non-commercial backend must stay an explicit, isolated opt-in."""
+    project = _project_metadata()
+    extras = project["optional-dependencies"]
+    requirement = _requirements(extras["deepspotm"])["deepspotm"][0]
+
+    assert requirement.specifier.contains("1.0.0")
+    assert not requirement.specifier.contains("2.0.0")
+    assert requirement.marker is not None
+    assert requirement.marker.evaluate({"python_version": "3.13"})
+    assert not requirement.marker.evaluate({"python_version": "3.14"})
+
+    assert "deepspotm" not in _requirements(extras["full"])
+    assert "deepspotm" not in _requirements(project["dependencies"])
+
+
+@pytest.mark.unit
+def test_deepspotm_guidance_states_the_license_and_weight_gate() -> None:
+    """Runtime guidance must name the non-commercial terms and the gate."""
+    info = DEPENDENCY_REGISTRY["deepspotm"]
+
+    assert info.install_cmd == "pip install 'chatspatial[deepspotm]'"
+    assert "Non-commercial" in info.description
+    assert "PolyForm Noncommercial 1.0.0" in info.description
+    assert "CC-BY-NC-SA-4.0" in info.description
+    assert "huggingface-cli login" in info.description
+
+
+@pytest.mark.unit
 def test_shared_environment_constraints_cover_conflict_boundaries() -> None:
     """The combined repository environment must pin every conflict boundary."""
     constraint_lines = {
@@ -119,6 +148,7 @@ def test_install_guidance_uses_compatible_optional_families() -> None:
         "banksy": "spatial-domains",
         "louvain": "spatial-domains",
         "aestetik": "aestetik",
+        "deepspotm": "deepspotm",
     }
 
     for dependency, extra in expected_extras.items():

@@ -193,6 +193,17 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
         "pip install 'chatspatial[aestetik]'",
         "Multi-modal autoencoder over expression, morphology, and spatial context",
     ),
+    "deepspotm": DependencyInfo(
+        "deepspotm",
+        "pip install 'chatspatial[deepspotm]'",
+        (
+            "Virtual spatial transcriptomics from H&E tiles. Non-commercial use "
+            "only (code PolyForm Noncommercial 1.0.0, weights CC-BY-NC-SA-4.0). "
+            "The weights are gated: request access at "
+            "https://huggingface.co/ratschlab/DeepSpotM and run "
+            "'huggingface-cli login' before the first prediction"
+        ),
+    ),
     "paste": DependencyInfo(
         "paste",
         "pip install paste-bio",

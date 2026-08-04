@@ -5,8 +5,8 @@ ChatSpatial
 
 Analyze your spatial data from any MCP-compatible client. No coding required.
 
-ChatSpatial exposes 20 schema-validated MCP tools. Those tools orchestrate
-66 spatial transcriptomics methods across 15 analytical categories; the tools
+ChatSpatial exposes 21 schema-validated MCP tools. Those tools orchestrate
+67 spatial transcriptomics methods across 15 analytical categories; the tools
 are the user-facing interface, and the methods are selected through tool
 parameters.
 
@@ -16,7 +16,7 @@ parameters.
 
       <div style="margin: 2rem 0; padding: 1.5rem; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-radius: 12px; border-left: 4px solid #1565C0;">
         <p style="margin: 0; font-size: 1.1rem; color: #1e293b;">
-          <strong>20 MCP tools</strong> orchestrating 66 methods across 15 analytical categories.
+          <strong>21 MCP tools</strong> orchestrating 67 methods across 15 analytical categories.
           Supports 10x Visium, Xenium, Slide-seq, MERFISH, and more.
         </p>
       </div>
@@ -27,7 +27,7 @@ parameters.
 
       <div style="margin: 2rem 0; padding: 1.5rem; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-radius: 12px; border-left: 4px solid #1565C0;">
         <p style="margin: 0; font-size: 1.1rem; color: #1e293b;">
-          通过 <strong>20 个 MCP 工具</strong> 调度 15 类分析的 65 种方法。
+          通过 <strong>21 个 MCP 工具</strong> 调度 15 类分析的 67 种方法。
           支持 10x Visium、Xenium、Slide-seq、MERFISH 等。
         </p>
       </div>

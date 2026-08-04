@@ -34,6 +34,7 @@ from ..utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
+from ..utils.provenance import reject_predicted_expression
 from ..utils.results_export import export_analysis_result
 
 logger = logging.getLogger(__name__)
@@ -706,6 +707,19 @@ def register_slices(
     spatial_key = _validate_spatial_coords(adata_list)
 
     if params.method == "paste":
+        for adata in adata_list:
+            reject_predicted_expression(
+                adata,
+                operation="PASTE spatial registration",
+                reason=(
+                    "The current PASTE preparation normalizes its expression "
+                    "input, which would normalize predicted log1p-CPM twice."
+                ),
+                guidance=(
+                    "Use STalign, which aligns spatial geometry without "
+                    "re-normalizing expression, or provide measured counts."
+                ),
+            )
         pst = require("paste", ctx, feature="PASTE spatial registration")
         return _register_paste(adata_list, params, spatial_key, pst=pst)
     if params.method == "stalign":

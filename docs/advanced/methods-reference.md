@@ -5,8 +5,8 @@ method names, common defaults, accepted values, and user-facing parameter
 behavior. MCP clients expose the full schema for method-specific advanced
 options.
 
-ChatSpatial's public interface is a set of 20 schema-validated MCP tools. Those
-tools orchestrate 66 spatial transcriptomics methods across 15 analytical
+ChatSpatial's public interface is a set of 21 schema-validated MCP tools. Those
+tools orchestrate 67 spatial transcriptomics methods across 15 analytical
 categories. In this page, **tool** means the MCP entry point you or an AI client
 can call; **method** means an algorithm or analysis backend selected through a
 parameter such as `method`, `analysis_type`, `plot_type`, or `subtype`.
@@ -17,7 +17,7 @@ parameter such as `method`, `analysis_type`, `plot_type`, or `subtype`.
 
 | Category | Tools |
 |----------|-------|
-| Data | `load_data`, `preprocess_data`, `compute_embeddings`, `export_data`, `reload_data` |
+| Data | `load_data`, `predict_spatial_expression_from_histology`, `preprocess_data`, `compute_embeddings`, `export_data`, `reload_data` |
 | Spatial | `analyze_spatial_statistics`, `find_spatial_genes`, `identify_spatial_domains` |
 | Cells | `annotate_cell_types`, `deconvolve_data`, `analyze_cell_communication` |
 | Genes | `find_markers`, `compare_conditions`, `analyze_enrichment` |
@@ -40,6 +40,155 @@ Load spatial transcriptomics data.
 | `name` | str | Optional dataset name |
 
 **Supported formats**: H5AD, 10X Visium folders, H5, MTX
+
+---
+
+### predict_spatial_expression_from_histology
+
+Generate virtual spatial transcriptomics from pre-cut H&E tiles with
+[DeepSpot-M](https://github.com/ratschlab/DeepSpotM). This is a second data
+entry point, for archival or clinical material that carries no spatial assay.
+It registers a new dataset and returns its `data_id`; `export_data` remains the
+way to write it to disk.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `manifest_path` | str | Path to the v1 CSV coordinate manifest |
+| `tile_directory` | str | Directory that every manifest `tile_path` resolves against |
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `gene_embedding_source` | `scgpt` | `evo2`, `orthrus`, `prott5`, `scgpt`, `apertus` |
+| `genes` | None | HGNC symbols to predict. None predicts the model's full panel |
+| `model_repository` | `ratschlab/DeepSpotM` | Hugging Face repo id, or a local checkpoint directory |
+| `model_revision` | None | Checkpoint branch, tag, or commit. None resolves to `main` |
+| `batch_size` | 16 | Tiles per forward pass |
+| `use_gpu` | True | Use CUDA when available, otherwise CPU |
+| `name` | None | Display name for the registered dataset |
+| `timeout` | 600 | Seconds allowed for model loading and inference |
+
+#### Manifest v1
+
+A CSV with these required columns:
+
+| Column | Description |
+|--------|-------------|
+| `tile_id` | Unique identifier. Becomes the observation name |
+| `tile_path` | Path relative to `tile_directory`. Must not escape it |
+| `slide_id` | Manifest-wide slide identifier, repeated on every row |
+| `x_px` | Tile upper-left x in the native level-0 slide frame |
+| `y_px` | Tile upper-left y in the native level-0 slide frame |
+| `mpp_x` | Manifest-wide microns per pixel along x, repeated on every row |
+| `mpp_y` | Manifest-wide microns per pixel along y, repeated on every row |
+
+The coordinate frame has a top-left origin, x increasing rightward and y
+increasing downward. `slide_id`, `mpp_x` and `mpp_y` repeat on every row so the
+manifest stays a portable single file, and the values must be identical across
+rows. The fixed v1 schema defines the convention, so no companion metadata file
+is needed. One slide and one tile directory per invocation.
+
+`grid_row` and `grid_col` are optional generic lattice indices. They must appear
+together, and they are written to `adata.obs` only when one affine mapping
+relates them to the pixel coordinates (`x_px = stride * grid_col + offset`, and
+likewise for rows). Manifests whose tiles do not come from a regular
+axis-aligned lattice simply omit them and stay pixel-only. These are not Visium
+`array_row`/`array_col` and are never presented as such.
+
+```csv
+tile_id,tile_path,slide_id,x_px,y_px,mpp_x,mpp_y,grid_row,grid_col
+TCGA-XX_0_0,tiles/0_0.png,TCGA-XX,0,0,0.5,0.5,0,0
+TCGA-XX_224_0,tiles/224_0.png,TCGA-XX,224,0,0.5,0.5,0,1
+TCGA-XX_0_224,tiles/0_224.png,TCGA-XX,0,224,0.5,0.5,1,0
+```
+
+Every tile must decode as an RGB 224x224 image cut at roughly 20x (about 0.5
+microns per pixel). ChatSpatial neither resamples tiles nor infers
+magnification, so tiles outside that geometry are rejected rather than
+converted. Missing files, duplicate tile identifiers, duplicate coordinates,
+non-finite or negative coordinates, mixed slide identifiers, an inconsistent
+lattice, and an empty manifest are all rejected with the offending rows named.
+Manifest row order is preserved.
+
+#### Output
+
+`adata.X` holds predicted log1p-CPM once; it is not duplicated in a layer.
+`adata.obsm["spatial"]` holds tile centers, `(x_px + width / 2, y_px + height /
+2)`, which is the convention scanpy and squidpy expect.
+
+Two metadata blocks describe the result. The generic one is backend
+independent:
+
+```python
+adata.uns["chatspatial"]["expression"]
+# {"schema_version": 1, "provenance": "predicted",
+#  "units": "log1p_cpm", "producer": "deepspotm"}
+```
+
+`adata.uns["deepspotm"]` carries the backend detail: resolved model repository
+and checkpoint revision, gene-embedding source, tile geometry and coordinate
+convention, microns per pixel, portable manifest filename and SHA-256 digest,
+installed package version, license identifiers, and the research-use-only notice.
+
+#### Which tools accept these datasets
+
+Tools branch on the generic provenance field, not on the producer, through the
+shared helpers in `chatspatial.utils.provenance`.
+
+**Accepted.** `compute_embeddings`, `visualize_data`,
+`analyze_spatial_statistics`, `identify_spatial_domains`,
+`analyze_trajectory_data`, `export_data` and `reload_data`.
+
+**Rejected by `preprocess_data`.** The matrix is already log1p-CPM, so quality
+control, count-based normalization and highly variable gene selection do not
+apply. Run `compute_embeddings` directly.
+
+**Rejected through the shared raw-count access paths.**
+`get_raw_data_source(..., require_integer_counts=True)` and
+`ensure_counts_layer` refuse before value-based count detection runs. This
+covers count-requiring branches such as PyDESeq2, condition comparison,
+SpatialDE, SPARK-X, count-based deconvolution, scANVI, Numbat and scVI. The
+guard follows the count requirement, not the tool name: branches that
+explicitly accept normalized expression can use the predicted matrix and the
+helper reports it as non-count data even if a small prediction happens to look
+integer-valued.
+
+Normalized-expression consumers such as Scanpy marker testing, FlashS,
+enrichment background/ranking preparation and compatible communication or
+annotation branches therefore remain available. Their biological
+interpretation is still model-predicted expression rather than measured assay
+evidence, as recorded in the generic provenance block.
+
+**Audit of paths that bypass the helpers.** `analyze_velocity_data` needs
+`spliced` and `unspliced` layers, which a tile-derived dataset never has, so it
+already fails with an accurate message. Four paths reach expression directly:
+the CellPhoneDB export, InferCNVPy, Tangram annotation, and the PASTE branch of
+`register_spatial_data`. CellPhoneDB still resolves through
+`get_raw_data_source` during validation and may proceed when its selected
+method accepts normalized expression. InferCNVPy and Tangram consume normalized
+expression. PASTE is rejected explicitly because its current preparation would
+normalize the predicted log1p-CPM matrix a second time; STalign remains the
+registration path that does not renormalize expression.
+
+#### Installation and licensing
+
+```bash
+pip install 'chatspatial[deepspotm]'
+```
+
+The extra is deliberately separate and is excluded from `[full]`, because
+DeepSpot-M is non-commercial: the code is
+[PolyForm Noncommercial 1.0.0](https://github.com/ratschlab/DeepSpotM) and the
+published weights are CC-BY-NC-SA-4.0. ChatSpatial itself stays MIT; the
+package is imported only when the tool runs.
+
+The weights are gated. Request access at
+[ratschlab/DeepSpotM](https://huggingface.co/ratschlab/DeepSpotM) and run
+`huggingface-cli login` before the first prediction. Output is for research use
+only, not for clinical or diagnostic use.
+
+Method reference: [DeepSpot-M: a multimodal foundation model for
+transcriptome-wide virtual spatial transcriptomics from
+histology](https://doi.org/10.64898/2026.06.19.26356060), *medRxiv* (2026).
 
 ---
 

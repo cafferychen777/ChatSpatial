@@ -10,7 +10,12 @@ import pytest
 
 from chatspatial.models.data import RegistrationParameters
 from chatspatial.tools import spatial_registration as reg
-from chatspatial.utils.exceptions import ParameterError, ProcessingError
+from chatspatial.utils.exceptions import (
+    DataCompatibilityError,
+    ParameterError,
+    ProcessingError,
+)
+from chatspatial.utils.provenance import set_expression_provenance
 
 
 class DummyCtx:
@@ -46,6 +51,25 @@ def test_validate_spatial_coords_raises_for_missing_spatial(minimal_spatial_adat
 def test_register_slices_requires_at_least_two_slices(minimal_spatial_adata):
     with pytest.raises(ParameterError, match="at least 2 slices"):
         reg.register_slices([minimal_spatial_adata.copy()], RegistrationParameters())
+
+
+def test_paste_rejects_predicted_expression_before_normalizing_it(
+    minimal_spatial_adata,
+):
+    predicted = minimal_spatial_adata.copy()
+    set_expression_provenance(
+        predicted,
+        provenance="predicted",
+        units="log1p_cpm",
+        producer="deepspotm",
+    )
+    with pytest.raises(
+        DataCompatibilityError, match="normalize predicted log1p-CPM twice"
+    ):
+        reg.register_slices(
+            [predicted, minimal_spatial_adata.copy()],
+            RegistrationParameters(method="paste"),
+        )
 
 
 def test_register_slices_dispatches_to_paste_and_stalign(

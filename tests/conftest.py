@@ -167,3 +167,32 @@ def reset_data_manager():
     data_manager.reset()
     yield data_manager
     data_manager.reset()
+
+
+@pytest.fixture
+def deepspotm_stack(monkeypatch):
+    """Install stand-in deepspotm and torch modules for one test.
+
+    Keeps DeepSpot-M coverage free of the real package, its weights, and any
+    network access, which is what lets CI run these tests.
+    """
+    import sys
+
+    from chatspatial.utils import dependency_manager as dm
+    from tests.fixtures.helpers import (
+        fake_deepspotm_module,
+        fake_torch_module,
+    )
+
+    recorder: dict[str, Any] = {}
+    monkeypatch.setitem(sys.modules, "deepspotm", fake_deepspotm_module(recorder))
+    monkeypatch.setitem(sys.modules, "torch", fake_torch_module())
+    monkeypatch.setattr(
+        "chatspatial.tools.histology._resolve_checkpoint_revision",
+        lambda params: params.model_revision or "resolved-main-sha",
+    )
+    dm._try_import.cache_clear()
+    dm._check_spec.cache_clear()
+    yield recorder
+    dm._try_import.cache_clear()
+    dm._check_spec.cache_clear()

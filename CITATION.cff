@@ -17,8 +17,8 @@ authors:
 abstract: >-
   ChatSpatial is a schema-enforced orchestration framework for spatial transcriptomics
   in which the LLM selects versioned tools and parameters rather than generating
-  executable code. Built on the Model Context Protocol (MCP), it exposes 66 methods
-  across 15 analytical categories from fragmented Python and R ecosystems through 20
+  executable code. Built on the Model Context Protocol (MCP), it exposes 67 methods
+  across 15 analytical categories from fragmented Python and R ecosystems through 21
   high-level tools with parameter constraints encoded in auditable schemas, enabling
   researchers to execute complex multi-tool workflows through natural language.
   ChatSpatial prioritizes human-steered discovery through schema-enforced tool-calling
