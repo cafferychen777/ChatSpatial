@@ -198,6 +198,10 @@ result instead of embedding one development machine's lockfile.
 Do not move a tag after PyPI accepts a version. PyPI releases and their files
 are immutable; publish a new patch version for any subsequent correction.
 
+Maintainers can dispatch the **Release** workflow on a branch to dry-run CI
+artifact discovery, download, and re-auditing. All externally mutating jobs also
+require a tag-push event, so a manual dispatch cannot create or publish a release.
+
 ## Reporting Issues
 
 - **Bugs**: include a minimal reproducible example, error traceback, and `pip show chatspatial` output

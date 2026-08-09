@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 concurrency:
   group: release-${{ github.ref }}
@@ -28,13 +29,15 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Verify tag, version, and branch provenance
+      - name: Verify version and branch provenance
         run: |
           package_version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
-          test "$GITHUB_REF_NAME" = "v${package_version}" || {
-            echo "Tag $GITHUB_REF_NAME does not match package version v${package_version}" >&2
-            exit 1
-          }
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            test "$GITHUB_REF_NAME" = "v${package_version}" || {
+              echo "Tag $GITHUB_REF_NAME does not match package version v${package_version}" >&2
+              exit 1
+            }
+          fi
           git fetch origin main:refs/remotes/origin/main
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
             echo "Tag commit $GITHUB_SHA is not part of origin/main" >&2
@@ -67,6 +70,7 @@ jobs:
   draft-release:
     name: Create draft GitHub Release
     needs: verify
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -94,6 +98,7 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     needs: [verify, draft-release]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -113,6 +118,7 @@ jobs:
   publish-github:
     name: Publish GitHub Release
     needs: publish-pypi
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
       contents: write
