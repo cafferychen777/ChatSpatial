@@ -230,12 +230,33 @@ Estimate cell type proportions per spot.
 |--------|-------|-----|-------|
 | `flashdeconv` | Fast | No | Default, recommended |
 | `cell2location` | Slow | Yes | High accuracy |
-| `rctd` | Fast | No | R-based |
+| `rctd` | Variable | Optional | R/spacexr by default; CUDA-oriented rctd-py backend |
 | `destvi` | Medium | Yes | scvi-tools |
 | `stereoscope` | Slow | Yes | Alternative DL |
 | `tangram` | Medium | Yes | Spatial mapping |
 | `spotlight` | Fast | No | R-based |
 | `card` | Fast | No | R-based, imputation |
+
+**RCTD backend options**:
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `rctd_backend` | `r` | `r` for spacexr or `python` for rctd-py |
+| `rctd_mode` | `full` | `full`, `doublet`, or `multi` |
+| `rctd_device` | `auto` | `auto`, `cpu`, or `cuda`; Python backend only |
+| `rctd_batch_size` | `auto` | Automatic or positive spot batch size; Python backend only |
+| `rctd_dtype` | `float64` | `float64` for parity or `float32` to reduce GPU memory; Python backend only |
+| `rctd_sigma_override` | None | Fix sigma instead of estimating it; Python backend only |
+| `rctd_max_cores` | 4 | Worker limit; R backend only |
+
+Install the Python backend with
+`uv pip install 'chatspatial[rctd-python]'`. It preserves the main
+`deconvolution_rctd` result contract and also stores mode-specific annotations
+such as `rctd_status`, `rctd_converged`, and doublet/multi outputs. The first
+run downloads an approximately 400 MB likelihood table to `~/.cache/rctd`.
+Use rctd-py primarily on CUDA systems. CPU cold starts can be slower than
+spacexr because PyTorch compilation fallback and sigma calibration dominate
+small runs; `rctd_sigma_override` skips calibration but not compilation startup.
 
 ---
 
@@ -400,13 +421,14 @@ Create all plot types.
 
 ## GPU Acceleration
 
-Set `use_gpu=True` for these methods:
+GPU acceleration is available for these methods. Most use `use_gpu=True`;
+the rctd-py backend instead uses `rctd_device="cuda"`:
 
 | Category | Methods |
 |----------|---------|
 | Preprocessing | scVI normalization |
 | Annotation | Tangram, scANVI |
-| Deconvolution | Cell2location, DestVI, Stereoscope, Tangram |
+| Deconvolution | Cell2location, DestVI, Stereoscope, Tangram, RCTD (rctd-py backend) |
 | Domains | STAGATE, GraphST |
 | Velocity | VeloVI |
 | Integration | scVI |

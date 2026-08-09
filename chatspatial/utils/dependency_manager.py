@@ -159,6 +159,11 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
         "pip install 'chatspatial[deconvolution]'",
         "Ultra-fast spatial deconvolution",
     ),
+    "rctd-py": DependencyInfo(
+        "rctd",
+        "pip install 'chatspatial[rctd-python]'",
+        "PyTorch implementation of Robust Cell Type Decomposition",
+    ),
     # Spatial Analysis
     "tangram": DependencyInfo(
         "tangram",

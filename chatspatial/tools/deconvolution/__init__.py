@@ -6,7 +6,7 @@ This module provides a unified interface for multiple deconvolution methods:
 - cell2location: Bayesian deconvolution with spatial priors
 - destvi: Deep learning-based multi-resolution deconvolution
 - stereoscope: Two-stage probabilistic deconvolution
-- rctd: Robust Cell Type Decomposition (R-based)
+- rctd: Robust Cell Type Decomposition (R/spacexr or Python/PyTorch)
 - spotlight: NMF-based deconvolution (R-based)
 - card: CAR model with spatial correlation (R-based)
 - tangram: Deep learning mapping via scvi-tools
@@ -18,6 +18,7 @@ Usage:
 
 import gc
 import importlib
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, get_args
 
 import numpy as np
@@ -145,11 +146,16 @@ METHOD_REGISTRY: dict[str, MethodConfig] = {
         is_r_based=True,
         requires_counts=True,
         param_mapping=(
+            ("rctd_backend", "backend"),
             ("rctd_mode", "mode"),
             ("rctd_max_cores", "max_cores"),
             ("rctd_confidence_threshold", "confidence_threshold"),
             ("rctd_doublet_threshold", "doublet_threshold"),
             ("rctd_max_multi_types", "max_multi_types"),
+            ("rctd_device", "device"),
+            ("rctd_batch_size", "batch_size"),
+            ("rctd_dtype", "dtype"),
+            ("rctd_sigma_override", "sigma_override"),
         ),
     ),
     "spotlight": MethodConfig(
@@ -244,7 +250,7 @@ async def deconvolve_spatial_data(
             f"Unsupported method: {method}. " f"Supported: {', '.join(METHOD_REGISTRY)}"
         )
 
-    config = METHOD_REGISTRY[method]
+    config = _resolve_runtime_config(params, METHOD_REGISTRY[method])
 
     # Get spatial data
     spatial_adata = await ctx.get_adata(data_id)
@@ -344,7 +350,22 @@ def _dependency_import_name(dependency: str) -> str:
     """Return the importable module provided by an optional distribution."""
     return {
         "scvi-tools": "scvi",
+        "rctd-py": "rctd",
     }.get(dependency, dependency.replace("-", "_"))
+
+
+def _resolve_runtime_config(
+    params: DeconvolutionParameters,
+    config: MethodConfig,
+) -> MethodConfig:
+    """Select backend-specific dependencies and count preparation settings."""
+    if params.method == "rctd" and params.rctd_backend == "python":
+        return replace(
+            config,
+            dependencies=("rctd-py",),
+            is_r_based=False,
+        )
+    return config
 
 
 def _get_preprocess_hook(params: DeconvolutionParameters):
@@ -447,6 +468,102 @@ def _validate_and_align_proportions(
     return pd.DataFrame(values, index=expected_index, columns=normalized.columns)
 
 
+_RCTD_AUX_OBS_KEYS = frozenset(
+    {
+        "rctd_status",
+        "rctd_converged",
+        "rctd_spot_class",
+        "rctd_first_type",
+        "rctd_second_type",
+        "rctd_first_class",
+        "rctd_second_class",
+        "rctd_first_class_name",
+        "rctd_second_class_name",
+        "rctd_min_score",
+        "rctd_singlet_score",
+        "rctd_n_types",
+    }
+)
+_RCTD_AUX_OBSM_KEYS = frozenset(
+    {
+        "rctd_doublet_weights",
+        "rctd_sub_weights",
+        "rctd_cell_type_indices",
+        "rctd_confident_assignments",
+    }
+)
+
+
+def _clear_rctd_backend_outputs(spatial_adata: "ad.AnnData") -> None:
+    """Remove mode-specific RCTD fields before replacing an existing result."""
+    for key in _RCTD_AUX_OBS_KEYS:
+        if key in spatial_adata.obs:
+            del spatial_adata.obs[key]
+    for key in _RCTD_AUX_OBSM_KEYS:
+        if key in spatial_adata.obsm:
+            del spatial_adata.obsm[key]
+    if "rctd_backend" in spatial_adata.uns:
+        del spatial_adata.uns["rctd_backend"]
+
+
+def _store_rctd_backend_outputs(
+    spatial_adata: "ad.AnnData",
+    outputs: dict[str, dict[str, Any]],
+    stats: dict[str, Any],
+) -> dict[str, list[str]]:
+    """Store compact rctd-py auxiliary results and backend provenance."""
+    stored: dict[str, list[str]] = {"obs": [], "obsm": [], "uns": []}
+    n_obs = spatial_adata.n_obs
+
+    for key, values in outputs.get("obs", {}).items():
+        array = np.asarray(values)
+        if array.shape != (n_obs,):
+            raise ProcessingError(
+                f"RCTD auxiliary obs field '{key}' has shape {array.shape}; "
+                f"expected {(n_obs,)}."
+            )
+        if array.dtype.kind in {"O", "S", "U"}:
+            spatial_adata.obs[key] = pd.Categorical(array.astype(str))
+        else:
+            spatial_adata.obs[key] = array
+        stored["obs"].append(key)
+
+    for key, values in outputs.get("obsm", {}).items():
+        array = np.asarray(values)
+        if array.ndim != 2 or array.shape[0] != n_obs:
+            raise ProcessingError(
+                f"RCTD auxiliary obsm field '{key}' has shape {array.shape}; "
+                f"expected ({n_obs}, n_features)."
+            )
+        spatial_adata.obsm[key] = array
+        stored["obsm"].append(key)
+
+    provenance_keys = (
+        "backend",
+        "backend_package",
+        "backend_version",
+        "mode",
+        "device",
+        "requested_device",
+        "batch_size",
+        "dtype",
+        "sigma_override",
+        "confidence_threshold",
+        "doublet_threshold",
+        "max_multi_types",
+        "max_cores",
+        "n_filtered_spots",
+    )
+    provenance = {
+        key: stats[key]
+        for key in provenance_keys
+        if key in stats and stats[key] is not None
+    }
+    spatial_adata.uns["rctd_backend"] = provenance
+    stored["uns"].append("rctd_backend")
+    return stored
+
+
 async def _store_results(
     spatial_adata: "ad.AnnData",
     proportions: pd.DataFrame,
@@ -465,8 +582,13 @@ async def _store_results(
     cell_types = aligned.columns.tolist()
     full_proportions = aligned.to_numpy(copy=True)
     result_stats = dict(stats)
+    backend_outputs = result_stats.pop("_backend_outputs", None)
     result_stats["n_spots"] = len(full_proportions)
     result_stats["n_cell_types"] = len(cell_types)
+
+    auxiliary_keys: dict[str, list[str]] = {"obs": [], "obsm": [], "uns": []}
+    if method == "rctd":
+        _clear_rctd_backend_outputs(spatial_adata)
 
     # Store in obsm
     spatial_adata.obsm[proportions_key] = full_proportions
@@ -493,17 +615,25 @@ async def _store_results(
     # DataFrame construction errors.
     has_unassigned = bool(zero_mask.any())
 
+    if method == "rctd":
+        auxiliary_keys = _store_rctd_backend_outputs(
+            spatial_adata,
+            backend_outputs or {},
+            result_stats,
+        )
+
     # Store metadata for provenance tracking
     analysis_key = _build_deconvolution_key(method, reference_data_id)
+    obs_keys: list[str] = [dominant_key, *auxiliary_keys["obs"]]
     store_analysis_metadata(
         spatial_adata,
         analysis_name=analysis_key,
         method=method,
         parameters={},  # Method-specific params already in stats
         results_keys={
-            "obsm": [proportions_key],
-            "obs": [dominant_key],
-            "uns": [f"{proportions_key}_cell_types"],
+            "obsm": [proportions_key, *auxiliary_keys["obsm"]],
+            "obs": obs_keys,
+            "uns": [f"{proportions_key}_cell_types", *auxiliary_keys["uns"]],
         },
         statistics={
             "n_cell_types": len(cell_types),

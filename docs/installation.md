@@ -87,12 +87,21 @@ uv pip install 'chatspatial[trajectory]'          # CellRank, Palantir
 uv pip install 'chatspatial[deep-learning]'       # scVI, scANVI, VeloVI, DestVI backend
 uv pip install 'chatspatial[integration]'         # Harmony, BBKNN, Scanorama
 uv pip install 'chatspatial[deconvolution]'       # FlashDeconv, Cell2location
+uv pip install 'chatspatial[rctd-python]'         # PyTorch RCTD backend (rctd-py)
 uv pip install 'chatspatial[spatial-stats]'       # PySAL/ESDA extensions
 uv pip install 'chatspatial[spatial-domains]'     # SpaGCN and BANKSY
 ```
 
 ChatSpatial tools fail with targeted installation guidance if you call a method
 whose optional dependency is not installed.
+
+The `rctd-python` extra is intentionally separate from `deconvolution` and
+`full`. Select it with `rctd_backend="python"`; the default remains the
+spacexr R backend. On first use, rctd-py downloads an approximately 400 MB
+likelihood table into `~/.cache/rctd`, so the first run needs network access
+and additional disk space. ChatSpatial downloads this cache with the bundled
+certificate authority and publishes it atomically so failed or concurrent
+downloads do not leave a partial cache file.
 
 FastCCC and the PyPI release of pyGPCCA currently require incompatible Jinja2
 versions. Keep `cell-communication`/`full` and `trajectory` in separate runtime

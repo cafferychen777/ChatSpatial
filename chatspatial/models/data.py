@@ -1208,6 +1208,10 @@ class DeconvolutionParameters(StrictParameters):
     stereoscope_batch_size: int = Field(128, gt=0)
 
     # RCTD specific parameters
+    rctd_backend: Literal["r", "python"] = Field(
+        "r",
+        description="RCTD implementation. 'r' preserves the spacexr backend; 'python' uses rctd-py.",
+    )
     rctd_mode: Literal["full", "doublet", "multi"] = Field(
         "full",
         description="'doublet' for high-res (Slide-seq, MERFISH), 'full' for low-res (Visium), 'multi' for constrained mixing.",
@@ -1228,6 +1232,22 @@ class DeconvolutionParameters(StrictParameters):
     rctd_max_multi_types: Annotated[int, Field(ge=2, le=10)] = Field(
         4,
         description="Max cell types per spot in multi mode. 4-6 for Visium, 2-3 for higher resolution.",
+    )
+    rctd_device: Literal["auto", "cpu", "cuda"] = Field(
+        "auto",
+        description="Compute device for the rctd-py backend. Ignored by the R backend.",
+    )
+    rctd_batch_size: Union[PositiveInt, Literal["auto"]] = Field(
+        "auto",
+        description="Spot batch size for the rctd-py backend, or 'auto'.",
+    )
+    rctd_dtype: Literal["float64", "float32"] = Field(
+        "float64",
+        description="Numerical precision for the rctd-py backend.",
+    )
+    rctd_sigma_override: Optional[PositiveInt] = Field(
+        None,
+        description="Optional fixed sigma for rctd-py. None estimates sigma from the data.",
     )
     # CARD specific parameters
     card_minCountGene: Annotated[int, Field(gt=0)] = Field(

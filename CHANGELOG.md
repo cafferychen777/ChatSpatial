@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   separately permissioned GitHub draft, PyPI trusted-publishing, and GitHub
   publication jobs, with pinned build backends and reproducible archive metadata.
 
+## [v1.3.1] - 2026-08-09 - Optional rctd-py Backend
+
+### Added
+
+- Added an opt-in rctd-py backend for RCTD with CPU/CUDA selection, backend provenance, atomic certificate-validated cache downloads, and full/doublet/multi auxiliary result storage while preserving spacexr as the default.
+
 ## [v1.3.0] - 2026-08-03 - MCP 2026-07-28 Protocol Migration
 
 ### Added

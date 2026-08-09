@@ -1,8 +1,8 @@
 """
 RCTD (Robust Cell Type Decomposition) deconvolution method.
 
-RCTD is an R-based deconvolution method that performs robust
-decomposition of cell type mixtures via the spacexr package.
+RCTD performs robust decomposition of cell type mixtures using either
+the original spacexr R package or the rctd-py PyTorch implementation.
 """
 
 import subprocess
@@ -102,7 +102,7 @@ def _run_rctd_subprocess(
         raise ProcessingError("RCTD R subprocess completed without producing a result")
 
 
-def deconvolve(
+def _deconvolve_r(
     data: PreparedDeconvolutionData,
     mode: str = "full",
     max_cores: int = 4,
@@ -322,6 +322,8 @@ def deconvolve(
             method=f"RCTD-{mode}",
             device="CPU",
             mode=mode,
+            backend="r",
+            backend_package="spacexr",
             max_cores=max_cores,
             confidence_threshold=confidence_threshold,
             doublet_threshold=doublet_threshold,
@@ -421,3 +423,45 @@ def _extract_rctd_results(mode: str, robjects: Any) -> pd.DataFrame:
     spot_names = ro.conversion.rpy2py(spot_names_r)
 
     return pd.DataFrame(weights_array, index=spot_names, columns=cell_type_names)
+
+
+def deconvolve(
+    data: PreparedDeconvolutionData,
+    backend: str = "r",
+    mode: str = "full",
+    max_cores: int = 4,
+    confidence_threshold: float = 10.0,
+    doublet_threshold: float = 25.0,
+    max_multi_types: int = 4,
+    device: str = "auto",
+    batch_size: int | str = "auto",
+    dtype: str = "float64",
+    sigma_override: int | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Dispatch RCTD to the selected implementation."""
+    if backend == "r":
+        return _deconvolve_r(
+            data,
+            mode=mode,
+            max_cores=max_cores,
+            confidence_threshold=confidence_threshold,
+            doublet_threshold=doublet_threshold,
+            max_multi_types=max_multi_types,
+        )
+    if backend == "python":
+        from .rctd_python import deconvolve as deconvolve_python
+
+        return deconvolve_python(
+            data,
+            mode=mode,
+            confidence_threshold=confidence_threshold,
+            doublet_threshold=doublet_threshold,
+            max_multi_types=max_multi_types,
+            device=device,
+            batch_size=batch_size,
+            dtype=dtype,
+            sigma_override=sigma_override,
+        )
+    raise ParameterError(
+        f"Invalid RCTD backend '{backend}'. Expected one of: python, r."
+    )

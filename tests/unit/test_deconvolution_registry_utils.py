@@ -95,6 +95,53 @@ def test_tangram_availability_depends_only_on_its_runtime_package(
     assert calls == ["tangram"]
 
 
+def test_rctd_python_runtime_config_uses_rctd_distribution_module(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    params = DeconvolutionParameters(
+        method="rctd",
+        reference_data_id="ref",
+        cell_type_key="cell_type",
+        rctd_backend="python",
+    )
+    config = deconv_module._resolve_runtime_config(
+        params, deconv_module.METHOD_REGISTRY["rctd"]
+    )
+    calls: list[str] = []
+
+    def _find_spec(name: str):
+        calls.append(name)
+        return object() if name == "rctd" else None
+
+    monkeypatch.setattr(importlib.util, "find_spec", _find_spec)
+    deconv_module._check_method_availability("rctd", config)
+
+    assert config.dependencies == ("rctd-py",)
+    assert config.is_r_based is False
+    assert calls == ["rctd"]
+
+
+def test_rctd_registry_maps_python_backend_parameters() -> None:
+    params = DeconvolutionParameters(
+        method="rctd",
+        reference_data_id="ref",
+        cell_type_key="cell_type",
+        rctd_backend="python",
+        rctd_device="cuda",
+        rctd_batch_size=2048,
+        rctd_dtype="float32",
+        rctd_sigma_override=100,
+    )
+
+    kwargs = deconv_module.METHOD_REGISTRY["rctd"].extract_kwargs(params)
+
+    assert kwargs["backend"] == "python"
+    assert kwargs["device"] == "cuda"
+    assert kwargs["batch_size"] == 2048
+    assert kwargs["dtype"] == "float32"
+    assert kwargs["sigma_override"] == 100
+
+
 def test_check_method_availability_reports_available_alternatives(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

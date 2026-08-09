@@ -65,7 +65,7 @@ Current coverage includes 66 methods across 15 analytical categories, exposed th
 | **Data Loading & Preprocessing** | Scanpy I/O, QC, Normalization, HVG, PCA, Neighbors |
 | **Visualization** | Spatial plots, Embedding plots, Gene expression overlays |
 | **Spatial Domain Identification** | SpaGCN, STAGATE, GraphST, BANKSY, AESTETIK, Leiden, Louvain |
-| **Deconvolution** | FlashDeconv, Cell2location, RCTD, DestVI, Stereoscope, SPOTlight, Tangram, CARD |
+| **Deconvolution** | FlashDeconv, Cell2location, RCTD (spacexr or rctd-py), DestVI, Stereoscope, SPOTlight, Tangram, CARD |
 | **Cell-Cell Communication** | LIANA+, CellPhoneDB, CellChat (`cellchat_r`), FastCCC |
 | **Cell Type Annotation** | Tangram, scANVI, CellAssign, mLLMCelltype, scType, SingleR |
 | **Differential Expression** | Wilcoxon, t-test, Logistic Regression, pyDESeq2 |
