@@ -173,6 +173,31 @@ docs: update methods reference
 test: add integration test for trajectory
 ```
 
+## Maintainer Release Workflow
+
+Releases follow one tested path rather than a separate set of manual commands:
+
+1. Update the version in `pyproject.toml` and the matching changelog entry.
+2. Merge to `main` and wait for the **Release readiness (Python 3.11)** CI job.
+   It runs the same quality, build, metadata, and archive-content checks used by
+   the release contract, then stores the audited wheel and sdist.
+3. Create an annotated `vX.Y.Z` tag on a commit contained in `main` and push
+   only that tag.
+4. The tag workflow requires a successful full CI run for that exact commit and
+   promotes its immutable artifacts without resolving dependencies or rebuilding.
+   Separate single-purpose jobs create a draft GitHub Release, publish the same
+   files to PyPI with trusted publishing, and make the GitHub Release public only
+   after the PyPI upload succeeds. Repository write access and PyPI's OIDC token
+   are never granted to the same job.
+
+The release frontend and build backend versions are intentionally pinned in
+`pyproject.toml` and `constraints/release-build.txt`. Runtime dependencies remain
+ranges because ChatSpatial is a library; CI tests the newest allowed resolver
+result instead of embedding one development machine's lockfile.
+
+Do not move a tag after PyPI accepts a version. PyPI releases and their files
+are immutable; publish a new patch version for any subsequent correction.
+
 ## Reporting Issues
 
 - **Bugs**: include a minimal reproducible example, error traceback, and `pip show chatspatial` output

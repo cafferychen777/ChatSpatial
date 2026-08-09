@@ -182,6 +182,7 @@ bower_components/
 *.tsv.gz
 *.txt
 !constraints/shared-py312.txt
+!constraints/release-build.txt
 *.txt.gz
 *.xlsx
 *.xls

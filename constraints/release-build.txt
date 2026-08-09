@@ -1,0 +1,4 @@
+# Build backends for immutable public artifacts. Update deliberately and verify
+# that two clean builds of the same commit produce identical distributions.
+setuptools==84.0.0
+wheel==0.47.0
