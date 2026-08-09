@@ -742,9 +742,7 @@ async def test_cellassign_non_raw_source_data_cleaning_and_index_predictions(
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata,
-        prefer_complete_genes=True,
-        require_integer_counts=False: SimpleNamespace(
+        lambda _adata, prefer_complete_genes=True, require_integer_counts=False: SimpleNamespace(
             X=_adata.X,
             var_names=_adata.var_names,
             source="X",
@@ -818,9 +816,7 @@ async def test_cellassign_retries_without_n_hidden_for_newer_scvi_api(
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata,
-        prefer_complete_genes=True,
-        require_integer_counts=False: SimpleNamespace(
+        lambda _adata, prefer_complete_genes=True, require_integer_counts=False: SimpleNamespace(
             X=_adata.X,
             var_names=_adata.var_names,
             source="X",
@@ -880,9 +876,7 @@ async def test_cellassign_rejects_unknown_prediction_labels(
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata,
-        prefer_complete_genes=True,
-        require_integer_counts=False: SimpleNamespace(
+        lambda _adata, prefer_complete_genes=True, require_integer_counts=False: SimpleNamespace(
             X=_adata.X,
             var_names=_adata.var_names,
             source="X",

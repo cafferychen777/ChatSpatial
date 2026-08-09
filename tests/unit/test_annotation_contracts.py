@@ -789,9 +789,7 @@ async def test_annotate_with_cellassign_probability_output_success(
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata,
-        prefer_complete_genes=True,
-        require_integer_counts=True: SimpleNamespace(
+        lambda _adata, prefer_complete_genes=True, require_integer_counts=True: SimpleNamespace(
             X=_adata.X,
             var_names=_adata.var_names,
             source="raw",
@@ -837,9 +835,7 @@ async def test_annotate_with_cellassign_raises_when_all_markers_missing(
     monkeypatch.setattr(
         ann,
         "get_raw_data_source",
-        lambda _adata,
-        prefer_complete_genes=True,
-        require_integer_counts=True: SimpleNamespace(
+        lambda _adata, prefer_complete_genes=True, require_integer_counts=True: SimpleNamespace(
             X=_adata.X,
             var_names=_adata.var_names,
             source="raw",

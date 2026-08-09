@@ -16,7 +16,11 @@ def test_ensure_pca_skips_when_exists(minimal_spatial_adata, monkeypatch):
     adata = minimal_spatial_adata.copy()
     adata.obsm["X_pca"] = np.zeros((adata.n_obs, 2), dtype=float)
 
-    monkeypatch.setattr(compute.sc.tl, "pca", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("should not run")))
+    monkeypatch.setattr(
+        compute.sc.tl,
+        "pca",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("should not run")),
+    )
     assert compute.ensure_pca(adata) is False
 
 
@@ -165,13 +169,16 @@ def test_ensure_spatial_neighbors_requires_spatial_key(minimal_spatial_adata):
         compute.ensure_spatial_neighbors(adata)
 
 
-def test_ensure_spatial_neighbors_grid_and_generic_dispatch(minimal_spatial_adata, monkeypatch):
+def test_ensure_spatial_neighbors_grid_and_generic_dispatch(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     calls: list[dict[str, object]] = []
 
     fake_sq = ModuleType("squidpy")
     fake_sq.gr = SimpleNamespace(
-        spatial_neighbors=lambda _adata, **kwargs: calls.append(kwargs) or _adata.obsp.__setitem__("spatial_connectivities", np.eye(_adata.n_obs))
+        spatial_neighbors=lambda _adata, **kwargs: calls.append(kwargs)
+        or _adata.obsp.__setitem__("spatial_connectivities", np.eye(_adata.n_obs))
     )
     monkeypatch.setitem(sys.modules, "squidpy", fake_sq)
 
@@ -180,7 +187,11 @@ def test_ensure_spatial_neighbors_grid_and_generic_dispatch(minimal_spatial_adat
 
     del adata.obsp["spatial_connectivities"]
     assert compute.ensure_spatial_neighbors(adata, coord_type="generic", n_neighs=8)
-    assert calls[-1] == {"coord_type": "generic", "n_neighs": 8, "spatial_key": "spatial"}
+    assert calls[-1] == {
+        "coord_type": "generic",
+        "n_neighs": 8,
+        "spatial_key": "spatial",
+    }
 
 
 def test_top_n_desc_indices_returns_descending_top_k():

@@ -58,8 +58,12 @@ async def test_analyze_rna_velocity_scvelo_branch_returns_expected_contract(
         return adata
 
     monkeypatch.setattr(vel_module, "compute_rna_velocity", _fake_compute)
-    monkeypatch.setattr(vel_module, "store_analysis_metadata", lambda *args, **kwargs: None)
-    monkeypatch.setattr(vel_module, "export_analysis_result", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        vel_module, "store_analysis_metadata", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        vel_module, "export_analysis_result", lambda *args, **kwargs: None
+    )
 
     params = RNAVelocityParameters(method="scvelo", scvelo_mode="stochastic")
     result = await analyze_rna_velocity("d1", ctx, params)
@@ -82,12 +86,17 @@ async def test_analyze_rna_velocity_velovi_branch_sets_uns_method(
 
     monkeypatch.setattr(vel_module, "require", lambda *args, **kwargs: None)
     monkeypatch.setattr(vel_module, "validate_adata", lambda *args, **kwargs: None)
+
     async def fake_velovi(*args, **kwargs):
         return {"velocity_computed": True}
 
     monkeypatch.setattr(vel_module, "analyze_velocity_with_velovi", fake_velovi)
-    monkeypatch.setattr(vel_module, "store_analysis_metadata", lambda *args, **kwargs: None)
-    monkeypatch.setattr(vel_module, "export_analysis_result", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        vel_module, "store_analysis_metadata", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        vel_module, "export_analysis_result", lambda *args, **kwargs: None
+    )
 
     params = RNAVelocityParameters(method="velovi")
     result = await analyze_rna_velocity("d2", ctx, params)
@@ -133,8 +142,14 @@ async def test_analyze_trajectory_palantir_and_dpt_dispatch_contract(
 
     monkeypatch.setattr(traj_module, "infer_pseudotime_palantir", fake_palantir)
     monkeypatch.setattr(traj_module, "compute_dpt_trajectory", fake_dpt)
-    monkeypatch.setattr("chatspatial.utils.adata_utils.store_analysis_metadata", lambda *args, **kwargs: None)
-    monkeypatch.setattr("chatspatial.utils.results_export.export_analysis_result", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "chatspatial.utils.adata_utils.store_analysis_metadata",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.results_export.export_analysis_result",
+        lambda *args, **kwargs: None,
+    )
 
     palantir_result = await analyze_trajectory(
         "d4", ctx, TrajectoryParameters(method="palantir")

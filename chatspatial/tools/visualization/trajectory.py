@@ -34,6 +34,7 @@ from .core import (
     get_categorical_columns,
     infer_basis,
     resolve_figure_size,
+    temporary_obs_column,
 )
 
 # CellRank 2.x default forward fate key
@@ -654,13 +655,13 @@ async def _create_palantir_results(
                 dominant_fate = dominant_fate.astype(object)
                 dominant_fate[nan_rows] = "unassigned"
 
-        _fate_temp_key = "_dominant_fate"
-        adata.obs[_fate_temp_key] = dominant_fate.astype(str)
-        try:
+        with temporary_obs_column(
+            adata, "_dominant_fate", dominant_fate.astype(str)
+        ) as fate_color_key:
             sc.pl.embedding(
                 adata,
                 basis=basis,
-                color=_fate_temp_key,
+                color=fate_color_key,
                 ax=ax,
                 show=False,
                 frameon=params.show_axes,
@@ -668,9 +669,6 @@ async def _create_palantir_results(
             )
             if basis == "spatial":
                 ax.invert_yaxis()
-        finally:
-            if _fate_temp_key in adata.obs.columns:
-                del adata.obs[_fate_temp_key]
 
     title = params.title or "Palantir Trajectory Analysis"
     fig.suptitle(title, fontsize=14, y=1.02)

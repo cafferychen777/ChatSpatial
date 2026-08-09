@@ -30,7 +30,11 @@ async def test_e2e_load_preprocess_find_markers(
     e2e_trace.record(
         step="load_data",
         data_id=dataset.id,
-        params={"data_path": str(spatial_dataset_path), "data_type": "generic", "name": "e2e_markers"},
+        params={
+            "data_path": str(spatial_dataset_path),
+            "data_type": "generic",
+            "name": "e2e_markers",
+        },
     )
 
     preprocess_params = PreprocessingParameters(
@@ -40,7 +44,9 @@ async def test_e2e_load_preprocess_find_markers(
         subsample_genes=20,
         normalization="log",
     )
-    e2e_trace.record(step="preprocess_data", data_id=dataset.id, params=preprocess_params)
+    e2e_trace.record(
+        step="preprocess_data", data_id=dataset.id, params=preprocess_params
+    )
     prep = await preprocess_data(
         dataset.id,
         params=preprocess_params,
@@ -72,11 +78,17 @@ async def test_e2e_load_annotate_with_mock(
     e2e_trace.record(
         step="load_data",
         data_id=dataset.id,
-        params={"data_path": str(spatial_dataset_path), "data_type": "generic", "name": "e2e_annotation"},
+        params={
+            "data_path": str(spatial_dataset_path),
+            "data_type": "generic",
+            "name": "e2e_annotation",
+        },
     )
 
     async def _fake_sctype(adata, params, ctx, output_key, confidence_key):
-        labels = ["mock_type_a" if i % 2 == 0 else "mock_type_b" for i in range(adata.n_obs)]
+        labels = [
+            "mock_type_a" if i % 2 == 0 else "mock_type_b" for i in range(adata.n_obs)
+        ]
         adata.obs[output_key] = pd.Categorical(labels)
         adata.obs[confidence_key] = [0.9] * adata.n_obs
         counts = adata.obs[output_key].value_counts().to_dict()
@@ -89,7 +101,9 @@ async def test_e2e_load_annotate_with_mock(
     monkeypatch.setattr(annotation_module, "_annotate_with_sctype", _fake_sctype)
 
     annotation_params = AnnotationParameters(method="sctype", sctype_tissue="Brain")
-    e2e_trace.record(step="annotate_cell_types", data_id=dataset.id, params=annotation_params)
+    e2e_trace.record(
+        step="annotate_cell_types", data_id=dataset.id, params=annotation_params
+    )
     result = await annotate_cell_types(
         dataset.id,
         params=annotation_params,
@@ -113,7 +127,11 @@ async def test_e2e_load_visualize_feature_png(
     e2e_trace.record(
         step="load_data",
         data_id=dataset.id,
-        params={"data_path": str(spatial_dataset_path), "data_type": "generic", "name": "e2e_viz"},
+        params={
+            "data_path": str(spatial_dataset_path),
+            "data_type": "generic",
+            "name": "e2e_viz",
+        },
     )
 
     output_file = tmp_path / "feature_plot.png"

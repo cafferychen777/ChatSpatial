@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Aligned Xenium metadata and ssGSEA scores by stable observation identifiers, rejecting duplicate or mismatched IDs instead of silently assigning values by row position.
+- Namespaced integrated observation IDs without mutating source datasets, preserving original barcodes and transactional failure behavior across integration backends.
+- Moved blocking scientific work off the MCP event loop and enforced spatial-domain timeouts in disposable worker processes so timed-out native computations cannot continue in the background.
+- Made visualization scratch columns collision-free and figure writes atomic, preserving user metadata and existing output files when rendering fails.
+- Pinned and SHA-256 verified opt-in scType scripts and marker data, and reduced Tangram dependency checks to the package it actually imports.
+- Added strict parameter bounds, reduced the main analysis hotspots below the configured complexity ceiling, and promoted Black, Ruff, complexity, and mypy checks into the repository quality gate.
 - Corrected preprocessing to report the effective HVG count after exclusions and to reject empty HVG selections at the preprocessing boundary.
 - Kept unexpected internal tracebacks in server logs by default instead of returning filesystem and stack details to remote MCP clients.
 - Aligned MCP workflow instructions, tool descriptions, result schemas, and user documentation with the explicit `preprocess_data` then `compute_embeddings` sequence.

@@ -23,7 +23,11 @@ from chatspatial.tools.enrichment import (
     load_gene_sets,
     map_gene_set_database_to_enrichr_library,
 )
-from chatspatial.utils.exceptions import DependencyError, ParameterError, ProcessingError
+from chatspatial.utils.exceptions import (
+    DependencyError,
+    ParameterError,
+    ProcessingError,
+)
 
 
 def _patch_gseapy(monkeypatch: pytest.MonkeyPatch, **methods):
@@ -262,12 +266,13 @@ async def test_analyze_enrichment_limits_database_spatial_enrichmap_to_best_over
     ctx = DummyCtx(minimal_spatial_adata)
     captured: dict[str, object] = {}
     many_gene_sets = {
-        f"set_{i:02d}": [f"gene_{i % 24}", f"gene_{(i + 1) % 24}"]
-        for i in range(60)
+        f"set_{i:02d}": [f"gene_{i % 24}", f"gene_{(i + 1) % 24}"] for i in range(60)
     }
     many_gene_sets["best_match"] = ["gene_0", "gene_1", "gene_2", "gene_3"]
 
-    monkeypatch.setattr(enrichment_module, "load_gene_sets", lambda **_kwargs: many_gene_sets)
+    monkeypatch.setattr(
+        enrichment_module, "load_gene_sets", lambda **_kwargs: many_gene_sets
+    )
 
     async def _fake_spatial(**kwargs):
         captured.update(kwargs)
@@ -312,7 +317,9 @@ async def test_analyze_enrichment_uses_first_score_key_for_gsea(
         )
 
     monkeypatch.setattr(enrichment_module, "perform_gsea", _fake_gsea)
-    minimal_spatial_adata.var["score_a"] = np.linspace(1.0, -1.0, minimal_spatial_adata.n_vars)
+    minimal_spatial_adata.var["score_a"] = np.linspace(
+        1.0, -1.0, minimal_spatial_adata.n_vars
+    )
     params = EnrichmentParameters(
         species="human",
         method="pathway_gsea",
@@ -522,7 +529,9 @@ async def test_perform_spatial_enrichment_raises_when_all_signatures_fail(
     ctx = CtxWithLogs(adata)
 
     fake_enrichmap = SimpleNamespace(
-        tl=SimpleNamespace(score=lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")))
+        tl=SimpleNamespace(
+            score=lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
+        )
     )
     monkeypatch.setattr(
         enrichment_module, "require", lambda *_args, **_kwargs: fake_enrichmap
@@ -559,7 +568,9 @@ async def test_perform_spatial_enrichment_requires_spatial_coordinates(
     )
     monkeypatch.setitem(__import__("sys").modules, "enrichmap", fake_enrichmap)
 
-    with pytest.raises(ProcessingError, match="Spatial coordinates 'spatial' not found"):
+    with pytest.raises(
+        ProcessingError, match="Spatial coordinates 'spatial' not found"
+    ):
         await enrichment_module.perform_spatial_enrichment(
             data_id="d1",
             ctx=ctx,
@@ -567,7 +578,9 @@ async def test_perform_spatial_enrichment_requires_spatial_coordinates(
         )
 
 
-def test_perform_enrichr_maps_library_and_filters_significant(monkeypatch: pytest.MonkeyPatch):
+def test_perform_enrichr_maps_library_and_filters_significant(
+    monkeypatch: pytest.MonkeyPatch,
+):
     captured: dict[str, object] = {}
 
     class _EnrResult:
@@ -698,8 +711,16 @@ def test_perform_ora_stores_latest_result_key(minimal_spatial_adata):
 
 
 def test_load_gene_sets_dispatches_to_expected_loader(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(enrichment_module, "load_go_gene_sets", lambda *args, **kwargs: {"go": ["G1", "G2"]})
-    monkeypatch.setattr(enrichment_module, "load_kegg_gene_sets", lambda *args, **kwargs: {"kegg": ["G1", "G2"]})
+    monkeypatch.setattr(
+        enrichment_module,
+        "load_go_gene_sets",
+        lambda *args, **kwargs: {"go": ["G1", "G2"]},
+    )
+    monkeypatch.setattr(
+        enrichment_module,
+        "load_kegg_gene_sets",
+        lambda *args, **kwargs: {"kegg": ["G1", "G2"]},
+    )
 
     out_go = load_gene_sets("GO_Biological_Process", species="human")
     out_kegg = load_gene_sets("KEGG_Pathways", species="mouse")
@@ -872,7 +893,9 @@ def test_load_library_falls_back_when_gseapy_leaves_lines_as_bytes(
     assert out == {"PathA": ["Gene1", "Gene2"]}
 
 
-def test_load_go_gene_sets_calls_gseapy_with_expected_library(monkeypatch: pytest.MonkeyPatch):
+def test_load_go_gene_sets_calls_gseapy_with_expected_library(
+    monkeypatch: pytest.MonkeyPatch,
+):
     captured: dict[str, object] = {}
 
     def _fake_get_library(name, organism):
@@ -882,14 +905,18 @@ def test_load_go_gene_sets_calls_gseapy_with_expected_library(monkeypatch: pytes
 
     _patch_gseapy(monkeypatch, get_library=_fake_get_library)
 
-    out = enrichment_module.load_go_gene_sets("mouse", aspect="BP", min_size=2, max_size=10)
+    out = enrichment_module.load_go_gene_sets(
+        "mouse", aspect="BP", min_size=2, max_size=10
+    )
 
     assert out == {"go_ok": ["A", "B", "C"]}
     assert captured["name"] == "GO_Biological_Process_2025"
     assert captured["organism"] == "Mus musculus"
 
 
-def test_load_kegg_gene_sets_uses_species_specific_library(monkeypatch: pytest.MonkeyPatch):
+def test_load_kegg_gene_sets_uses_species_specific_library(
+    monkeypatch: pytest.MonkeyPatch,
+):
     calls: list[tuple[str, str]] = []
 
     def _fake_get_library(name, organism):
@@ -919,8 +946,12 @@ def test_load_reactome_and_cell_marker_gene_sets(monkeypatch: pytest.MonkeyPatch
 
     _patch_gseapy(monkeypatch, get_library=_fake_get_library)
 
-    reactome = enrichment_module.load_reactome_gene_sets("human", min_size=2, max_size=10)
-    cellm = enrichment_module.load_cell_marker_gene_sets("mouse", min_size=2, max_size=10)
+    reactome = enrichment_module.load_reactome_gene_sets(
+        "human", min_size=2, max_size=10
+    )
+    cellm = enrichment_module.load_cell_marker_gene_sets(
+        "mouse", min_size=2, max_size=10
+    )
 
     assert reactome == {"ok": ["A", "B", "C"]}
     assert cellm == {"ok": ["A", "B", "C"]}
@@ -928,7 +959,9 @@ def test_load_reactome_and_cell_marker_gene_sets(monkeypatch: pytest.MonkeyPatch
     assert calls[1] == ("CellMarker_Augmented_2021", "Mus musculus")
 
 
-def test_perform_gsea_with_ranking_key_persists_results(monkeypatch: pytest.MonkeyPatch, minimal_spatial_adata):
+def test_perform_gsea_with_ranking_key_persists_results(
+    monkeypatch: pytest.MonkeyPatch, minimal_spatial_adata
+):
     adata = minimal_spatial_adata.copy()
     adata.var["rank_metric"] = np.linspace(1.0, 0.1, adata.n_vars)
 
@@ -954,7 +987,9 @@ def test_perform_gsea_with_ranking_key_persists_results(monkeypatch: pytest.Monk
         "store_analysis_metadata",
         lambda _adata, **kwargs: captured.update(kwargs),
     )
-    monkeypatch.setattr(enrichment_module, "export_analysis_result", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        enrichment_module, "export_analysis_result", lambda *_a, **_k: None
+    )
 
     out = enrichment_module.perform_gsea(
         adata=adata,
@@ -978,7 +1013,9 @@ def test_perform_gsea_with_ranking_key_persists_results(monkeypatch: pytest.Monk
     assert "gsea_results_gsea_KEGG_Pathways" in adata.uns
 
 
-def test_perform_ssgsea_success_populates_obs_and_uns(monkeypatch: pytest.MonkeyPatch, minimal_spatial_adata):
+def test_perform_ssgsea_success_populates_obs_and_uns(
+    monkeypatch: pytest.MonkeyPatch, minimal_spatial_adata
+):
     adata = minimal_spatial_adata.copy()
 
     class _Res:
@@ -1008,7 +1045,9 @@ def test_perform_ssgsea_success_populates_obs_and_uns(monkeypatch: pytest.Monkey
         "store_analysis_metadata",
         lambda _adata, **kwargs: captured.update(kwargs),
     )
-    monkeypatch.setattr(enrichment_module, "export_analysis_result", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        enrichment_module, "export_analysis_result", lambda *_a, **_k: None
+    )
 
     out = enrichment_module.perform_ssgsea(
         adata=adata,
@@ -1030,6 +1069,46 @@ def test_perform_ssgsea_success_populates_obs_and_uns(monkeypatch: pytest.Monkey
 
     # With database, the key includes database name
     # (tested separately in test_enrichment_branch_contracts.py)
+
+
+def test_perform_ssgsea_aligns_scores_by_observation_name(
+    monkeypatch: pytest.MonkeyPatch, minimal_spatial_adata
+):
+    adata = minimal_spatial_adata.copy()
+    adata.obs_names = pd.Index(list(reversed(adata.obs_names.tolist())))
+    expected_scores = {name: float(index) for index, name in enumerate(adata.obs_names)}
+
+    class _Res:
+        def __init__(self):
+            self.res2d = pd.DataFrame(
+                [
+                    {"Name": name, "Term": "GS_A", "ES": score}
+                    for name, score in expected_scores.items()
+                ]
+            )
+            self.results = {
+                name: {"GS_A": {"es": score}} for name, score in expected_scores.items()
+            }
+
+    _patch_gseapy(monkeypatch, ssgsea=lambda **_kwargs: _Res())
+    monkeypatch.setattr(
+        enrichment_module, "store_analysis_metadata", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        enrichment_module, "export_analysis_result", lambda *_args, **_kwargs: None
+    )
+
+    enrichment_module.perform_ssgsea(
+        adata=adata,
+        gene_sets={"GS_A": ["gene_0", "gene_1"]},
+        data_id="d1",
+        species="mouse",
+    )
+
+    np.testing.assert_array_equal(
+        adata.obs["ssgsea_GS_A"].to_numpy(),
+        [expected_scores[name] for name in adata.obs_names],
+    )
 
 
 def test_perform_ssgsea_invalid_result_format_raises_processing_error(
@@ -1213,8 +1292,8 @@ def test_perform_enrichr_passes_pvalue_cutoff_through(
         pvalue_cutoff=0.01,
     )
 
-    assert captured["cutoff"] == 0.01, (
-        "gp.enrichr should receive the user-specified cutoff"
-    )
+    assert (
+        captured["cutoff"] == 0.01
+    ), "gp.enrichr should receive the user-specified cutoff"
     # Path_A has adj-pval 0.005 < 0.01, Path_B has 0.02 >= 0.01
     assert out.n_significant == 1

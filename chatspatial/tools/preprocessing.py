@@ -2,6 +2,8 @@
 Preprocessing tools for spatial transcriptomics data.
 """
 
+from typing import Any
+
 import numpy as np
 import scanpy as sc
 import scipy.sparse
@@ -68,6 +70,312 @@ def _compute_safe_percent_top(n_genes: int) -> list[int] | None:
     return sorted(set(result)) or None
 
 
+def _calculate_qc_metrics(adata) -> tuple[str | None, dict[str, int | float]]:
+    """Annotate gene classes and return pre-filtering QC statistics."""
+    adata.var["mt"] = adata.var_names.str.startswith(("MT-", "mt-"))
+    adata.var["ribo"] = adata.var_names.str.startswith(("RPS", "RPL", "Rps", "Rpl"))
+    try:
+        sc.pp.calculate_qc_metrics(
+            adata,
+            qc_vars=["mt", "ribo"],
+            percent_top=_compute_safe_percent_top(adata.n_vars),
+            inplace=True,
+        )
+    except Exception as exc:
+        raise ProcessingError(
+            f"QC metrics failed: {exc}. "
+            f"Data: {adata.n_obs}×{adata.n_vars}, type: {type(adata.X).__name__}"
+        ) from exc
+
+    mito_pct_col = "pct_counts_mt" if "pct_counts_mt" in adata.obs else None
+    metrics: dict[str, int | float] = {
+        "n_cells_before_filtering": int(adata.n_obs),
+        "n_genes_before_filtering": int(adata.n_vars),
+        "median_genes_per_cell": float(np.median(adata.obs.n_genes_by_counts)),
+        "median_umi_per_cell": float(np.median(adata.obs.total_counts)),
+    }
+    if mito_pct_col:
+        metrics.update(
+            {
+                "median_mito_pct": float(np.median(adata.obs[mito_pct_col])),
+                "max_mito_pct": float(np.max(adata.obs[mito_pct_col])),
+                "n_mt_genes": int(adata.var["mt"].sum()),
+            }
+        )
+    return mito_pct_col, metrics
+
+
+async def _filter_and_subsample(
+    adata,
+    params: PreprocessingParameters,
+    ctx: ToolContext,
+    qc_metrics: dict[str, int | float | bool | str],
+    mito_pct_col: str | None,
+):
+    """Apply filtering and spot subsampling without mutating the source object."""
+    if params.filter_genes_min_cells is not None and params.filter_genes_min_cells > 0:
+        sc.pp.filter_genes(adata, min_cells=params.filter_genes_min_cells)
+    if params.filter_cells_min_genes is not None and params.filter_cells_min_genes > 0:
+        sc.pp.filter_cells(adata, min_genes=params.filter_cells_min_genes)
+
+    if params.filter_mito_pct is not None and mito_pct_col:
+        high_mito_mask = adata.obs[mito_pct_col] > params.filter_mito_pct
+        n_high_mito = int(high_mito_mask.sum())
+        if n_high_mito:
+            adata = adata[~high_mito_mask].copy()
+            qc_metrics["n_spots_filtered_mito"] = n_high_mito
+    elif params.filter_mito_pct is not None:
+        await ctx.warning(
+            "Mitochondrial filtering requested but no mito genes detected. "
+            "This may indicate non-standard gene naming or imaging-based data."
+        )
+
+    if adata.n_obs == 0 or adata.n_vars == 0:
+        raise DataError(
+            f"No data remaining after filtering: {adata.n_obs} cells, "
+            f"{adata.n_vars} genes. Relax filtering parameters "
+            "(filter_genes_min_cells, filter_cells_min_genes, filter_mito_pct)."
+        )
+    if params.subsample_spots is not None and params.subsample_spots < adata.n_obs:
+        sc.pp.subsample(
+            adata,
+            n_obs=params.subsample_spots,
+            random_state=params.subsample_random_seed,
+        )
+    return adata
+
+
+async def _run_scrublet(
+    adata,
+    params: PreprocessingParameters,
+    ctx: ToolContext,
+    qc_metrics: dict[str, int | float | bool | str],
+):
+    """Run optional doublet detection and return the accepted workspace."""
+    qc_metrics["scrublet_requested"] = params.use_scrublet
+    qc_metrics["use_scrublet"] = False
+    if not params.use_scrublet:
+        return adata
+
+    try:
+        min_cells_for_scrublet = 100
+        if adata.n_obs < min_cells_for_scrublet:
+            await ctx.warning(
+                f"Scrublet requires at least {min_cells_for_scrublet} cells, "
+                f"but only {adata.n_obs} present. Skipping doublet detection."
+            )
+            qc_metrics["scrublet_skip_reason"] = "insufficient_cells"
+            return adata
+
+        candidate = adata.copy()
+        sc.pp.scrublet(
+            candidate,
+            expected_doublet_rate=params.scrublet_expected_doublet_rate,
+            threshold=params.scrublet_threshold,
+            sim_doublet_ratio=params.scrublet_sim_doublet_ratio,
+            n_prin_comps=min(params.scrublet_n_prin_comps, adata.n_vars - 1),
+            batch_key=(
+                params.batch_key if params.batch_key in candidate.obs.columns else None
+            ),
+        )
+        n_doublets = int(candidate.obs["predicted_doublet"].sum())
+        doublet_rate = n_doublets / candidate.n_obs
+        qc_metrics.update(
+            {
+                "use_scrublet": True,
+                "n_doublets_detected": n_doublets,
+                "doublet_rate": float(doublet_rate),
+                "scrublet_threshold": float(
+                    params.scrublet_threshold
+                    if params.scrublet_threshold is not None
+                    else candidate.uns.get("scrublet", {}).get("threshold", 0.0)
+                ),
+                "median_doublet_score": float(
+                    np.median(candidate.obs["doublet_score"])
+                ),
+            }
+        )
+        action = "kept in dataset"
+        if params.scrublet_filter_doublets and n_doublets > 0:
+            candidate = candidate[~candidate.obs["predicted_doublet"]].copy()
+            qc_metrics["n_cells_after_doublet_filter"] = int(candidate.n_obs)
+            action = "removed from dataset"
+        await ctx.info(
+            f"Scrublet: Detected {n_doublets} doublets "
+            f"({doublet_rate:.1%}), {action}."
+        )
+        return candidate
+    except Exception as exc:
+        await ctx.warning(
+            f"Scrublet doublet detection failed: {exc}. "
+            "Continuing without doublet filtering."
+        )
+        qc_metrics["scrublet_error"] = str(exc)
+        return adata
+
+
+def _preserve_raw_counts(adata, params: PreprocessingParameters) -> None:
+    """Freeze raw counts and record the preprocessing input contract."""
+    import anndata as ad_module
+
+    if adata.raw is None:
+        adata.raw = ad_module.AnnData(
+            X=adata.X.copy(),
+            var=adata.var,
+            obs=adata.obs.copy(),
+            uns={},
+        )
+    if adata.raw is not None and adata.raw.shape == adata.shape:
+        adata.layers["counts"] = adata.raw.X
+    else:
+        adata.layers["counts"] = adata.X.copy()
+
+    adata.uns["preprocessing"] = {
+        "normalization": params.normalization,
+        "raw_preserved": True,
+        "counts_layer": True,
+        "n_genes_before_norm": adata.n_vars,
+        "gene_annotations": {
+            "mt_column": "mt" if "mt" in adata.var.columns else None,
+            "ribo_column": "ribo" if "ribo" in adata.var.columns else None,
+            "n_mt_genes": (
+                int(adata.var["mt"].sum()) if "mt" in adata.var.columns else 0
+            ),
+            "n_ribo_genes": (
+                int(adata.var["ribo"].sum()) if "ribo" in adata.var.columns else 0
+            ),
+        },
+    }
+
+
+async def _select_and_subsample_genes(
+    adata,
+    params: PreprocessingParameters,
+    ctx: ToolContext,
+):
+    """Select HVGs, apply exclusions, and honor explicit gene subsampling."""
+    requested_gene_count = params.subsample_genes
+    use_sct_hvgs = (
+        params.normalization == "sct" and "highly_variable" in adata.var.columns
+    )
+    if use_sct_hvgs:
+        current_mask = adata.var["highly_variable"].to_numpy(dtype=bool)
+        current_count = int(current_mask.sum())
+        n_hvgs = (
+            min(requested_gene_count, current_count)
+            if requested_gene_count is not None
+            else current_count
+        )
+        if 0 < n_hvgs < current_count:
+            selected_idx = np.flatnonzero(current_mask)
+            if "sct_residual_variance" in adata.var.columns:
+                residual_var = adata.var["sct_residual_variance"].to_numpy()
+                selected_scores = residual_var[selected_idx]
+                top_local = np.argpartition(selected_scores, -n_hvgs)[-n_hvgs:]
+                selected_idx = selected_idx[top_local]
+            else:
+                selected_idx = selected_idx[:n_hvgs]
+            new_mask = np.zeros(adata.n_vars, dtype=bool)
+            new_mask[selected_idx] = True
+            adata.var["highly_variable"] = new_mask
+    else:
+        n_hvgs = (
+            min(requested_gene_count, adata.n_vars - 1, params.n_hvgs)
+            if requested_gene_count is not None
+            else min(params.n_hvgs, adata.n_vars - 1)
+        )
+
+    if n_hvgs <= 0:
+        n_hvgs = 1
+        await ctx.warning(
+            "Computed n_hvgs=0; forcing to 1 to avoid selecting all genes."
+        )
+
+    if not use_sct_hvgs:
+        if adata.n_vars < 100:
+            if requested_gene_count is not None and n_hvgs < adata.n_vars:
+                _select_hvgs_by_variance(adata, n_hvgs)
+            else:
+                adata.var["highly_variable"] = True
+        else:
+            try:
+                sc.pp.highly_variable_genes(adata, n_top_genes=n_hvgs)
+            except KeyError as exc:
+                if "nan" not in str(exc).lower():
+                    raise ProcessingError(
+                        f"HVG selection failed: {exc}. "
+                        f"Data: {adata.n_obs}×{adata.n_vars}, requested: {n_hvgs} HVGs."
+                    ) from exc
+                _select_hvgs_by_variance(adata, n_hvgs)
+                await ctx.warning(
+                    "Scanpy HVG binning produced NaN bins; "
+                    "selected HVGs by finite variance instead."
+                )
+            except Exception as exc:
+                raise ProcessingError(
+                    f"HVG selection failed: {exc}. "
+                    f"Data: {adata.n_obs}×{adata.n_vars}, requested: {n_hvgs} HVGs."
+                ) from exc
+
+    if params.remove_mito_genes and "mt" in adata.var.columns:
+        adata.var.loc[adata.var["mt"], "highly_variable"] = False
+    if params.remove_ribo_genes and "ribo" in adata.var.columns:
+        adata.var.loc[adata.var["ribo"], "highly_variable"] = False
+    if "highly_variable" not in adata.var:
+        raise ProcessingError(
+            "HVG selection failed: no highly_variable annotations were produced."
+        )
+
+    selected_count = int(adata.var["highly_variable"].sum())
+    if selected_count == 0:
+        raise DataError(
+            "HVG selection produced no usable genes. Check the normalization, "
+            "HVG, and mitochondrial/ribosomal exclusion parameters."
+        )
+    if selected_count < adata.n_vars and adata.n_vars < 500:
+        await ctx.warning(
+            f"Using {selected_count} of {adata.n_vars} available genes in a small panel.\n"
+            "   • Small panels are already curated and often benefit from retaining all genes\n"
+            "   • Consider increasing n_hvgs or removing subsample_genes\n"
+            f"   • Current dataset: {adata.n_obs} cells × {adata.n_vars} total genes"
+        )
+    elif adata.n_vars >= 500 and selected_count < 500:
+        await ctx.warning(
+            f"Using only {selected_count} HVGs is below the recommended minimum of 500 genes.\n"
+            "   • Literature consensus: 500-5000 genes (typical: 1000-2000)\n"
+            "   • Low gene counts may lead to unstable clustering results\n"
+            "   • Recommended: Use n_hvgs=1000-2000 for most analyses\n"
+            f"   • Current dataset: {adata.n_obs} cells × {adata.n_vars} total genes"
+        )
+    if requested_gene_count is not None and requested_gene_count < adata.n_vars:
+        adata = adata[:, adata.var["highly_variable"]].copy()
+    return adata
+
+
+async def _scale_preprocessed_data(
+    adata,
+    params: PreprocessingParameters,
+    ctx: ToolContext,
+) -> tuple[Any, bool, str | None]:
+    """Apply scaling transactionally so failure leaves expression unchanged."""
+    if not params.scale:
+        return adata, False, None
+    try:
+        candidate = adata.copy()
+        sc.pp.scale(candidate, max_value=params.scale_max_value)
+        values = (
+            candidate.X.data
+            if scipy.sparse.issparse(candidate.X)
+            else np.asarray(candidate.X)
+        )
+        if not np.isfinite(values).all():
+            raise ProcessingError("Scaling produced non-finite expression values")
+        return candidate, True, None
+    except Exception as exc:
+        await ctx.warning(f"Scaling failed: {exc}. Continuing without scaling.")
+        return adata, False, str(exc)
+
+
 async def preprocess_data(
     data_id: str,
     ctx: ToolContext,
@@ -107,207 +415,17 @@ async def preprocess_data(
     # Handle duplicate gene names (must be done before gene-based operations)
     await ensure_unique_var_names_async(adata, ctx, "data")
 
-    # 1. Calculate QC metrics (including mitochondrial percentage)
-    try:
-        # Identify mitochondrial genes (MT-* for human, mt-* for mouse)
-        adata.var["mt"] = adata.var_names.str.startswith(("MT-", "mt-"))
-
-        # Identify ribosomal genes (RPS*, RPL* for human, Rps*, Rpl* for mouse)
-        adata.var["ribo"] = adata.var_names.str.startswith(("RPS", "RPL", "Rps", "Rpl"))
-
-        # Calculate QC metrics including mitochondrial and ribosomal percentages
-        sc.pp.calculate_qc_metrics(
-            adata,
-            qc_vars=["mt", "ribo"],
-            percent_top=_compute_safe_percent_top(adata.n_vars),
-            inplace=True,
-        )
-    except Exception as e:
-        raise ProcessingError(
-            f"QC metrics failed: {e}. "
-            f"Data: {adata.n_obs}×{adata.n_vars}, type: {type(adata.X).__name__}"
-        ) from e
-
-    # Store original QC metrics before filtering (including mito stats)
-    mito_pct_col = "pct_counts_mt" if "pct_counts_mt" in adata.obs else None
-    qc_metrics: dict[str, int | float | bool | str] = {
-        "n_cells_before_filtering": int(adata.n_obs),
-        "n_genes_before_filtering": int(adata.n_vars),
-        "median_genes_per_cell": float(np.median(adata.obs.n_genes_by_counts)),
-        "median_umi_per_cell": float(np.median(adata.obs.total_counts)),
-    }
-    # Add mitochondrial stats if available
-    if mito_pct_col:
-        qc_metrics["median_mito_pct"] = float(np.median(adata.obs[mito_pct_col]))
-        qc_metrics["max_mito_pct"] = float(np.max(adata.obs[mito_pct_col]))
-        qc_metrics["n_mt_genes"] = int(adata.var["mt"].sum())
-
-    # 2. Apply user-controlled data filtering and subsampling
-    min_cells = params.filter_genes_min_cells
-    if min_cells is not None and min_cells > 0:
-        sc.pp.filter_genes(adata, min_cells=min_cells)
-
-    min_genes = params.filter_cells_min_genes
-    if min_genes is not None and min_genes > 0:
-        sc.pp.filter_cells(adata, min_genes=min_genes)
-
-    # Apply mitochondrial percentage filtering (BEST PRACTICE for spatial data)
-    # High mito% indicates damaged cells that have lost cytoplasmic mRNA
-    if params.filter_mito_pct is not None and mito_pct_col:
-        high_mito_mask = adata.obs[mito_pct_col] > params.filter_mito_pct
-        n_high_mito = high_mito_mask.sum()
-
-        if n_high_mito > 0:
-            adata = adata[~high_mito_mask].copy()
-            # Update qc_metrics with mito filtering info
-            qc_metrics["n_spots_filtered_mito"] = int(n_high_mito)
-    elif params.filter_mito_pct is not None and not mito_pct_col:
-        await ctx.warning(
-            "Mitochondrial filtering requested but no mito genes detected. "
-            "This may indicate non-standard gene naming or imaging-based data."
-        )
-
-    # Re-validate after filtering — aggressive thresholds can empty the dataset
-    if adata.n_obs == 0 or adata.n_vars == 0:
-        raise DataError(
-            f"No data remaining after filtering: {adata.n_obs} cells, "
-            f"{adata.n_vars} genes. Relax filtering parameters "
-            f"(filter_genes_min_cells, filter_cells_min_genes, filter_mito_pct)."
-        )
-
-    # Apply spot subsampling if requested
-    if params.subsample_spots is not None and params.subsample_spots < adata.n_obs:
-        sc.pp.subsample(
-            adata,
-            n_obs=params.subsample_spots,
-            random_state=params.subsample_random_seed,
-        )
-
-    # Apply gene subsampling if requested (after HVG selection)
-    requested_gene_count = params.subsample_genes
-
-    # 3. Scrublet doublet detection (for single-cell resolution data)
-    # Scrublet works on raw counts before normalization
-    # Recommended for: CosMx, MERFISH, Xenium (single-cell resolution)
-    # NOT recommended for: Visium (spot-based, multiple cells per spot)
-    qc_metrics["scrublet_requested"] = params.use_scrublet
-    qc_metrics["use_scrublet"] = False
-    if params.use_scrublet:
-        try:
-            # Scrublet requires sufficient cells for meaningful doublet detection
-            min_cells_for_scrublet = 100
-            if adata.n_obs < min_cells_for_scrublet:
-                await ctx.warning(
-                    f"Scrublet requires at least {min_cells_for_scrublet} cells, "
-                    f"but only {adata.n_obs} present. Skipping doublet detection."
-                )
-                qc_metrics["scrublet_skip_reason"] = "insufficient_cells"
-            else:
-                # Run Scrublet via scanpy's wrapper function
-                # This adds 'doublet_score' and 'predicted_doublet' to adata.obs
-                scrublet_adata = adata.copy()
-                sc.pp.scrublet(
-                    scrublet_adata,
-                    expected_doublet_rate=params.scrublet_expected_doublet_rate,
-                    threshold=params.scrublet_threshold,
-                    sim_doublet_ratio=params.scrublet_sim_doublet_ratio,
-                    n_prin_comps=min(params.scrublet_n_prin_comps, adata.n_vars - 1),
-                    batch_key=(
-                        params.batch_key
-                        if params.batch_key in scrublet_adata.obs.columns
-                        else None
-                    ),
-                )
-
-                # Store doublet detection results in qc_metrics
-                n_doublets = int(scrublet_adata.obs["predicted_doublet"].sum())
-                doublet_rate = n_doublets / scrublet_adata.n_obs
-                qc_metrics["use_scrublet"] = True
-                qc_metrics["n_doublets_detected"] = n_doublets
-                qc_metrics["doublet_rate"] = float(doublet_rate)
-                qc_metrics["scrublet_threshold"] = float(
-                    params.scrublet_threshold
-                    if params.scrublet_threshold is not None
-                    else scrublet_adata.uns.get("scrublet", {}).get("threshold", 0.0)
-                )
-                qc_metrics["median_doublet_score"] = float(
-                    np.median(scrublet_adata.obs["doublet_score"])
-                )
-
-                # Filter doublets if requested
-                if params.scrublet_filter_doublets and n_doublets > 0:
-                    scrublet_adata = scrublet_adata[
-                        ~scrublet_adata.obs["predicted_doublet"]
-                    ].copy()
-                    qc_metrics["n_cells_after_doublet_filter"] = int(
-                        scrublet_adata.n_obs
-                    )
-                    await ctx.info(
-                        f"Scrublet: Detected {n_doublets} doublets "
-                        f"({doublet_rate:.1%}), removed from dataset."
-                    )
-                else:
-                    await ctx.info(
-                        f"Scrublet: Detected {n_doublets} doublets "
-                        f"({doublet_rate:.1%}), kept in dataset."
-                    )
-
-                adata = scrublet_adata
-
-        except Exception as e:
-            # Scrublet failure should not block preprocessing
-            await ctx.warning(
-                f"Scrublet doublet detection failed: {e}. "
-                "Continuing without doublet filtering."
-            )
-            qc_metrics["scrublet_error"] = str(e)
-
-    # Save raw data before normalization (required for some analysis methods)
-
-    # IMPORTANT: Create a proper frozen copy for .raw to preserve counts
-    # Using `adata.raw = adata` creates a view that gets modified during normalization
-    # We need to create an independent AnnData object to truly preserve counts
-    import anndata as ad_module
-
-    # Memory optimization: AnnData.raw internally copies var, so no need for .copy()
-    # obs MUST be copied to prevent contamination from later preprocessing steps
-    # uns can be empty dict as raw doesn't need metadata
-    # IMPORTANT: Respect existing raw data - only create if not already present
-    # This follows the same pattern as data_loader.py for consistency
-    if adata.raw is None:
-        adata.raw = ad_module.AnnData(
-            X=adata.X.copy(),  # Must copy - will be modified during normalization
-            var=adata.var,  # No copy needed - AnnData internally creates independent copy
-            obs=adata.obs.copy(),  # Must copy - will be modified by clustering/annotation
-            uns={},  # Empty dict - raw doesn't need uns metadata
-        )
-
-    # Store counts layer for scVI-tools compatibility (Cell2location, scANVI, DestVI).
-    # Prefer reusing adata.raw.X when dimensions match to avoid another full-matrix copy.
-    if adata.raw is not None and adata.raw.shape == adata.shape:
-        adata.layers["counts"] = adata.raw.X
-    else:
-        adata.layers["counts"] = adata.X.copy()
-
-    # Store preprocessing metadata following scanpy/anndata conventions
-    # This metadata enables downstream tools to reuse gene annotations
-    adata.uns["preprocessing"] = {
-        "normalization": params.normalization,
-        "raw_preserved": True,
-        "counts_layer": True,
-        "n_genes_before_norm": adata.n_vars,
-        # Gene type annotations - downstream tools should reuse these
-        "gene_annotations": {
-            "mt_column": "mt" if "mt" in adata.var.columns else None,
-            "ribo_column": "ribo" if "ribo" in adata.var.columns else None,
-            "n_mt_genes": (
-                int(adata.var["mt"].sum()) if "mt" in adata.var.columns else 0
-            ),
-            "n_ribo_genes": (
-                int(adata.var["ribo"].sum()) if "ribo" in adata.var.columns else 0
-            ),
-        },
-    }
+    mito_pct_col, base_qc_metrics = _calculate_qc_metrics(adata)
+    qc_metrics: dict[str, int | float | bool | str] = dict(base_qc_metrics)
+    adata = await _filter_and_subsample(
+        adata,
+        params,
+        ctx,
+        qc_metrics,
+        mito_pct_col,
+    )
+    adata = await _run_scrublet(adata, params, ctx, qc_metrics)
+    _preserve_raw_counts(adata, params)
 
     # Update QC metrics after filtering
     qc_metrics.update(
@@ -660,156 +778,12 @@ async def preprocess_data(
             f"Valid options are: {', '.join(valid_methods)}"
         )
 
-    # 4. Find highly variable genes and apply gene subsampling
-    # For SCTransform, preserve its residual-variance-based HVG selection.
-    use_existing_sct_hvgs = (
-        params.normalization == "sct" and "highly_variable" in adata.var.columns
+    adata = await _select_and_subsample_genes(adata, params, ctx)
+    adata, scale_applied, scale_error = await _scale_preprocessed_data(
+        adata,
+        params,
+        ctx,
     )
-    if use_existing_sct_hvgs:
-        current_hvg_mask = adata.var["highly_variable"].to_numpy(dtype=bool)
-        current_hvg_count = int(current_hvg_mask.sum())
-
-        if requested_gene_count is not None:
-            n_hvgs = min(requested_gene_count, current_hvg_count)
-        else:
-            n_hvgs = current_hvg_count
-
-        # If user requested fewer genes, trim using SCTransform residual variance.
-        if 0 < n_hvgs < current_hvg_count:
-            selected_idx = np.flatnonzero(current_hvg_mask)
-            if "sct_residual_variance" in adata.var.columns:
-                residual_var = adata.var["sct_residual_variance"].to_numpy()
-                selected_scores = residual_var[selected_idx]
-                top_local = np.argpartition(selected_scores, -n_hvgs)[-n_hvgs:]
-                selected_idx = selected_idx[top_local]
-            else:
-                selected_idx = selected_idx[:n_hvgs]
-
-            new_mask = np.zeros(adata.n_vars, dtype=bool)
-            new_mask[selected_idx] = True
-            adata.var["highly_variable"] = new_mask
-    else:
-        # Determine number of HVGs to select
-        if requested_gene_count is not None:
-            # User wants to subsample genes
-            n_hvgs = min(requested_gene_count, adata.n_vars - 1, params.n_hvgs)
-        else:
-            # Use standard HVG selection
-            n_hvgs = min(params.n_hvgs, adata.n_vars - 1)
-
-    # Guard against n_hvgs=0: in Python, [-0:] == [:] so
-    # np.argpartition(var, 0)[0:] would return ALL indices.
-    if n_hvgs <= 0:
-        n_hvgs = 1
-        await ctx.warning(
-            "Computed n_hvgs=0; forcing to 1 to avoid selecting all genes."
-        )
-
-    if not use_existing_sct_hvgs:
-        # Check if we should use all genes (for very small gene sets like MERFISH)
-        if adata.n_vars < 100:
-            if requested_gene_count is not None and n_hvgs < adata.n_vars:
-                # Small panel but user explicitly wants fewer genes:
-                # rank by variance and select top n_hvgs.
-                _select_hvgs_by_variance(adata, n_hvgs)
-            else:
-                adata.var["highly_variable"] = True
-        else:
-            try:
-                sc.pp.highly_variable_genes(adata, n_top_genes=n_hvgs)
-            except KeyError as e:
-                if "nan" not in str(e).lower():
-                    raise ProcessingError(
-                        f"HVG selection failed: {e}. "
-                        f"Data: {adata.n_obs}×{adata.n_vars}, requested: {n_hvgs} HVGs."
-                    ) from e
-                _select_hvgs_by_variance(adata, n_hvgs)
-                await ctx.warning(
-                    "Scanpy HVG binning produced NaN bins; selected HVGs by finite variance instead."
-                )
-            except Exception as e:
-                raise ProcessingError(
-                    f"HVG selection failed: {e}. "
-                    f"Data: {adata.n_obs}×{adata.n_vars}, requested: {n_hvgs} HVGs."
-                ) from e
-
-    # Exclude mitochondrial genes from HVG selection (BEST PRACTICE)
-    # Mito genes can dominate HVG due to high expression and technical variation
-    if params.remove_mito_genes and "mt" in adata.var.columns:
-        n_mito_hvg = (adata.var["highly_variable"] & adata.var["mt"]).sum()
-        if n_mito_hvg > 0:
-            adata.var.loc[adata.var["mt"], "highly_variable"] = False
-
-    # Exclude ribosomal genes from HVG selection (optional)
-    if params.remove_ribo_genes and "ribo" in adata.var.columns:
-        n_ribo_hvg = (adata.var["highly_variable"] & adata.var["ribo"]).sum()
-        if n_ribo_hvg > 0:
-            adata.var.loc[adata.var["ribo"], "highly_variable"] = False
-
-    # Establish the post-selection invariant once, before any downstream use.
-    # The effective count can differ from the request for small targeted panels
-    # and after mitochondrial/ribosomal exclusions.
-    if "highly_variable" not in adata.var:
-        raise ProcessingError(
-            "HVG selection failed: no highly_variable annotations were produced."
-        )
-
-    selected_hvg_count = int(adata.var["highly_variable"].sum())
-    if selected_hvg_count == 0:
-        raise DataError(
-            "HVG selection produced no usable genes. Check the normalization, "
-            "HVG, and mitochondrial/ribosomal exclusion parameters."
-        )
-
-    # Warn only when the selection excludes available genes. Selecting every
-    # gene in a curated panel is intentional and has no actionable HVG warning.
-    if selected_hvg_count < adata.n_vars and adata.n_vars < 500:
-        await ctx.warning(
-            f"Using {selected_hvg_count} of {adata.n_vars} available genes in a small panel.\n"
-            f"   • Small panels are already curated and often benefit from retaining all genes\n"
-            f"   • Consider increasing n_hvgs or removing subsample_genes\n"
-            f"   • Current dataset: {adata.n_obs} cells × {adata.n_vars} total genes"
-        )
-    elif adata.n_vars >= 500 and selected_hvg_count < 500:
-        await ctx.warning(
-            f"Using only {selected_hvg_count} HVGs is below the recommended minimum of 500 genes.\n"
-            f"   • Literature consensus: 500-5000 genes (typical: 1000-2000)\n"
-            f"   • Low gene counts may lead to unstable clustering results\n"
-            f"   • Recommended: Use n_hvgs=1000-2000 for most analyses\n"
-            f"   • Current dataset: {adata.n_obs} cells × {adata.n_vars} total genes"
-        )
-
-    # Apply gene subsampling if requested
-    if requested_gene_count is not None and requested_gene_count < adata.n_vars:
-        # Use properly identified HVGs
-        adata = adata[:, adata.var["highly_variable"]].copy()
-
-    # 5. Scale data (if requested)
-    # Note: Batch correction is handled separately by integrate_samples() tool
-    # which supports Harmony, BBKNN, Scanorama, and scVI methods
-    scale_applied = False
-    scale_error: str | None = None
-    if params.scale:
-        try:
-            # Scanpy scales AnnData in place and can modify X before raising.
-            # Use a transaction candidate so a failed optional step cannot leave
-            # the otherwise valid preprocessing result partially transformed.
-            scaled_adata = adata.copy()
-            sc.pp.scale(scaled_adata, max_value=params.scale_max_value)
-
-            scaled_values = (
-                scaled_adata.X.data
-                if scipy.sparse.issparse(scaled_adata.X)
-                else np.asarray(scaled_adata.X)
-            )
-            if not np.isfinite(scaled_values).all():
-                raise ProcessingError("Scaling produced non-finite expression values")
-
-            adata = scaled_adata
-            scale_applied = True
-        except Exception as e:
-            scale_error = str(e)
-            await ctx.warning(f"Scaling failed: {e}. Continuing without scaling.")
 
     qc_metrics["scale_requested"] = params.scale
     qc_metrics["scale_applied"] = scale_applied

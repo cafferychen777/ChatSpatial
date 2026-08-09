@@ -10,8 +10,8 @@ import chatspatial.tools.deconvolution as deconv_module
 from chatspatial.models.analysis import DeconvolutionResult
 from chatspatial.models.data import DeconvolutionParameters
 from chatspatial.tools.deconvolution import (
-    _validate_and_align_proportions,
     _store_results,
+    _validate_and_align_proportions,
     deconvolve_spatial_data,
 )
 from chatspatial.tools.deconvolution.base import PreparedDeconvolutionData

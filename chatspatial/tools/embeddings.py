@@ -139,6 +139,147 @@ class EmbeddingParameters(StrictParameters):
     )
 
 
+_SPATIAL_OBSP_KEYS = ("spatial_connectivities", "spatial_distances")
+
+
+def _clear_requested_embeddings(
+    adata,
+    params: EmbeddingParameters,
+    *,
+    needs_neighbors: bool,
+) -> None:
+    """Remove only outputs selected for forced recomputation."""
+    if (params.compute_pca or needs_neighbors) and "X_pca" in adata.obsm:
+        del adata.obsm["X_pca"]
+        adata.uns.pop("pca", None)
+    if needs_neighbors:
+        adata.uns.pop("neighbors", None)
+        adata.obsp.pop("connectivities", None)
+        adata.obsp.pop("distances", None)
+    if params.compute_umap:
+        adata.obsm.pop("X_umap", None)
+    if params.compute_clustering and params.clustering_key in adata.obs:
+        adata.obs.pop(params.clustering_key)
+    if params.compute_diffmap:
+        adata.obsm.pop("X_diffmap", None)
+    if params.compute_spatial_neighbors:
+        for key in _SPATIAL_OBSP_KEYS:
+            adata.obsp.pop(key, None)
+        adata.uns.pop("spatial_neighbors", None)
+
+
+def _compute_clustering(
+    adata,
+    params: EmbeddingParameters,
+    computed: list[str],
+    skipped: list[str],
+) -> int | None:
+    """Compute the requested cluster labels and return their count."""
+    ensure_cluster = (
+        ensure_leiden if params.clustering_method == "leiden" else ensure_louvain
+    )
+    created = ensure_cluster(
+        adata,
+        resolution=params.clustering_resolution,
+        key_added=params.clustering_key,
+        random_state=params.random_state,
+    )
+    if params.clustering_key not in adata.obs:
+        skipped.append(f"{params.clustering_key} (missing; clustering not computed)")
+        return None
+
+    n_clusters = int(adata.obs[params.clustering_key].nunique())
+    if created:
+        method_name = params.clustering_method.capitalize()
+        computed.append(f"{method_name} clustering ({n_clusters} clusters)")
+    else:
+        skipped.append(f"{params.clustering_key} (already exists)")
+    return n_clusters
+
+
+async def _compute_spatial_neighbors(
+    adata,
+    params: EmbeddingParameters,
+    ctx: ToolContext,
+    computed: list[str],
+    skipped: list[str],
+    previous_obsp: dict,
+    previous_metadata,
+    had_metadata: bool,
+) -> None:
+    """Compute the optional spatial graph transactionally."""
+    try:
+        detected_key = get_spatial_key(adata) or "spatial"
+        created = ensure_spatial_neighbors(
+            adata,
+            coord_type=params.spatial_coord_type,
+            n_neighs=params.spatial_n_neighs,
+            n_rings=params.spatial_n_rings,
+            spatial_key=detected_key,
+        )
+    except (DataNotFoundError, ValueError) as exc:
+        for key in _SPATIAL_OBSP_KEYS:
+            adata.obsp.pop(key, None)
+        adata.obsp.update(previous_obsp)
+        if had_metadata:
+            adata.uns["spatial_neighbors"] = previous_metadata
+        else:
+            adata.uns.pop("spatial_neighbors", None)
+        await ctx.warning(f"Could not compute spatial neighbors: {exc}")
+        skipped.append(f"spatial neighbors (error: {exc})")
+        return
+
+    target = computed if created else skipped
+    target.append(
+        "spatial neighbors" if created else "spatial neighbors (already exists)"
+    )
+
+
+def _store_embedding_metadata(
+    adata,
+    data_id: str,
+    params: EmbeddingParameters,
+    *,
+    computed: list[str],
+    skipped: list[str],
+    n_clusters: int | None,
+    pca_variance_ratio: float | None,
+) -> None:
+    """Store and export clustering provenance when labels are available."""
+    if not params.compute_clustering or params.clustering_key not in adata.obs:
+        return
+
+    actual_n_pcs = params.n_pcs
+    actual_n_neighbors = params.n_neighbors
+    pca_params = adata.uns.get("pca", {}).get("params", {})
+    if hasattr(pca_params, "get"):
+        actual_n_pcs = pca_params.get("n_comps", actual_n_pcs)
+    neighbor_params = adata.uns.get("neighbors", {}).get("params", {})
+    if hasattr(neighbor_params, "get"):
+        actual_n_neighbors = neighbor_params.get("n_neighbors", actual_n_neighbors)
+
+    analysis_name = f"embeddings_{params.clustering_method}"
+    store_analysis_metadata(
+        adata,
+        analysis_name=analysis_name,
+        method=params.clustering_method,
+        parameters={
+            "n_pcs": actual_n_pcs,
+            "n_neighbors": actual_n_neighbors,
+            "clustering_resolution": params.clustering_resolution,
+            "clustering_key": params.clustering_key,
+        },
+        results_keys={"obs": [params.clustering_key]},
+        statistics={
+            "n_clusters": n_clusters,
+            "pca_variance_ratio": pca_variance_ratio,
+            "computed": computed,
+            "skipped": skipped,
+        },
+    )
+    export_analysis_result(adata, data_id, analysis_name)
+
+
 async def compute_embeddings(
     data_id: str,
     ctx: ToolContext,
@@ -171,9 +312,8 @@ async def compute_embeddings(
     # Spatial-neighbor computation is intentionally optional. Preserve its
     # previous complete state so a backend that writes some keys before raising
     # cannot turn a non-fatal warning into committed graph corruption.
-    spatial_obsp_keys = ("spatial_connectivities", "spatial_distances")
     previous_spatial_obsp = {
-        key: adata.obsp[key] for key in spatial_obsp_keys if key in adata.obsp
+        key: adata.obsp[key] for key in _SPATIAL_OBSP_KEYS if key in adata.obsp
     }
     had_spatial_neighbors_metadata = "spatial_neighbors" in adata.uns
     previous_spatial_neighbors_metadata = adata.uns.get("spatial_neighbors")
@@ -191,27 +331,7 @@ async def compute_embeddings(
 
     # Handle force recomputation by removing existing results
     if params.force:
-        if (params.compute_pca or needs_neighbors) and "X_pca" in adata.obsm:
-            del adata.obsm["X_pca"]
-            if "pca" in adata.uns:
-                del adata.uns["pca"]
-        if needs_neighbors:
-            if "neighbors" in adata.uns:
-                del adata.uns["neighbors"]
-            if "connectivities" in adata.obsp:
-                del adata.obsp["connectivities"]
-            if "distances" in adata.obsp:
-                del adata.obsp["distances"]
-        if params.compute_umap and "X_umap" in adata.obsm:
-            del adata.obsm["X_umap"]
-        if params.compute_clustering and params.clustering_key in adata.obs:
-            del adata.obs[params.clustering_key]
-        if params.compute_diffmap and "X_diffmap" in adata.obsm:
-            del adata.obsm["X_diffmap"]
-        if params.compute_spatial_neighbors:
-            for key in spatial_obsp_keys:
-                adata.obsp.pop(key, None)
-            adata.uns.pop("spatial_neighbors", None)
+        _clear_requested_embeddings(adata, params, needs_neighbors=needs_neighbors)
 
     # 1. PCA
     if params.compute_pca:
@@ -257,40 +377,7 @@ async def compute_embeddings(
     # 4. Clustering (requires neighbors)
     n_clusters = None
     if params.compute_clustering:
-        if params.clustering_method == "leiden":
-            if ensure_leiden(
-                adata,
-                resolution=params.clustering_resolution,
-                key_added=params.clustering_key,
-                random_state=params.random_state,
-            ):
-                n_clusters = adata.obs[params.clustering_key].nunique()
-                computed.append(f"Leiden clustering ({n_clusters} clusters)")
-            else:
-                if params.clustering_key in adata.obs:
-                    skipped.append(f"{params.clustering_key} (already exists)")
-                    n_clusters = adata.obs[params.clustering_key].nunique()
-                else:
-                    skipped.append(
-                        f"{params.clustering_key} (missing; clustering not computed)"
-                    )
-        else:
-            if ensure_louvain(
-                adata,
-                resolution=params.clustering_resolution,
-                key_added=params.clustering_key,
-                random_state=params.random_state,
-            ):
-                n_clusters = adata.obs[params.clustering_key].nunique()
-                computed.append(f"Louvain clustering ({n_clusters} clusters)")
-            else:
-                if params.clustering_key in adata.obs:
-                    skipped.append(f"{params.clustering_key} (already exists)")
-                    n_clusters = adata.obs[params.clustering_key].nunique()
-                else:
-                    skipped.append(
-                        f"{params.clustering_key} (missing; clustering not computed)"
-                    )
+        n_clusters = _compute_clustering(adata, params, computed, skipped)
 
     # 5. Diffusion map (requires neighbors)
     if params.compute_diffmap:
@@ -301,29 +388,16 @@ async def compute_embeddings(
 
     # 6. Spatial neighbors
     if params.compute_spatial_neighbors:
-        try:
-            detected_key = get_spatial_key(adata) or "spatial"
-            if ensure_spatial_neighbors(
-                adata,
-                coord_type=params.spatial_coord_type,
-                n_neighs=params.spatial_n_neighs,
-                n_rings=params.spatial_n_rings,
-                spatial_key=detected_key,
-            ):
-                computed.append("spatial neighbors")
-            else:
-                skipped.append("spatial neighbors (already exists)")
-        except (DataNotFoundError, ValueError) as e:
-            for key in spatial_obsp_keys:
-                adata.obsp.pop(key, None)
-            for key, value in previous_spatial_obsp.items():
-                adata.obsp[key] = value
-            if had_spatial_neighbors_metadata:
-                adata.uns["spatial_neighbors"] = previous_spatial_neighbors_metadata
-            else:
-                adata.uns.pop("spatial_neighbors", None)
-            await ctx.warning(f"Could not compute spatial neighbors: {e}")
-            skipped.append(f"spatial neighbors (error: {e})")
+        await _compute_spatial_neighbors(
+            adata,
+            params,
+            ctx,
+            computed,
+            skipped,
+            previous_spatial_obsp,
+            previous_spatial_neighbors_metadata,
+            had_spatial_neighbors_metadata,
+        )
 
     # Get PCA variance ratio if available
     pca_variance_ratio = None
@@ -333,42 +407,15 @@ async def compute_embeddings(
     # Store metadata and export results (only if clustering was computed)
     # Note: Only clustering results are exported as CSV - PCA/UMAP coordinates
     # are too large for CSV export and are better accessed via adata directly
-    if params.compute_clustering and params.clustering_key in adata.obs:
-        results_keys: dict[str, list[str]] = {"obs": [params.clustering_key]}
-
-        # Record actual parameters from adata.uns (may differ from requested
-        # when ensure_* reuses existing results instead of recomputing).
-        actual_n_pcs = params.n_pcs
-        actual_n_neighbors = params.n_neighbors
-        if "pca" in adata.uns and "params" in adata.uns["pca"]:
-            pca_params = adata.uns["pca"]["params"]
-            if hasattr(pca_params, "get"):
-                actual_n_pcs = pca_params.get("n_comps", actual_n_pcs)
-        if "neighbors" in adata.uns and "params" in adata.uns["neighbors"]:
-            nbr_params = adata.uns["neighbors"]["params"]
-            if hasattr(nbr_params, "get"):
-                actual_n_neighbors = nbr_params.get("n_neighbors", actual_n_neighbors)
-
-        store_analysis_metadata(
-            adata,
-            analysis_name=f"embeddings_{params.clustering_method}",
-            method=params.clustering_method,
-            parameters={
-                "n_pcs": actual_n_pcs,
-                "n_neighbors": actual_n_neighbors,
-                "clustering_resolution": params.clustering_resolution,
-                "clustering_key": params.clustering_key,
-            },
-            results_keys=results_keys,
-            statistics={
-                "n_clusters": n_clusters,
-                "pca_variance_ratio": pca_variance_ratio,
-                "computed": computed,
-                "skipped": skipped,
-            },
-        )
-
-        export_analysis_result(adata, data_id, f"embeddings_{params.clustering_method}")
+    _store_embedding_metadata(
+        adata,
+        data_id,
+        params,
+        computed=computed,
+        skipped=skipped,
+        n_clusters=n_clusters,
+        pca_variance_ratio=pca_variance_ratio,
+    )
 
     result = EmbeddingResult(
         data_id=data_id,

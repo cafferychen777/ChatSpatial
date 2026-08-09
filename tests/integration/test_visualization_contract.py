@@ -14,7 +14,9 @@ from tests.fixtures.helpers import extract_saved_path, load_generic_dataset
 async def test_visualize_data_appends_suffix_for_custom_output_path(
     spatial_dataset_path, tmp_path, reset_data_manager
 ):
-    dataset = await load_generic_dataset(spatial_dataset_path, name="viz_contract_suffix")
+    dataset = await load_generic_dataset(
+        spatial_dataset_path, name="viz_contract_suffix"
+    )
 
     out_no_suffix = tmp_path / "figures" / "feature_plot"
     params = VisualizationParameters(
@@ -42,7 +44,9 @@ async def test_visualize_data_default_output_directory_contract(
 ):
     monkeypatch.chdir(tmp_path)
 
-    dataset = await load_generic_dataset(spatial_dataset_path, name="viz_contract_default")
+    dataset = await load_generic_dataset(
+        spatial_dataset_path, name="viz_contract_default"
+    )
 
     params = VisualizationParameters(
         plot_type="feature",

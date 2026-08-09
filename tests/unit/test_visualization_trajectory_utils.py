@@ -91,10 +91,14 @@ async def test_pseudotime_plot_requires_valid_basis(minimal_spatial_adata, monke
 
 
 @pytest.mark.asyncio
-async def test_cellrank_circular_requires_fate_probabilities(minimal_spatial_adata, monkeypatch):
+async def test_cellrank_circular_requires_fate_probabilities(
+    minimal_spatial_adata, monkeypatch
+):
     monkeypatch.setattr(viz_traj, "require", _required_dependency)
     _install_fake_cellrank(monkeypatch)
-    with pytest.raises(DataNotFoundError, match="CellRank fate probabilities not found"):
+    with pytest.raises(
+        DataNotFoundError, match="CellRank fate probabilities not found"
+    ):
         await viz_traj._create_cellrank_circular_projection(
             minimal_spatial_adata,
             VisualizationParameters(plot_type="trajectory", subtype="circular"),
@@ -122,7 +126,9 @@ async def test_cellrank_fate_map_requires_cluster_key_when_no_categorical(
 
 
 @pytest.mark.asyncio
-async def test_cellrank_gene_trends_requires_time_key(minimal_spatial_adata, monkeypatch):
+async def test_cellrank_gene_trends_requires_time_key(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     adata.obsm["lineages_fwd"] = np.ones((adata.n_obs, 2))
     monkeypatch.setattr(viz_traj, "require", _required_dependency)
@@ -147,12 +153,17 @@ async def test_palantir_results_requires_pseudotime(minimal_spatial_adata):
 
 
 @pytest.mark.asyncio
-async def test_palantir_results_nonempty_fate_probs_branch(minimal_spatial_adata, monkeypatch):
+async def test_palantir_results_nonempty_fate_probs_branch(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     adata.obs["palantir_pseudotime"] = np.linspace(0, 1, adata.n_obs)
     adata.obs["palantir_entropy"] = np.linspace(1, 0, adata.n_obs)
     adata.obsm["palantir_fate_probs"] = pd.DataFrame(
-        {"f1": np.linspace(0.6, 0.3, adata.n_obs), "f2": np.linspace(0.4, 0.7, adata.n_obs)},
+        {
+            "f1": np.linspace(0.6, 0.3, adata.n_obs),
+            "f2": np.linspace(0.4, 0.7, adata.n_obs),
+        },
         index=adata.obs_names,
     )
 
@@ -345,7 +356,9 @@ async def test_cellrank_gene_trends_success_with_filtered_features(
     )
     assert captured["genes"] == ["gene_0", "gene_1"]
     assert captured["time_key"] == "latent_time"
-    assert any("Creating gene trends for: ['gene_0', 'gene_1']" in msg for msg in ctx.infos)
+    assert any(
+        "Creating gene trends for: ['gene_0', 'gene_1']" in msg for msg in ctx.infos
+    )
     assert any("Lineages: ['L1', 'L2']" in msg for msg in ctx.infos)
     fig.clf()
 
@@ -441,7 +454,9 @@ async def test_cellrank_fate_map_missing_fate_and_title_branch(
     monkeypatch.setattr(viz_traj, "require", _required_dependency)
     _install_fake_cellrank(monkeypatch)
 
-    with pytest.raises(DataNotFoundError, match="CellRank fate probabilities not found"):
+    with pytest.raises(
+        DataNotFoundError, match="CellRank fate probabilities not found"
+    ):
         await viz_traj._create_cellrank_fate_map(
             adata,
             VisualizationParameters(plot_type="trajectory", subtype="fate_map"),

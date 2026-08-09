@@ -98,7 +98,9 @@ async def test_phase_requires_required_layers(minimal_spatial_adata, monkeypatch
 @pytest.mark.asyncio
 async def test_proportions_requires_velocity_layers(minimal_spatial_adata, monkeypatch):
     monkeypatch.setattr(viz_vel, "require", _required_dependency)
-    with pytest.raises(DataNotFoundError, match="Spliced and unspliced layers are required"):
+    with pytest.raises(
+        DataNotFoundError, match="Spliced and unspliced layers are required"
+    ):
         await viz_vel._create_velocity_proportions_plot(
             minimal_spatial_adata,
             VisualizationParameters(plot_type="velocity", subtype="proportions"),
@@ -107,7 +109,9 @@ async def test_proportions_requires_velocity_layers(minimal_spatial_adata, monke
 
 
 @pytest.mark.asyncio
-async def test_heatmap_requires_time_or_velocity_graph(minimal_spatial_adata, monkeypatch):
+async def test_heatmap_requires_time_or_velocity_graph(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     monkeypatch.setattr(viz_vel, "require", _required_dependency)
     with pytest.raises(DataNotFoundError, match="No time ordering available"):
@@ -197,7 +201,9 @@ async def test_stream_success_uses_inferred_basis_and_auto_feature(
     monkeypatch.setattr(viz_vel, "infer_basis", lambda *_a, **_k: "spatial")
 
     fig, ax = plt.subplots()
-    monkeypatch.setattr(viz_vel, "create_figure_from_params", lambda *_a, **_k: (fig, [ax]))
+    monkeypatch.setattr(
+        viz_vel, "create_figure_from_params", lambda *_a, **_k: (fig, [ax])
+    )
 
     captured: dict[str, object] = {}
     fake_scv = ModuleType("scvelo")
@@ -228,7 +234,9 @@ async def test_stream_success_uses_inferred_basis_and_auto_feature(
 
 
 @pytest.mark.asyncio
-async def test_phase_success_uses_velocity_genes_and_context(minimal_spatial_adata, monkeypatch):
+async def test_phase_success_uses_velocity_genes_and_context(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     adata.layers["velocity"] = np.zeros((adata.n_obs, adata.n_vars), dtype=float)
     adata.layers["Ms"] = np.ones((adata.n_obs, adata.n_vars), dtype=float)
@@ -313,7 +321,9 @@ async def test_phase_supports_string_feature_and_default_genes_without_velocity_
 
 
 @pytest.mark.asyncio
-async def test_phase_raises_when_requested_genes_are_missing(minimal_spatial_adata, monkeypatch):
+async def test_phase_raises_when_requested_genes_are_missing(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     adata.layers["velocity"] = np.zeros((adata.n_obs, adata.n_vars), dtype=float)
     adata.layers["Ms"] = np.ones((adata.n_obs, adata.n_vars), dtype=float)
@@ -361,7 +371,9 @@ async def test_proportions_success_and_cluster_auto_selection(
     )
     assert captured["groupby"] == "group"
     assert any("Using cluster_key: 'group'" in msg for msg in ctx.infos)
-    assert any("Creating proportions plot grouped by 'group'" in msg for msg in ctx.infos)
+    assert any(
+        "Creating proportions plot grouped by 'group'" in msg for msg in ctx.infos
+    )
     fig.clf()
 
     fig_titled = await viz_vel._create_velocity_proportions_plot(
@@ -379,7 +391,9 @@ async def test_proportions_success_and_cluster_auto_selection(
 
 
 @pytest.mark.asyncio
-async def test_proportions_requires_cluster_key_when_no_categorical(minimal_spatial_adata, monkeypatch):
+async def test_proportions_requires_cluster_key_when_no_categorical(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     adata.layers["spliced"] = np.ones((adata.n_obs, adata.n_vars), dtype=float)
     adata.layers["unspliced"] = np.ones((adata.n_obs, adata.n_vars), dtype=float)
@@ -388,7 +402,9 @@ async def test_proportions_requires_cluster_key_when_no_categorical(minimal_spat
     monkeypatch.setattr(viz_vel, "require", _required_dependency)
     monkeypatch.setitem(sys.modules, "scvelo", ModuleType("scvelo"))
 
-    with pytest.raises(ParameterError, match="cluster_key is required for proportions plot"):
+    with pytest.raises(
+        ParameterError, match="cluster_key is required for proportions plot"
+    ):
         await viz_vel._create_velocity_proportions_plot(
             adata,
             VisualizationParameters(plot_type="velocity", subtype="proportions"),
@@ -480,7 +496,9 @@ async def test_heatmap_feature_string_and_velocity_genes_branches(
 
 
 @pytest.mark.asyncio
-async def test_heatmap_rejects_missing_requested_genes(minimal_spatial_adata, monkeypatch):
+async def test_heatmap_rejects_missing_requested_genes(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     adata.obs["latent_time"] = np.linspace(0.0, 1.0, adata.n_obs)
 
@@ -522,12 +540,16 @@ async def test_paga_success_recompute_and_uns_group_shortcut(
     monkeypatch.setattr(sc.pl, "paga", _plot_paga)
 
     fig, ax = plt.subplots()
-    monkeypatch.setattr(viz_vel, "create_figure_from_params", lambda *_a, **_k: (fig, [ax]))
+    monkeypatch.setattr(
+        viz_vel, "create_figure_from_params", lambda *_a, **_k: (fig, [ax])
+    )
 
     ctx = DummyCtx()
     out = await viz_vel._create_velocity_paga_plot(
         adata,
-        VisualizationParameters(plot_type="velocity", subtype="paga", cluster_key="group"),
+        VisualizationParameters(
+            plot_type="velocity", subtype="paga", cluster_key="group"
+        ),
         context=ctx,
     )
     assert out is fig
@@ -545,7 +567,9 @@ async def test_paga_success_recompute_and_uns_group_shortcut(
     calls["paga"] = 0
     out2 = await viz_vel._create_velocity_paga_plot(
         adata,
-        VisualizationParameters(plot_type="velocity", subtype="paga", title="Custom PAGA"),
+        VisualizationParameters(
+            plot_type="velocity", subtype="paga", title="Custom PAGA"
+        ),
         context=DummyCtx(),
     )
     assert out2 is fig2
@@ -572,7 +596,9 @@ async def test_paga_auto_selects_first_categorical_cluster_key(
     monkeypatch.setattr(sc.pl, "paga", _plot_paga)
 
     fig, ax = plt.subplots()
-    monkeypatch.setattr(viz_vel, "create_figure_from_params", lambda *_a, **_k: (fig, [ax]))
+    monkeypatch.setattr(
+        viz_vel, "create_figure_from_params", lambda *_a, **_k: (fig, [ax])
+    )
 
     out = await viz_vel._create_velocity_paga_plot(
         adata,

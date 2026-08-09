@@ -26,6 +26,7 @@ from ..utils.adata_utils import (
     require_spatial_coords,
     store_analysis_metadata,
 )
+from ..utils.async_utils import run_sync, run_sync_with_timeout
 from ..utils.compute import ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require, require_module
 from ..utils.device_utils import resolve_device_async
@@ -452,50 +453,38 @@ async def _identify_domains_spagcn(
                     f"Spatial coordinates length ({len(x_array)}) doesn't match data ({adata.shape[0]})"
                 )
 
-            # Add timeout protection for SpaGCN call which can hang
-            import asyncio
-            import concurrent.futures
-
-            # Run SpaGCN in a thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-
-                def _run_spagcn():
-                    with suppress_output():
-                        return detect_spatial_domains_ez_mode(
-                            adata,
-                            img,
-                            x_array,
-                            y_array,
-                            x_pixel,
-                            y_pixel,
-                            n_clusters=params.n_domains,
-                            histology=use_histology,
-                            s=params.spagcn_s,
-                            b=params.spagcn_b,
-                            p=params.spagcn_p,
-                            r_seed=params.spagcn_random_seed,
-                        )
-
-                future = loop.run_in_executor(executor, _run_spagcn)
-
-                # Simple, predictable timeout
-                timeout_seconds = (
-                    params.timeout if params.timeout else 600
-                )  # Default 10 minutes
-
-                try:
-                    domain_labels = await asyncio.wait_for(
-                        future, timeout=timeout_seconds
+            def _run_spagcn():
+                with suppress_output():
+                    return detect_spatial_domains_ez_mode(
+                        adata,
+                        img,
+                        x_array,
+                        y_array,
+                        x_pixel,
+                        y_pixel,
+                        n_clusters=params.n_domains,
+                        histology=use_histology,
+                        s=params.spagcn_s,
+                        b=params.spagcn_b,
+                        p=params.spagcn_p,
+                        r_seed=params.spagcn_random_seed,
                     )
-                except asyncio.TimeoutError as e:
-                    error_msg = (
-                        f"SpaGCN timed out after {timeout_seconds:.0f} seconds. "
-                        f"Dataset: {n_spots} spots, {adata.n_vars} genes. "
-                        "Try: 1) Reducing n_domains, 2) Using leiden/louvain instead, "
-                        "3) Preprocessing with fewer genes/spots, or 4) Adjusting parameters (s, b, p)."
-                    )
-                    raise ProcessingError(error_msg) from e
+
+            timeout_seconds = params.timeout if params.timeout is not None else 600
+            try:
+                domain_labels = await run_sync_with_timeout(
+                    _run_spagcn,
+                    timeout=timeout_seconds,
+                    process_name="chatspatial-spagcn",
+                )
+            except TimeoutError as e:
+                error_msg = (
+                    f"SpaGCN timed out after {timeout_seconds:.0f} seconds. "
+                    f"Dataset: {n_spots} spots, {adata.n_vars} genes. "
+                    "Try: 1) Reducing n_domains, 2) Using leiden/louvain instead, "
+                    "3) Preprocessing with fewer genes/spots, or 4) Adjusting parameters (s, b, p)."
+                )
+                raise ProcessingError(error_msg) from e
         except ChatSpatialError:
             raise
         except Exception as spagcn_error:
@@ -723,8 +712,6 @@ async def _identify_domains_stagate(
     clustered to define spatial domains. This method requires the `STAGATE_pyG`
     package.
     """
-    import asyncio
-
     torch = require("torch", ctx, feature="STAGATE spatial domain identification")
 
     # Check PyTorch version compatibility with torch_sparse/torch_geometric
@@ -772,21 +759,17 @@ async def _identify_domains_stagate(
         )
         device = torch.device(device_str)
 
-        # Train STAGATE with timeout protection
-        import concurrent.futures
+        timeout_seconds = params.timeout if params.timeout is not None else 600
 
-        loop = asyncio.get_running_loop()
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            timeout_seconds = params.timeout if params.timeout is not None else 600
+        def _train_stagate():
+            with suppress_output():
+                return STAGATE_pyG.train_STAGATE(adata_stagate, device=device)
 
-            def _train_stagate():
-                with suppress_output():
-                    return STAGATE_pyG.train_STAGATE(adata_stagate, device=device)
-
-            adata_stagate = await asyncio.wait_for(
-                loop.run_in_executor(executor, _train_stagate),
-                timeout=timeout_seconds,
-            )
+        adata_stagate = await run_sync_with_timeout(
+            _train_stagate,
+            timeout=timeout_seconds,
+            process_name="chatspatial-stagate",
+        )
 
         # Get embeddings
         embeddings_key = "STAGATE"
@@ -829,7 +812,7 @@ async def _identify_domains_stagate(
 
         return domain_labels, embeddings_key, statistics
 
-    except asyncio.TimeoutError as e:
+    except TimeoutError as e:
         raise ProcessingError(
             f"STAGATE training timeout after {params.timeout if params.timeout is not None else 600} seconds"
         ) from e
@@ -852,9 +835,6 @@ async def _identify_domains_graphst(
     relationships. The learned embeddings are then clustered to define spatial
     domains. This method requires the `GraphST` package.
     """
-    import asyncio
-    import concurrent.futures
-
     torch = require("torch", ctx, feature="GraphST spatial domain identification")
 
     graphst_module = require_module(
@@ -890,21 +870,17 @@ async def _identify_domains_graphst(
             random_seed=params.graphst_random_seed,
         )
 
-        # Train model (this is blocking, run in executor)
-        # Run training in thread pool to avoid blocking
-        loop = asyncio.get_running_loop()
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            # Set timeout
-            timeout_seconds = params.timeout if params.timeout is not None else 600
+        timeout_seconds = params.timeout if params.timeout is not None else 600
 
-            def _train_graphst():
-                with suppress_output():
-                    return model.train()
+        def _train_graphst():
+            with suppress_output():
+                return model.train()
 
-            adata_graphst = await asyncio.wait_for(
-                loop.run_in_executor(executor, _train_graphst),
-                timeout=timeout_seconds,
-            )
+        adata_graphst = await run_sync_with_timeout(
+            _train_graphst,
+            timeout=timeout_seconds,
+            process_name="chatspatial-graphst",
+        )
 
         # Get embeddings key
         embeddings_key = "emb"  # GraphST stores embeddings in adata.obsm['emb']
@@ -1005,9 +981,7 @@ async def _identify_domains_graphst(
                         )
                         adata_graphst.obs["domain"] = new_type
 
-        # Run clustering in thread pool
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            await loop.run_in_executor(executor, run_clustering_optimized)
+        await run_sync(run_clustering_optimized)
 
         # Get domain labels
         domain_labels = adata_graphst.obs["domain"].astype(str)
@@ -1029,7 +1003,7 @@ async def _identify_domains_graphst(
 
         return domain_labels, embeddings_key, statistics
 
-    except asyncio.TimeoutError as e:
+    except TimeoutError as e:
         raise ProcessingError(
             f"GraphST training timeout after {params.timeout if params.timeout is not None else 600} seconds"
         ) from e
@@ -1054,9 +1028,6 @@ async def _identify_domains_banksy(
     construction, making it more interpretable and reproducible. This method
     requires the `pybanksy` package.
     """
-    import asyncio
-    import concurrent.futures
-
     banksy_embed = require_module(
         "banksy",
         "banksy.embed_banksy",
@@ -1094,65 +1065,44 @@ async def _identify_domains_banksy(
         # x_col/y_col only used for plotting (disabled), obsm_key is the actual key
         coord_keys = ("x", "y", "spatial")
 
-        # Run BANKSY in thread pool to avoid blocking
-        loop = asyncio.get_running_loop()
         timeout_seconds = params.timeout if params.timeout is not None else 600
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            # Step 1: Initialize BANKSY (compute spatial graphs)
-            def init_banksy():
-                with suppress_output():
-                    return initialize_banksy(
-                        adata_banksy,
-                        coord_keys=coord_keys,
-                        num_neighbours=params.banksy_num_neighbours,
-                        max_m=params.banksy_max_m,
-                        plt_edge_hist=False,
-                        plt_nbr_weights=False,
-                        plt_theta=False,
-                    )
+        def _run_banksy():
+            with suppress_output():
+                banksy_dict = initialize_banksy(
+                    adata_banksy,
+                    coord_keys=coord_keys,
+                    num_neighbours=params.banksy_num_neighbours,
+                    max_m=params.banksy_max_m,
+                    plt_edge_hist=False,
+                    plt_nbr_weights=False,
+                    plt_theta=False,
+                )
+                _, banksy_matrix = generate_banksy_matrix(
+                    adata_banksy,
+                    banksy_dict,
+                    lambda_list=[params.banksy_lambda],
+                    max_m=params.banksy_max_m,
+                    verbose=False,
+                )
+                sc.pp.pca(banksy_matrix, n_comps=params.banksy_pca_dims)
+                sc.pp.neighbors(
+                    banksy_matrix,
+                    use_rep="X_pca",
+                    n_neighbors=params.banksy_num_neighbours,
+                )
+                sc.tl.leiden(
+                    banksy_matrix,
+                    resolution=params.banksy_cluster_resolution,
+                    key_added="banksy_cluster",
+                )
+                return banksy_matrix
 
-            banksy_dict = await asyncio.wait_for(
-                loop.run_in_executor(executor, init_banksy),
-                timeout=timeout_seconds,
-            )
-
-            # Step 2: Generate BANKSY matrix (feature augmentation)
-            def gen_matrix():
-                with suppress_output():
-                    return generate_banksy_matrix(
-                        adata_banksy,
-                        banksy_dict,
-                        lambda_list=[params.banksy_lambda],
-                        max_m=params.banksy_max_m,
-                        verbose=False,
-                    )
-
-            _, banksy_matrix = await asyncio.wait_for(
-                loop.run_in_executor(executor, gen_matrix),
-                timeout=timeout_seconds,
-            )
-
-            # Step 3: PCA on BANKSY matrix
-            def run_clustering():
-                with suppress_output():
-                    sc.pp.pca(banksy_matrix, n_comps=params.banksy_pca_dims)
-                    sc.pp.neighbors(
-                        banksy_matrix,
-                        use_rep="X_pca",
-                        n_neighbors=params.banksy_num_neighbours,
-                    )
-                    sc.tl.leiden(
-                        banksy_matrix,
-                        resolution=params.banksy_cluster_resolution,
-                        key_added="banksy_cluster",
-                    )
-                    return banksy_matrix
-
-            banksy_matrix = await asyncio.wait_for(
-                loop.run_in_executor(executor, run_clustering),
-                timeout=timeout_seconds,
-            )
+        banksy_matrix = await run_sync_with_timeout(
+            _run_banksy,
+            timeout=timeout_seconds,
+            process_name="chatspatial-banksy",
+        )
 
         # Extract domain labels
         domain_labels = banksy_matrix.obs["banksy_cluster"].astype(str)
@@ -1181,7 +1131,7 @@ async def _identify_domains_banksy(
 
         return domain_labels, embeddings_key, statistics
 
-    except asyncio.TimeoutError as e:
+    except TimeoutError as e:
         raise ProcessingError(
             f"BANKSY timeout after {params.timeout if params.timeout is not None else 600} seconds"
         ) from e
@@ -1372,9 +1322,6 @@ async def _identify_domains_aestetik(
     already be present in the dataset. Cluster refinement is left to the
     shared ``refine_domains`` stage so smoothing is applied exactly once.
     """
-    import asyncio
-    import concurrent.futures
-
     if sys.version_info >= (3, 14):
         raise DependencyError(
             "AESTETIK does not support Python 3.14. Run ChatSpatial with "
@@ -1420,55 +1367,53 @@ async def _identify_domains_aestetik(
         else:
             n_cluster = params.resolution
 
-        loop = asyncio.get_running_loop()
         timeout_seconds = params.timeout if params.timeout is not None else 600
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-
-            def _fit_aestetik():
-                previous_inputs = _install_aestetik_compatibility_inputs(
-                    adata_aestetik,
-                    params.aestetik_transcriptomics_key,
-                    params.aestetik_morphology_key,
-                )
-                try:
-                    with tempfile.TemporaryDirectory(
-                        prefix="chatspatial-aestetik-"
-                    ) as trainer_root:
-                        model = _managed_aestetik_estimator(
-                            estimator_cls,
-                            trainer_root,
-                            n_cluster=n_cluster,
-                            morphology_weight=params.aestetik_morphology_weight,
-                            window_size=params.aestetik_window_size,
-                            clustering_method=params.aestetik_clustering_method,
-                            latent_dim=params.aestetik_latent_dim,
-                            max_epochs=params.aestetik_max_epochs,
-                            random_state=params.aestetik_random_seed,
-                            refine_cluster=False,
-                            validation_split=0.0,
-                            used_obsm_transcriptomics=(
-                                _AESTETIK_TRANSCRIPTOMICS_OBSM_KEY
-                            ),
-                            used_obsm_morphology=_AESTETIK_MORPHOLOGY_OBSM_KEY,
-                            used_obsm_combined=_AESTETIK_COMBINED_OBSM_KEY,
-                        )
-                        with suppress_output():
-                            return model.fit(adata_aestetik)
-                finally:
-                    _restore_aestetik_compatibility_inputs(
-                        adata_aestetik, previous_inputs
-                    )
-
-            fitted = await asyncio.wait_for(
-                loop.run_in_executor(executor, _fit_aestetik),
-                timeout=timeout_seconds,
+        def _fit_aestetik():
+            previous_inputs = _install_aestetik_compatibility_inputs(
+                adata_aestetik,
+                params.aestetik_transcriptomics_key,
+                params.aestetik_morphology_key,
             )
+            try:
+                with tempfile.TemporaryDirectory(
+                    prefix="chatspatial-aestetik-"
+                ) as trainer_root:
+                    model = _managed_aestetik_estimator(
+                        estimator_cls,
+                        trainer_root,
+                        n_cluster=n_cluster,
+                        morphology_weight=params.aestetik_morphology_weight,
+                        window_size=params.aestetik_window_size,
+                        clustering_method=params.aestetik_clustering_method,
+                        latent_dim=params.aestetik_latent_dim,
+                        max_epochs=params.aestetik_max_epochs,
+                        random_state=params.aestetik_random_seed,
+                        refine_cluster=False,
+                        validation_split=0.0,
+                        used_obsm_transcriptomics=_AESTETIK_TRANSCRIPTOMICS_OBSM_KEY,
+                        used_obsm_morphology=_AESTETIK_MORPHOLOGY_OBSM_KEY,
+                        used_obsm_combined=_AESTETIK_COMBINED_OBSM_KEY,
+                    )
+                    with suppress_output():
+                        fitted_model = model.fit(adata_aestetik)
+                    return (
+                        np.asarray(fitted_model.embedding_),
+                        np.asarray(fitted_model.labels_).ravel(),
+                    )
+            finally:
+                _restore_aestetik_compatibility_inputs(adata_aestetik, previous_inputs)
+
+        embedding, labels = await run_sync_with_timeout(
+            _fit_aestetik,
+            timeout=timeout_seconds,
+            process_name="chatspatial-aestetik",
+        )
 
         # Publish the embedding and labels cached by this fit. transform() is
         # stochastic, so recomputing either one here would desynchronize them.
-        embedding = np.asarray(fitted.embedding_)
-        labels = np.asarray(fitted.labels_).ravel()
+        embedding = np.asarray(embedding)
+        labels = np.asarray(labels).ravel()
 
         if embedding.ndim != 2 or embedding.shape[0] != adata_aestetik.n_obs:
             raise ProcessingError(
@@ -1509,7 +1454,7 @@ async def _identify_domains_aestetik(
 
         return domain_labels, embeddings_key, statistics
 
-    except asyncio.TimeoutError as e:
+    except TimeoutError as e:
         raise ProcessingError(
             f"AESTETIK timeout after {params.timeout if params.timeout is not None else 600} seconds"
         ) from e

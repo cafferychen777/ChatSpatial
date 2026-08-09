@@ -42,7 +42,9 @@ def _extract_if_needed(file_path: Path, target_dir: Path) -> None:
             zf.extractall(target_dir)
         return
 
-    tar_like = suffixes[-2:] in ([".tar", ".gz"], [".tar", ".bz2"]) or suffixes[-1:] == [".tgz"]
+    tar_like = suffixes[-2:] in ([".tar", ".gz"], [".tar", ".bz2"]) or suffixes[
+        -1:
+    ] == [".tgz"]
     if tar_like:
         with tarfile.open(file_path, "r:*") as tf:
             tf.extractall(target_dir)
@@ -55,12 +57,20 @@ def _iter_enabled_datasets(registry: dict):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Fetch external datasets from registry")
+    parser = argparse.ArgumentParser(
+        description="Fetch external datasets from registry"
+    )
     parser.add_argument("--registry", default="scripts/data/dataset_registry.json")
     parser.add_argument("--list", action="store_true", help="List enabled datasets")
-    parser.add_argument("--dataset", action="append", help="Dataset id to fetch (repeatable)")
-    parser.add_argument("--dest", default=str(Path.home() / ".cache" / "chatspatial" / "datasets"))
-    parser.add_argument("--force", action="store_true", help="Re-download even if file exists")
+    parser.add_argument(
+        "--dataset", action="append", help="Dataset id to fetch (repeatable)"
+    )
+    parser.add_argument(
+        "--dest", default=str(Path.home() / ".cache" / "chatspatial" / "datasets")
+    )
+    parser.add_argument(
+        "--force", action="store_true", help="Re-download even if file exists"
+    )
     args = parser.parse_args()
 
     registry = _load_registry(Path(args.registry))
@@ -76,7 +86,9 @@ def main() -> None:
         datasets = [ds for ds in datasets if ds["id"] in selected]
 
     if not datasets:
-        raise SystemExit("No enabled datasets selected. Check --dataset and registry enabled flags.")
+        raise SystemExit(
+            "No enabled datasets selected. Check --dataset and registry enabled flags."
+        )
 
     dest = Path(args.dest)
     dest.mkdir(parents=True, exist_ok=True)
@@ -98,7 +110,9 @@ def main() -> None:
         if expected_sha:
             got_sha = _sha256(out_file)
             if got_sha.lower() != expected_sha.lower():
-                raise ValueError(f"Checksum mismatch for {ds['id']}: {got_sha} != {expected_sha}")
+                raise ValueError(
+                    f"Checksum mismatch for {ds['id']}: {got_sha} != {expected_sha}"
+                )
 
         if ds.get("extract", False):
             print(f"[extract] {ds['id']}")

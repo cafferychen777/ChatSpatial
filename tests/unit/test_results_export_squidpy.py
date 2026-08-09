@@ -43,9 +43,7 @@ def test_extract_squidpy_nhood_matrix_with_unused_categories(
 
     adata = minimal_spatial_adata.copy()
     # Categorical with 2 levels, only 1 observed
-    adata.obs["leiden"] = pd.Categorical(
-        ["A"] * adata.n_obs, categories=["A", "B"]
-    )
+    adata.obs["leiden"] = pd.Categorical(["A"] * adata.n_obs, categories=["A", "B"])
     # Squidpy builds 2x2 matrix (all categories)
     adata.uns["leiden_nhood_enrichment"] = {
         "zscore": np.array([[1.0, 0.5], [0.5, 2.0]]),
@@ -67,9 +65,7 @@ def test_extract_squidpy_nhood_matrix_observed_only(
     from chatspatial.utils.results_export import _extract_squidpy_spatial_result
 
     adata = minimal_spatial_adata.copy()
-    adata.obs["leiden"] = pd.Categorical(
-        ["A"] * adata.n_obs, categories=["A", "B"]
-    )
+    adata.obs["leiden"] = pd.Categorical(["A"] * adata.n_obs, categories=["A", "B"])
     # Hypothetical 1x1 matrix (observed-only)
     adata.uns["leiden_nhood_enrichment"] = {
         "zscore": np.array([[3.0]]),

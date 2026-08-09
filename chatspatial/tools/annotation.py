@@ -9,11 +9,14 @@ import hashlib
 import json
 import logging
 import os
+import ssl
 import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple, Optional
+from urllib.request import Request, urlopen
 
+import certifi
 import numpy as np
 import pandas as pd
 import scanpy as sc
@@ -40,6 +43,7 @@ from ..utils.adata_utils import (
     to_dense,
     validate_obs_column,
 )
+from ..utils.async_utils import run_sync
 from ..utils.dependency_manager import (
     get,
     require,
@@ -459,6 +463,212 @@ async def _annotate_with_singler(
     )
 
 
+async def _prepare_tangram_spatial_data(
+    adata: "ad.AnnData", ctx: "ToolContext"
+) -> "ad.AnnData":
+    """Use raw expression when available while retaining spatial coordinates."""
+    if adata.raw is None:
+        await ctx.warning(
+            "Raw data not available - may have gene name mismatches with reference"
+        )
+        return adata
+
+    spatial_data = adata.raw.to_adata()
+    spatial_key = get_spatial_key(adata)
+    if spatial_key:
+        spatial_data.obsm[spatial_key] = adata.obsm[spatial_key].copy()
+    return spatial_data
+
+
+def _resolve_tangram_training_genes(
+    reference_adata: "ad.AnnData", params: AnnotationParameters
+) -> list[str]:
+    """Resolve explicit, marker-derived, or HVG-derived training genes."""
+    if params.training_genes is not None:
+        return list(params.training_genes)
+    if params.marker_genes:
+        flattened = [gene for genes in params.marker_genes.values() for gene in genes]
+        return list(dict.fromkeys(flattened))
+    if "highly_variable" not in reference_adata.var:
+        raise DataNotFoundError(
+            "HVGs not found in reference data. Run preprocessing first."
+        )
+    return list(
+        reference_adata.var_names[reference_adata.var["highly_variable"].astype(bool)]
+    )
+
+
+async def _resolve_tangram_annotation_column(
+    reference_adata: "ad.AnnData",
+    params: AnnotationParameters,
+    ctx: "ToolContext",
+) -> tuple[str, str | None]:
+    """Resolve and validate the reference label column for the mapping mode."""
+    cluster_label = params.cluster_label
+    if params.tangram_mode == "clusters" and cluster_label is None:
+        await ctx.warning(
+            "Cluster label not provided for 'clusters' mode. "
+            "Using a detected cell type or cluster annotation."
+        )
+        cluster_label = get_cell_type_key(reference_adata) or get_cluster_key(
+            reference_adata
+        )
+    if params.tangram_mode == "clusters":
+        if cluster_label is None:
+            raise ParameterError(
+                "No cluster label found. Provide cluster_label parameter."
+            )
+        if cluster_label not in reference_adata.obs:
+            raise ParameterError(
+                f"Cluster column '{cluster_label}' not found in reference data."
+            )
+        return cluster_label, cluster_label
+
+    annotation_column = params.cell_type_key
+    if annotation_column is None:
+        raise ParameterError("cell_type_key is required for Tangram cell mapping.")
+    if annotation_column not in reference_adata.obs:
+        categorical_columns = [
+            column
+            for column in reference_adata.obs
+            if reference_adata.obs[column].dtype.name in {"object", "category"}
+        ]
+        raise ParameterError(
+            f"Cell type column '{annotation_column}' not found. "
+            f"Available: {categorical_columns[:5]}"
+        )
+    return annotation_column, cluster_label
+
+
+def _tangram_mapping_arguments(
+    params: AnnotationParameters,
+    *,
+    device: str,
+    cluster_label: str | None,
+) -> dict[str, str | int | float | None]:
+    """Build backend arguments without scattered conditional mutation."""
+    arguments: dict[str, str | int | float | None] = {
+        "mode": params.tangram_mode,
+        "num_epochs": params.n_epochs,
+        "device": device,
+        "density_prior": params.tangram_density_prior,
+        "learning_rate": params.tangram_learning_rate,
+    }
+    optional = {
+        "lambda_r": params.tangram_lambda_r,
+        "lambda_neighborhood": params.tangram_lambda_neighborhood,
+    }
+    arguments.update(
+        {key: value for key, value in optional.items() if value is not None}
+    )
+    if params.tangram_mode == "clusters":
+        arguments["cluster_label"] = cluster_label
+    return arguments
+
+
+def _extract_tangram_mapping_score(ad_map: Any) -> float:
+    """Extract the final Tangram similarity score from its training history."""
+    import re
+
+    if "training_history" not in ad_map.uns:
+        return 0.0
+    history = ad_map.uns["training_history"]
+    if not isinstance(history, dict) or not history.get("main_loss"):
+        raise ProcessingError(
+            f"Tangram history format not recognized: {type(history).__name__}. "
+            "Upgrade tangram-sc: pip install --upgrade tangram-sc"
+        )
+
+    last_value = history["main_loss"][-1]
+    if not isinstance(last_value, str):
+        return float(last_value)
+    match = re.search(r"tensor\(([-\d.]+)", last_value)
+    if match:
+        return float(match.group(1))
+    try:
+        return float(last_value)
+    except ValueError:
+        return 0.0
+
+
+async def _process_tangram_predictions(
+    adata_sp: "ad.AnnData",
+    *,
+    output_key: str,
+    confidence_key: str,
+    ctx: "ToolContext",
+) -> tuple[list[str], dict[str, int], dict[str, float]]:
+    """Normalize Tangram densities and derive labels and confidence summaries."""
+    if "tangram_ct_pred" not in adata_sp.obsm:
+        await ctx.warning("No cell type predictions found in Tangram results")
+        return [], {}, {}
+
+    cell_type_df = adata_sp.obsm["tangram_ct_pred"]
+    cell_types = list(cell_type_df.columns)
+    row_sums = cell_type_df.sum(axis=1)
+    zero_mask = row_sums == 0
+    probabilities = cell_type_df.div(row_sums, axis=0)
+    probabilities.loc[zero_mask] = 0.0
+
+    if not (probabilities.values >= 0).all():
+        await ctx.warning(
+            "Some normalized probabilities are negative - data quality issue"
+        )
+    if not (probabilities.values <= 1.0).all():
+        await ctx.warning(
+            "Some normalized probabilities exceed 1.0 - normalization failed"
+        )
+    valid_rows = ~zero_mask
+    if valid_rows.any() and not np.allclose(
+        probabilities.loc[valid_rows].sum(axis=1), 1.0
+    ):
+        await ctx.warning(
+            "Row sums don't equal 1.0 after normalization - numerical issue"
+        )
+
+    adata_sp.obs[output_key] = probabilities.idxmax(axis=1)
+    adata_sp.obs.loc[zero_mask, output_key] = "unassigned"
+    ensure_categorical(adata_sp, output_key)
+    per_cell_confidence = probabilities.max(axis=1)
+    per_cell_confidence.loc[zero_mask] = 0.0
+    adata_sp.obs[confidence_key] = per_cell_confidence.to_numpy()
+
+    if zero_mask.any() and "unassigned" not in cell_types:
+        cell_types.append("unassigned")
+    counts = adata_sp.obs[output_key].value_counts().to_dict()
+    confidence = {"unassigned": 0.0} if zero_mask.any() else {}
+    for cell_type in cell_type_df.columns:
+        assigned = adata_sp.obs[output_key] == cell_type
+        if assigned.any():
+            confidence[cell_type] = round(
+                float(probabilities.loc[assigned, cell_type].mean()), 3
+            )
+    return cell_types, counts, confidence
+
+
+def _transfer_tangram_outputs(
+    source: "ad.AnnData",
+    destination: "ad.AnnData",
+    *,
+    output_key: str,
+    confidence_key: str,
+    prediction_key: str,
+) -> None:
+    """Transfer parametrized Tangram outputs from a raw-data workspace."""
+    if source is destination:
+        return
+    for obs_key in (output_key, confidence_key):
+        if obs_key in source.obs:
+            destination.obs[obs_key] = source.obs[obs_key]
+    if "tangram_ct_pred" in source.obsm:
+        destination.obsm[prediction_key] = source.obsm["tangram_ct_pred"]
+    if "tangram_gene_predictions" in source.obsm:
+        gene_prediction_key = prediction_key.replace(
+            "tangram_ct_pred", "tangram_gene_predictions"
+        )
+        destination.obsm[gene_prediction_key] = source.obsm["tangram_gene_predictions"]
+
+
 async def _annotate_with_tangram(
     adata: "ad.AnnData",
     params: AnnotationParameters,
@@ -478,49 +688,13 @@ async def _annotate_with_tangram(
 
     # Use reference single-cell data (passed from main function via ctx.get_adata())
     adata_sc_original = reference_adata
-
-    # ===== CRITICAL FIX: Use raw data for Tangram to preserve gene name case =====
-    # Issue: Preprocessed data may have lowercase gene names, while reference has uppercase
-    # This causes 0 overlapping genes and Tangram mapping failure (all NaN results)
-    # Solution: Use adata.raw which preserves original gene names and full gene set
-    if adata.raw is not None:
-        # Use raw data which preserves original gene names
-        adata_sp = adata.raw.to_adata()
-        # Preserve spatial coordinates from preprocessed data
-        spatial_key = get_spatial_key(adata)
-        if spatial_key:
-            adata_sp.obsm[spatial_key] = adata.obsm[spatial_key].copy()
-    else:
-        adata_sp = adata
-        await ctx.warning(
-            "Raw data not available - may have gene name mismatches with reference"
-        )
-    # =============================================================================
+    adata_sp = await _prepare_tangram_spatial_data(adata, ctx)
 
     # Handle duplicate gene names
     await ensure_unique_var_names_async(adata_sc_original, ctx, "reference data")
     await ensure_unique_var_names_async(adata_sp, ctx, "spatial data")
 
-    # Determine training genes
-    training_genes = params.training_genes
-
-    if training_genes is None:
-        # Use marker genes if available
-        if params.marker_genes:
-            # Flatten marker genes dictionary
-            training_genes = []
-            for genes in params.marker_genes.values():
-                training_genes.extend(genes)
-            training_genes = list(dict.fromkeys(training_genes))  # Stable deduplication
-        else:
-            # Use highly variable genes
-            if "highly_variable" not in adata_sc_original.var:
-                raise DataNotFoundError(
-                    "HVGs not found in reference data. Run preprocessing first."
-                )
-            training_genes = list(
-                adata_sc_original.var_names[adata_sc_original.var.highly_variable]
-            )
+    training_genes = _resolve_tangram_training_genes(adata_sc_original, params)
 
     # Memory optimization: Use shallow copy (~99% memory savings)
     # Tangram's pp_adatas only adds to uns (training_genes), doesn't modify X
@@ -529,41 +703,9 @@ async def _annotate_with_tangram(
     # Preprocess data for Tangram
     tg.pp_adatas(adata_sc, adata_sp, genes=training_genes)
 
-    # Set mapping mode
-    mode = params.tangram_mode
-    cluster_label = params.cluster_label
-
-    if mode == "clusters" and cluster_label is None:
-        await ctx.warning(
-            "Cluster label not provided for 'clusters' mode. Using default cell type annotation if available."
-        )
-        # Try to find a cell type or cluster annotation in the reference data
-        cluster_label = get_cell_type_key(adata_sc) or get_cluster_key(adata_sc)
-
-        if cluster_label is None:
-            raise ParameterError(
-                "No cluster label found. Provide cluster_label parameter."
-            )
-
-    if mode == "clusters":
-        annotation_col = cluster_label
-        if annotation_col is None or annotation_col not in adata_sc.obs:
-            raise ParameterError(
-                f"Cluster column '{annotation_col}' not found in reference data."
-            )
-    else:
-        annotation_col = params.cell_type_key
-        if annotation_col not in adata_sc.obs:
-            available_cols = list(adata_sc.obs.columns)
-            categorical_cols = [
-                col
-                for col in available_cols
-                if adata_sc.obs[col].dtype.name in ["object", "category"]
-            ]
-            raise ParameterError(
-                f"Cell type column '{annotation_col}' not found. "
-                f"Available: {categorical_cols[:5]}"
-            )
+    annotation_col, cluster_label = await _resolve_tangram_annotation_column(
+        adata_sc, params, ctx
+    )
 
     # Device selection (supports CUDA, MPS, and CPU)
     device = get_device(prefer_gpu=params.tangram_use_gpu)
@@ -571,63 +713,16 @@ async def _annotate_with_tangram(
         await ctx.warning("GPU requested but not available - using CPU")
 
     # Run Tangram mapping with enhanced parameters
-    mapping_args: dict[str, str | int | float | None] = {
-        "mode": mode,
-        "num_epochs": params.n_epochs,
-        "device": device,
-        "density_prior": params.tangram_density_prior,  # Add density prior
-        "learning_rate": params.tangram_learning_rate,  # Add learning rate
-    }
-
-    # Add optional regularization parameters
-    if params.tangram_lambda_r is not None:
-        mapping_args["lambda_r"] = params.tangram_lambda_r
-
-    if params.tangram_lambda_neighborhood is not None:
-        mapping_args["lambda_neighborhood"] = params.tangram_lambda_neighborhood
-
-    if mode == "clusters":
-        mapping_args["cluster_label"] = cluster_label
+    mapping_args = _tangram_mapping_arguments(
+        params,
+        device=device,
+        cluster_label=cluster_label,
+    )
 
     ad_map = tg.map_cells_to_space(adata_sc, adata_sp, **mapping_args)
 
-    # Get mapping score from training history
-    tangram_mapping_score = 0.0  # Default score
     try:
-        if "training_history" in ad_map.uns:
-            history = ad_map.uns["training_history"]
-
-            # Extract score from main_loss (which is actually a similarity score, higher is better)
-            if (
-                isinstance(history, dict)
-                and "main_loss" in history
-                and len(history["main_loss"]) > 0
-            ):
-                import re
-
-                last_value = history["main_loss"][-1]
-
-                # Extract value from tensor string if needed
-                if isinstance(last_value, str):
-                    # Handle tensor string format: 'tensor(0.9050, grad_fn=...)'
-                    match = re.search(r"tensor\(([-\d.]+)", last_value)
-                    if match:
-                        tangram_mapping_score = float(match.group(1))
-                    else:
-                        # Try direct conversion
-                        try:
-                            tangram_mapping_score = float(last_value)
-                        except Exception:
-                            tangram_mapping_score = 0.0
-                else:
-                    tangram_mapping_score = float(last_value)
-
-            else:
-                error_msg = (
-                    f"Tangram history format not recognized: {type(history).__name__}. "
-                    f"Upgrade tangram-sc: pip install --upgrade tangram-sc"
-                )
-                raise ProcessingError(error_msg)
+        tangram_mapping_score = _extract_tangram_mapping_score(ad_map)
     except ChatSpatialError:
         raise
     except Exception as score_error:
@@ -661,80 +756,12 @@ async def _annotate_with_tangram(
             f"Tangram cell annotation projection failed: {proj_error}"
         ) from proj_error
 
-    # Get cell type predictions (keys provided by caller for single-point control)
-    cell_types: list[str] = []
-    counts: dict[str, int] = {}
-    confidence_scores: dict[str, float] = {}
-
-    if "tangram_ct_pred" in adata_sp.obsm:
-        cell_type_df = adata_sp.obsm["tangram_ct_pred"]
-
-        # Get cell types and counts
-        cell_types = list(cell_type_df.columns)
-
-        # ===== Row normalization for proper probability calculation =====
-        # tangram_ct_pred contains unnormalized density/abundance values, NOT probabilities
-        # Row sums can be != 1.0 and values can exceed 1.0
-        # We normalize to convert densities → probability distributions
-        row_sums = cell_type_df.sum(axis=1)
-        zero_mask = row_sums == 0
-        cell_type_prob = cell_type_df.div(row_sums, axis=0)
-
-        # Handle zero-sum rows (spots with no valid mapping)
-        if zero_mask.any():
-            cell_type_prob.loc[zero_mask] = 0.0
-
-        # Validation: Ensure normalized values are valid probabilities
-        if not (cell_type_prob.values >= 0).all():
-            await ctx.warning(
-                "Some normalized probabilities are negative - data quality issue"
-            )
-        if not (cell_type_prob.values <= 1.0).all():
-            await ctx.warning(
-                "Some normalized probabilities exceed 1.0 - normalization failed"
-            )
-        valid_rows = ~zero_mask
-        if valid_rows.any() and not np.allclose(
-            cell_type_prob.loc[valid_rows].sum(axis=1), 1.0
-        ):
-            await ctx.warning(
-                "Row sums don't equal 1.0 after normalization - numerical issue"
-            )
-
-        # Assign cell type based on highest probability
-        adata_sp.obs[output_key] = cell_type_prob.idxmax(axis=1)
-        if zero_mask.any():
-            adata_sp.obs.loc[zero_mask, output_key] = "unassigned"
-        ensure_categorical(adata_sp, output_key)
-
-        # Write per-cell confidence (max probability for assigned type)
-        per_cell_conf = cell_type_prob.max(axis=1)
-        if zero_mask.any():
-            per_cell_conf.loc[zero_mask] = 0.0
-        adata_sp.obs[confidence_key] = per_cell_conf.values
-
-        # Include "unassigned" in the cell_types list so that downstream
-        # metadata (n_cell_types, cell_types) matches the actual label space.
-        if zero_mask.any() and "unassigned" not in cell_types:
-            cell_types.append("unassigned")
-
-        # Get counts
-        counts = adata_sp.obs[output_key].value_counts().to_dict()
-
-        # Calculate per-cell-type aggregated confidence scores
-        confidence_scores = {}
-        for cell_type in cell_types:
-            if cell_type == "unassigned":
-                # Zero-sum rows have confidence 0 by definition
-                confidence_scores[cell_type] = 0.0
-                continue
-            cells_of_type = adata_sp.obs[output_key] == cell_type
-            if np.sum(cells_of_type) > 0:
-                mean_prob = cell_type_prob.loc[cells_of_type, cell_type].mean()
-                confidence_scores[cell_type] = round(float(mean_prob), 3)
-
-    else:
-        await ctx.warning("No cell type predictions found in Tangram results")
+    cell_types, counts, confidence_scores = await _process_tangram_predictions(
+        adata_sp,
+        output_key=output_key,
+        confidence_key=confidence_key,
+        ctx=ctx,
+    )
 
     # Validate results before returning
     if not cell_types:
@@ -747,27 +774,13 @@ async def _annotate_with_tangram(
             f"Tangram mapping score is suspiciously low: {tangram_mapping_score}"
         )
 
-    # Transfer results from the Tangram workspace to the query candidate.
-    # adata_sp may be built from adata.raw and therefore be a distinct object.
-    if adata_sp is not adata:
-        # Copy cell type assignments
-        if output_key in adata_sp.obs:
-            adata.obs[output_key] = adata_sp.obs[output_key]
-
-        # Copy per-cell confidence scores
-        if confidence_key in adata_sp.obs:
-            adata.obs[confidence_key] = adata_sp.obs[confidence_key]
-
-        # Copy tangram_ct_pred from obsm (parametrized key)
-        if "tangram_ct_pred" in adata_sp.obsm:
-            adata.obsm[tangram_ct_pred_key] = adata_sp.obsm["tangram_ct_pred"]
-
-        # Copy tangram_gene_predictions if they exist (parametrized key)
-        if "tangram_gene_predictions" in adata_sp.obsm:
-            gene_pred_key = tangram_ct_pred_key.replace(
-                "tangram_ct_pred", "tangram_gene_predictions"
-            )
-            adata.obsm[gene_pred_key] = adata_sp.obsm["tangram_gene_predictions"]
+    _transfer_tangram_outputs(
+        adata_sp,
+        adata,
+        output_key=output_key,
+        confidence_key=confidence_key,
+        prediction_key=tangram_ct_pred_key,
+    )
 
     return AnnotationMethodOutput(
         cell_types=cell_types,
@@ -1762,12 +1775,87 @@ for (pkg in required_packages) {
 }
 """
 
-_R_LOAD_SCTYPE_REMOTE = """
-source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gene_sets_prepare.R")
-source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/sctype_score_.R")
-"""
 
-_SCTYPE_DEFAULT_DB_URL = "https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScTypeDB_full.xlsx"
+class _PinnedResource(NamedTuple):
+    url: str
+    sha256: str
+
+
+_SCTYPE_UPSTREAM_COMMIT = "630e15cf1e51f2612eda4ad0406dfb17503fa8c9"
+_SCTYPE_RAW_BASE_URL = (
+    "https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/"
+    f"{_SCTYPE_UPSTREAM_COMMIT}"
+)
+_SCTYPE_PINNED_RESOURCES = {
+    "gene_sets_prepare.R": _PinnedResource(
+        f"{_SCTYPE_RAW_BASE_URL}/R/gene_sets_prepare.R",
+        "f1f6fc04b0edf88b8a17f8cc997eda129bfc84a5e71b1c9f074bd6aebd3749cc",
+    ),
+    "sctype_score_.R": _PinnedResource(
+        f"{_SCTYPE_RAW_BASE_URL}/R/sctype_score_.R",
+        "8df238b663f51d41e9db838861a5f4978635ad33bb68ad58d22b74b726455a27",
+    ),
+    "ScTypeDB_full.xlsx": _PinnedResource(
+        f"{_SCTYPE_RAW_BASE_URL}/ScTypeDB_full.xlsx",
+        "f9adcf25f056184107150f0413241c0ccd311cf98309bc4d412071ae38ccabad",
+    ),
+}
+_SCTYPE_DEFAULT_DB_URL = _SCTYPE_PINNED_RESOURCES["ScTypeDB_full.xlsx"].url
+
+
+def _sha256_file(path: Path) -> str:
+    """Return the SHA-256 digest of a local resource."""
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        while chunk := file.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _materialize_sctype_resource(resource_name: str) -> Path:
+    """Download a pinned scType resource and verify it before use."""
+    try:
+        resource = _SCTYPE_PINNED_RESOURCES[resource_name]
+    except KeyError as exc:
+        raise ParameterError(
+            f"Unknown pinned scType resource: {resource_name}"
+        ) from exc
+
+    resource_dir = _get_sctype_cache_dir() / "resources" / resource.sha256
+    destination = resource_dir / resource_name
+    if destination.is_file() and _sha256_file(destination) == resource.sha256:
+        return destination
+
+    request = Request(
+        resource.url,
+        headers={"User-Agent": "ChatSpatial-scType-resource-fetcher"},
+    )
+    tls_context = ssl.create_default_context(cafile=certifi.where())
+    try:
+        with (
+            urlopen(request, timeout=30, context=tls_context) as response,
+            atomic_output_path(destination) as staging_path,
+            staging_path.open("wb") as output,
+        ):
+            digest = hashlib.sha256()
+            while chunk := response.read(1024 * 1024):
+                output.write(chunk)
+                digest.update(chunk)
+            actual_digest = digest.hexdigest()
+            if actual_digest != resource.sha256:
+                raise DependencyError(
+                    f"Downloaded scType resource '{resource_name}' failed SHA-256 "
+                    f"verification (expected {resource.sha256}, got {actual_digest})."
+                )
+    except DependencyError:
+        raise
+    except OSError as exc:
+        raise DependencyError(
+            f"Failed to download pinned scType resource '{resource_name}': {exc}"
+        ) from exc
+
+    return destination
+
 
 _R_SCTYPE_SCORING = """
 # Set row/column names and convert to dense
@@ -1933,12 +2021,23 @@ def _get_sctype_cache_key(adata, params: AnnotationParameters) -> str:
                 path=script_dir / script_name,
             )
     else:
-        data_hash.update(_R_LOAD_SCTYPE_REMOTE.encode("utf-8"))
+        data_hash.update(_SCTYPE_UPSTREAM_COMMIT.encode("ascii"))
+        for resource_name in ("gene_sets_prepare.R", "sctype_score_.R"):
+            resource = _SCTYPE_PINNED_RESOURCES[resource_name]
+            data_hash.update(resource_name.encode("utf-8"))
+            data_hash.update(resource.sha256.encode("ascii"))
 
     if not params.sctype_custom_markers:
         db_path = params.sctype_db_ or _SCTYPE_DEFAULT_DB_URL
         if _is_remote_resource(db_path):
-            data_hash.update(f"remote-db:{db_path}".encode("utf-8"))
+            if db_path == _SCTYPE_DEFAULT_DB_URL:
+                data_hash.update(
+                    _SCTYPE_PINNED_RESOURCES["ScTypeDB_full.xlsx"].sha256.encode(
+                        "ascii"
+                    )
+                )
+            else:
+                data_hash.update(f"remote-db:{db_path}".encode("utf-8"))
         else:
             _update_hash_with_local_file(
                 data_hash,
@@ -2070,7 +2169,14 @@ def _load_sctype_functions(
                 "For persistent local use, set CHATSPATIAL_SCTYPE_R_DIR to a local script directory. "
                 "For persistent remote use, set CHATSPATIAL_ALLOW_REMOTE_R_SOURCE=1."
             )
-        load_script = _R_LOAD_SCTYPE_REMOTE
+        verified_scripts = [
+            _materialize_sctype_resource("gene_sets_prepare.R"),
+            _materialize_sctype_resource("sctype_score_.R"),
+        ]
+        escaped_paths = [
+            path.as_posix().replace('"', '\\"') for path in verified_scripts
+        ]
+        load_script = "\n".join(f'source("{path}")' for path in escaped_paths)
 
     r_env = r_env or validate_r_environment(ctx)
 
@@ -2122,6 +2228,8 @@ def _prepare_sctype_genesets(
                 "For persistent local use, provide a local sctype_db_ path. "
                 "For persistent remote use, set CHATSPATIAL_ALLOW_REMOTE_SCTYPE_DB=1."
             )
+        if db_path == _SCTYPE_DEFAULT_DB_URL:
+            db_path = _materialize_sctype_resource("ScTypeDB_full.xlsx").as_posix()
     else:
         local_db = Path(db_path).expanduser()
         if not local_db.is_file():
@@ -2482,32 +2590,35 @@ async def _annotate_with_sctype(
                 "sc-type cache entry is stale (cell count mismatch). Recomputing results."
             )
 
-    # Keep function loading, gene-set preparation, and scoring in one isolated
-    # R environment so request objects never leak into .GlobalEnv.
-    r_env = validate_r_environment(ctx, require_anndata2ri=True)
-    with r_env.local_context(anndata=True, pandas=True, numpy=True) as r_context:
-        _load_sctype_functions(
-            ctx,
-            allow_remote=params.sctype_allow_remote,
-            allow_runtime_install=params.sctype_allow_runtime_r_install,
-            r_env=r_env,
-            r_context=r_context,
-        )
-        gs_list = _prepare_sctype_genesets(
-            params,
-            ctx,
-            allow_remote=params.sctype_allow_remote,
-            r_env=r_env,
-            r_context=r_context,
-        )
-        scores_df = _run_sctype_scoring(
-            adata,
-            gs_list,
-            params,
-            ctx,
-            r_env=r_env,
-            r_context=r_context,
-        )
+    def _run_sctype_pipeline() -> pd.DataFrame:
+        # Keep function loading, gene-set preparation, and scoring in one
+        # isolated R environment so request objects never leak into .GlobalEnv.
+        r_env = validate_r_environment(ctx, require_anndata2ri=True)
+        with r_env.local_context(anndata=True, pandas=True, numpy=True) as r_context:
+            _load_sctype_functions(
+                ctx,
+                allow_remote=params.sctype_allow_remote,
+                allow_runtime_install=params.sctype_allow_runtime_r_install,
+                r_env=r_env,
+                r_context=r_context,
+            )
+            gs_list = _prepare_sctype_genesets(
+                params,
+                ctx,
+                allow_remote=params.sctype_allow_remote,
+                r_env=r_env,
+                r_context=r_context,
+            )
+            return _run_sctype_scoring(
+                adata,
+                gs_list,
+                params,
+                ctx,
+                r_env=r_env,
+                r_context=r_context,
+            )
+
+    scores_df = await run_sync(_run_sctype_pipeline)
     per_cell_types, per_cell_confidence = _assign_sctype_celltypes(scores_df, ctx)
 
     # Calculate statistics

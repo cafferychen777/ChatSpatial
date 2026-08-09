@@ -29,7 +29,10 @@ class DummyCtx:
     ],
 )
 async def test_create_expression_visualization_routes_other_subtypes(
-    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, subtype: str, target_attr: str
+    minimal_spatial_adata,
+    monkeypatch: pytest.MonkeyPatch,
+    subtype: str,
+    target_attr: str,
 ):
     sentinel = object()
     ctx = DummyCtx()
@@ -107,7 +110,9 @@ async def test_heatmap_requires_valid_features(minimal_spatial_adata, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_heatmap_success_calls_scanpy_and_logs(minimal_spatial_adata, monkeypatch):
+async def test_heatmap_success_calls_scanpy_and_logs(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     adata.obs["leiden"] = ["0"] * adata.n_obs
     ctx = DummyCtx()
@@ -169,7 +174,9 @@ async def test_violin_requires_valid_features(minimal_spatial_adata, monkeypatch
 
     monkeypatch.setattr(expr, "get_validated_features", _empty_features)
 
-    with pytest.raises(ParameterError, match="No valid gene features provided for violin plot"):
+    with pytest.raises(
+        ParameterError, match="No valid gene features provided for violin plot"
+    ):
         await expr._create_violin(
             adata,
             VisualizationParameters(
@@ -210,7 +217,9 @@ async def test_violin_success_calls_scanpy_and_logs(minimal_spatial_adata, monke
 
     assert fig is not None
     assert captured["groupby"] == "leiden"
-    assert any("Creating violin plot for 1 genes grouped by leiden" in m for m in ctx.infos)
+    assert any(
+        "Creating violin plot for 1 genes grouped by leiden" in m for m in ctx.infos
+    )
 
 
 @pytest.mark.asyncio
@@ -234,7 +243,9 @@ async def test_dotplot_requires_valid_features(minimal_spatial_adata, monkeypatc
 
     monkeypatch.setattr(expr, "get_validated_features", _empty_features)
 
-    with pytest.raises(ParameterError, match="No valid gene features provided for dot plot"):
+    with pytest.raises(
+        ParameterError, match="No valid gene features provided for dot plot"
+    ):
         await expr._create_dotplot(
             adata,
             VisualizationParameters(
@@ -324,7 +335,9 @@ async def test_dotplot_maps_var_groups_and_logs(minimal_spatial_adata, monkeypat
     assert called["var_names"] == {"T cells": ["gene_0"], "B cells": ["gene_1"]}
     assert "var_group_positions" not in called
     assert "var_group_labels" not in called
-    assert any("Creating dot plot for 2 genes grouped by leiden" in m for m in ctx.infos)
+    assert any(
+        "Creating dot plot for 2 genes grouped by leiden" in m for m in ctx.infos
+    )
 
 
 @pytest.mark.asyncio
@@ -346,7 +359,9 @@ async def test_correlation_rejects_single_gene(minimal_spatial_adata, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_correlation_uses_requested_method_and_logs(minimal_spatial_adata, monkeypatch):
+async def test_correlation_uses_requested_method_and_logs(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     ctx = DummyCtx()
     captured: dict[str, object] = {}
@@ -356,7 +371,9 @@ async def test_correlation_uses_requested_method_and_logs(minimal_spatial_adata,
 
     monkeypatch.setattr(expr, "get_validated_features", _features)
     monkeypatch.setattr(
-        expr, "get_genes_expression", lambda *_args, **_kwargs: np.array([[1, 2, 3], [2, 4, 6], [3, 6, 9]])
+        expr,
+        "get_genes_expression",
+        lambda *_args, **_kwargs: np.array([[1, 2, 3], [2, 4, 6], [3, 6, 9]]),
     )
 
     class _Grid:

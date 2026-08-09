@@ -3,16 +3,19 @@ Integration tools for spatial transcriptomics data.
 """
 
 import logging
-from typing import TYPE_CHECKING, Optional, Union
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Optional, TypedDict, Union
 
 import anndata as ad
 import numpy as np
 import pandas as pd
 import scanpy as sc
+from scipy import sparse
 
 from ..models.analysis import IntegrationResult
 from ..models.data import IntegrationParameters
 from ..utils.adata_utils import check_is_integer_counts
+from ..utils.async_utils import run_sync
 from ..utils.dependency_manager import require
 from ..utils.device_utils import get_accelerator
 from ..utils.exceptions import (
@@ -34,6 +37,102 @@ from ..utils.adata_utils import (
 from ..utils.results_export import export_analysis_result
 
 logger = logging.getLogger(__name__)
+
+_ORIGINAL_OBS_NAME_KEY = "_chatspatial_original_obs_name"
+
+
+class _ScviSettings(TypedDict):
+    """Typed scVI arguments shared by execution and provenance metadata."""
+
+    n_hidden: int
+    n_latent: int
+    n_layers: int
+    dropout_rate: float
+    gene_likelihood: str
+    n_epochs: int | None
+    use_gpu: bool
+
+
+def _available_obs_key(columns: pd.Index, preferred: str) -> str:
+    """Return a deterministic observation-column name without overwriting data."""
+    if preferred not in columns:
+        return preferred
+
+    suffix = 1
+    while f"{preferred}_{suffix}" in columns:
+        suffix += 1
+    return f"{preferred}_{suffix}"
+
+
+def _normalize_sample_keys(
+    adatas: Sequence[ad.AnnData], sample_keys: Sequence[str] | None
+) -> list[str]:
+    """Validate or create stable per-input keys for observation identities."""
+    keys = (
+        [f"sample_{index}" for index in range(len(adatas))]
+        if sample_keys is None
+        else [str(key) for key in sample_keys]
+    )
+    if len(keys) != len(adatas):
+        raise ParameterError(
+            "sample_keys must contain exactly one key for each input dataset."
+        )
+    if any(not key for key in keys):
+        raise ParameterError("sample_keys cannot contain empty values.")
+    if len(set(keys)) != len(keys):
+        raise ParameterError("sample_keys must be unique.")
+    return keys
+
+
+def _concatenate_samples(
+    adatas: Sequence[ad.AnnData],
+    *,
+    batch_key: str,
+    sample_keys: Sequence[str] | None,
+) -> ad.AnnData:
+    """Concatenate inputs without mutation and create globally unique cell IDs."""
+    keys = _normalize_sample_keys(adatas, sample_keys)
+    for key, adata in zip(keys, adatas, strict=True):
+        if not adata.obs_names.is_unique:
+            raise DataError(
+                f"Input dataset '{key}' contains duplicate observation names; "
+                "integration requires unique cell IDs within each sample."
+            )
+
+    original_obs_names = np.concatenate(
+        [adata.obs_names.astype(str).to_numpy() for adata in adatas]
+    )
+    source_samples = np.concatenate(
+        [np.repeat(key, adata.n_obs) for key, adata in zip(keys, adatas, strict=True)]
+    )
+
+    combined = ad.concat(
+        adatas,
+        keys=keys,
+        join="outer",
+        merge="first",
+        uns_merge="first",
+        index_unique=":",
+    )
+    if not combined.obs_names.is_unique:
+        raise DataError(
+            "Integration could not construct globally unique observation names."
+        )
+
+    original_name_key = _available_obs_key(combined.obs.columns, _ORIGINAL_OBS_NAME_KEY)
+    combined.obs[original_name_key] = original_obs_names
+
+    if batch_key not in combined.obs:
+        combined.obs[batch_key] = source_samples
+    elif combined.obs[batch_key].isna().any():
+        # Concatenating a mixture of labeled and unlabeled inputs creates missing
+        # values. Fill only those cells, preserving labels supplied by callers.
+        batch_values = combined.obs[batch_key].astype(object)
+        missing_batch = batch_values.isna().to_numpy()
+        batch_values.iloc[missing_batch] = source_samples[missing_batch]
+        combined.obs[batch_key] = batch_values
+
+    return combined
 
 
 def _orient_harmony_embedding(embedding: object, n_obs: int) -> np.ndarray:
@@ -144,12 +243,339 @@ def _reassemble_scanorama_embeddings(
     return reassembled
 
 
+def _clean_concatenated_metadata(combined: ad.AnnData) -> None:
+    """Normalize outer-join metadata and remove incomplete graph artifacts."""
+    for column in combined.var.columns:
+        values = combined.var[column]
+        is_label_column = pd.api.types.is_object_dtype(
+            values.dtype
+        ) or pd.api.types.is_string_dtype(values.dtype)
+        if not is_label_column or not values.isna().any():
+            continue
+
+        unique_values = values.dropna().unique()
+        if set(unique_values).issubset({True, False, "True", "False"}):
+            mapped = values.map(
+                {True: True, False: False, "True": True, "False": False}
+            )
+            combined.var[column] = mapped.astype("boolean").fillna(False).astype(bool)
+        else:
+            combined.var[column] = values.fillna("").astype(str)
+
+    combined.obsm.pop("X_diffmap", None)
+    combined.uns.pop("diffmap_evals", None)
+
+
+def _prepare_combined_input(
+    adatas: Union[list[ad.AnnData], ad.AnnData],
+    *,
+    batch_key: str,
+    sample_keys: Sequence[str] | None,
+) -> ad.AnnData:
+    """Build and validate the integration workspace."""
+    if isinstance(adatas, list):
+        if len(adatas) < 2:
+            raise ParameterError(
+                f"Integration requires at least 2 datasets, got {len(adatas)}. "
+                "Use preprocess_data for single dataset processing."
+            )
+        combined = _concatenate_samples(
+            adatas,
+            batch_key=batch_key,
+            sample_keys=sample_keys,
+        )
+        _clean_concatenated_metadata(combined)
+    else:
+        combined = adatas
+        if batch_key not in combined.obs:
+            raise ParameterError(
+                f"Merged dataset is missing batch information key '{batch_key}'"
+            )
+
+    is_integer, _, _ = check_is_integer_counts(combined.X)
+    if is_integer:
+        raise DataError("Data appears to be raw counts. Run preprocessing first.")
+    validate_adata_basics(combined, min_obs=10, min_vars=10, check_empty_ratio=True)
+    return combined
+
+
+def _ensure_integration_hvgs(combined: ad.AnnData, batch_key: str) -> None:
+    """Ensure a useful highly-variable-gene mask exists after concatenation."""
+    n_hvg = int(combined.var.get("highly_variable", pd.Series(dtype=bool)).sum())
+    if "highly_variable" not in combined.var:
+        reason = "No highly variable genes marked after merge"
+    elif n_hvg == 0:
+        reason = "No genes marked as highly variable after merge"
+    elif n_hvg < 50:
+        reason = f"Very few HVGs ({n_hvg})"
+    else:
+        return
+
+    logger.warning("%s, recalculating with batch correction", reason)
+    sc.pp.highly_variable_genes(
+        combined,
+        min_mean=0.0125,
+        max_mean=3,
+        min_disp=0.5,
+        batch_key=batch_key,
+        n_top_genes=2000,
+    )
+
+
+def _run_scvi_integration(
+    combined: ad.AnnData,
+    *,
+    batch_key: str,
+    params: IntegrationParameters | None,
+) -> ad.AnnData:
+    """Run scVI integration and record its method-specific provenance."""
+    settings: _ScviSettings = {
+        "n_hidden": params.scvi_n_hidden if params else 128,
+        "n_latent": params.scvi_n_latent if params else 10,
+        "n_layers": params.scvi_n_layers if params else 1,
+        "dropout_rate": params.scvi_dropout_rate if params else 0.1,
+        "gene_likelihood": params.scvi_gene_likelihood if params else "zinb",
+        "n_epochs": params.n_epochs if params else None,
+        "use_gpu": params.use_gpu if params else False,
+    }
+    try:
+        combined = integrate_with_scvi(combined, batch_key=batch_key, **settings)
+    except ChatSpatialError:
+        raise
+    except Exception as exc:
+        raise ProcessingError(
+            f"scVI integration failed: {exc}. "
+            "Ensure data is preprocessed and has ≥2 batches."
+        ) from exc
+
+    sc.tl.umap(combined)
+    _store_integration_metadata(
+        combined,
+        method="scvi",
+        batch_key=batch_key,
+        parameters={"batch_key": batch_key, **settings},
+        results_keys={"obsm": ["X_scvi"]},
+    )
+    return combined
+
+
+def _nonzero_variance_mask(matrix) -> np.ndarray:
+    """Return a dense boolean mask without densifying sparse expression data."""
+    if sparse.issparse(matrix):
+        means = np.asarray(matrix.mean(axis=0)).ravel()
+        mean_squares = np.asarray(matrix.power(2).mean(axis=0)).ravel()
+        variances = mean_squares - means**2
+    else:
+        variances = np.var(matrix, axis=0)
+    return np.asarray(variances > 0).ravel()
+
+
+def _scale_integration_data(combined: ad.AnnData) -> ad.AnnData:
+    """Scale on isolated candidates so a failed strategy leaves no partial state."""
+    errors: list[Exception] = []
+    for zero_center in (True, False):
+        candidate = combined.copy()
+        try:
+            sc.pp.scale(candidate, zero_center=zero_center, max_value=10)
+            values = candidate.X.data if sparse.issparse(candidate.X) else candidate.X
+            if not np.isfinite(values).all():
+                raise ProcessingError("Scaling produced non-finite expression values")
+            return candidate
+        except Exception as exc:
+            errors.append(exc)
+            strategy = "Zero-centered" if zero_center else "Non-zero-centered"
+            logger.warning("%s scaling failed: %s", strategy, exc)
+
+    raise ProcessingError(
+        "Data scaling failed completely. "
+        f"Zero-center error: {errors[0]}. "
+        f"Non-zero-center error: {errors[1]}. "
+        "This usually indicates extreme outliers or invalid values. "
+        "Consider additional quality control or outlier removal."
+    ) from errors[-1]
+
+
+def _compute_integration_pca(combined: ad.AnnData, n_pcs: int) -> None:
+    """Validate the scaled matrix and compute PCA with ordered fallbacks."""
+    max_components = min(n_pcs, combined.n_vars, combined.n_obs - 1)
+    if max_components < 2:
+        raise DataError(
+            f"Cannot perform PCA: only {max_components} components possible. "
+            f"Dataset has {combined.n_obs} cells and {combined.n_vars} genes. "
+            "Minimum 2 components required for downstream analysis."
+        )
+
+    values = combined.X.data if sparse.issparse(combined.X) else combined.X
+    if np.isnan(values).any():
+        raise DataError("Data contains NaN values after scaling")
+    if np.isinf(values).any():
+        raise DataError("Data contains infinite values after scaling")
+
+    for solver, component_cap in (("arpack", 50), ("randomized", 50), ("full", 20)):
+        try:
+            sc.tl.pca(
+                combined,
+                n_comps=min(max_components, component_cap),
+                svd_solver=solver,
+                zero_center=False,
+            )
+            return
+        except Exception as exc:
+            logger.warning("PCA with %s solver failed: %s", solver, exc)
+
+    raise ProcessingError(
+        f"PCA failed for {combined.n_obs}×{combined.n_vars} data. Check data quality."
+    )
+
+
+def _prepare_classical_integration(combined: ad.AnnData, n_pcs: int) -> ad.AnnData:
+    """Select HVGs, remove constant genes, scale, and compute PCA."""
+    if "highly_variable" in combined.var:
+        hvg_mask = combined.var["highly_variable"].astype(bool).to_numpy()
+        if not hvg_mask.any():
+            raise DataError(
+                "No highly variable genes found. Check HVG selection parameters."
+            )
+        combined = combined[:, hvg_mask]
+
+    nonzero_variance = _nonzero_variance_mask(combined.X)
+    if not nonzero_variance.all():
+        logger.warning(
+            "Removing %d genes with zero variance before scaling",
+            int((~nonzero_variance).sum()),
+        )
+        combined = combined[:, nonzero_variance]
+
+    combined = _scale_integration_data(combined)
+    _compute_integration_pca(combined, n_pcs)
+    return combined
+
+
+def _integrate_harmony(combined: ad.AnnData, batch_key: str) -> None:
+    """Apply Harmony and construct the corrected neighbor graph."""
+    harmonypy = require("harmonypy", feature="Harmony integration")
+    try:
+        harmony_out = harmonypy.run_harmony(
+            data_mat=combined.obsm["X_pca"],
+            meta_data=pd.DataFrame({batch_key: combined.obs[batch_key].values}),
+            vars_use=[batch_key],
+            max_iter_harmony=10,
+            verbose=True,
+        )
+        combined.obsm["X_pca_harmony"] = _orient_harmony_embedding(
+            harmony_out.Z_corr, combined.n_obs
+        )
+        sc.pp.neighbors(combined, use_rep="X_pca_harmony")
+    except Exception as exc:
+        raise ProcessingError(
+            f"Harmony integration failed: {exc}. "
+            f"Check batch_key '{batch_key}' has ≥2 valid batches."
+        ) from exc
+
+
+def _integrate_scanorama(combined: ad.AnnData, batch_key: str, n_pcs: int) -> None:
+    """Apply the Scanpy wrapper or its row-order-preserving raw fallback."""
+    scanorama = require("scanorama", feature="Scanorama integration")
+    try:
+        import scanpy.external as sce
+
+        if hasattr(sce.pp, "scanorama_integrate"):
+            sce.pp.scanorama_integrate(
+                combined,
+                key=batch_key,
+                basis="X_pca",
+                adjusted_basis="X_scanorama",
+            )
+        else:
+            batch_indices = [
+                np.flatnonzero((combined.obs[batch_key] == batch).to_numpy())
+                for batch in combined.obs[batch_key].unique()
+            ]
+            datasets = [combined[index].X for index in batch_indices]
+            genes = [combined[index].var_names.tolist() for index in batch_indices]
+            integrated, _ = scanorama.integrate(datasets, genes, dimred=n_pcs)
+            combined.obsm["X_scanorama"] = _reassemble_scanorama_embeddings(
+                batch_indices, integrated, combined.n_obs
+            )
+        sc.pp.neighbors(combined, use_rep="X_scanorama")
+    except Exception as exc:
+        raise ProcessingError(
+            f"Scanorama integration failed: {exc}. Check gene overlap between batches."
+        ) from exc
+
+
+def _apply_classical_batch_correction(
+    combined: ad.AnnData,
+    *,
+    method: str,
+    batch_key: str,
+    n_pcs: int,
+) -> None:
+    """Dispatch one classical integration backend."""
+    if method == "harmony":
+        _integrate_harmony(combined, batch_key)
+    elif method == "bbknn":
+        bbknn = require("bbknn", feature="BBKNN integration")
+        bbknn.bbknn(combined, batch_key=batch_key, neighbors_within_batch=3)
+    elif method == "scanorama":
+        _integrate_scanorama(combined, batch_key, n_pcs)
+    else:
+        logger.warning(
+            "Integration method '%s' not recognized. Using uncorrected PCA embedding.",
+            method,
+        )
+        sc.pp.neighbors(combined)
+
+
+def _integration_results_keys(
+    combined: ad.AnnData, method: str
+) -> dict[str, list[str]]:
+    """Describe the representation produced by an integration method."""
+    if method == "harmony":
+        key = "X_pca_harmony" if "X_pca_harmony" in combined.obsm else "X_harmony"
+        return {"obsm": [key]}
+    if method == "bbknn":
+        return {}
+    if method == "scanorama":
+        return {"obsm": ["X_scanorama"]}
+    return {"obsm": ["X_pca"]}
+
+
+def _store_integration_metadata(
+    combined: ad.AnnData,
+    *,
+    method: str,
+    batch_key: str,
+    parameters: dict,
+    results_keys: dict[str, list[str]],
+) -> None:
+    """Store H5AD-safe integration provenance."""
+    batch_sizes = {
+        str(key): int(value)
+        for key, value in combined.obs[batch_key].value_counts().to_dict().items()
+    }
+    store_analysis_metadata(
+        combined,
+        analysis_name=f"integration_{method}",
+        method=method,
+        parameters=parameters,
+        results_keys=results_keys,
+        statistics={
+            "n_batches": int(combined.obs[batch_key].nunique()),
+            "batch_sizes": batch_sizes,
+            "n_cells_total": int(combined.n_obs),
+            "n_genes": int(combined.n_vars),
+        },
+    )
+
+
 def integrate_multiple_samples(
     adatas: Union[list[ad.AnnData], ad.AnnData],
     batch_key: str = "batch",
     method: str = "harmony",
     n_pcs: int = 30,
     params: Optional[IntegrationParameters] = None,
+    sample_keys: Sequence[str] | None = None,
 ) -> ad.AnnData:
     """Integrate multiple spatial transcriptomics samples.
 
@@ -162,6 +588,7 @@ def integrate_multiple_samples(
         method: Integration method ('harmony', 'bbknn', 'scanorama', 'scvi').
         n_pcs: Number of principal components for integration.
         params: Optional IntegrationParameters for method-specific settings.
+        sample_keys: Stable source identifiers used to make cell IDs globally unique.
 
     Returns:
         Integrated AnnData with batch correction applied.
@@ -171,128 +598,12 @@ def integrate_multiple_samples(
         DataError: If data is not properly preprocessed.
     """
 
-    # Merge datasets
-    if isinstance(adatas, list):
-        # Validate list has at least 2 datasets for integration
-        if len(adatas) < 2:
-            raise ParameterError(
-                f"Integration requires at least 2 datasets, got {len(adatas)}. "
-                "Use preprocess_data for single dataset processing."
-            )
-
-        # Check if datasets have batch labels
-        has_batch_labels = all(batch_key in adata.obs for adata in adatas)
-
-        if not has_batch_labels:
-            # Auto-create batch labels for multi-sample integration
-            # Each sample becomes its own batch (scientifically correct for independent samples)
-            for i, adata in enumerate(adatas):
-                if batch_key not in adata.obs:
-                    adata.obs[batch_key] = f"sample_{i}"
-
-        # Merge datasets with stable obs semantics and outer-gene union.
-        # Use anndata.concat (AnnData.concatenate is deprecated).
-        combined = ad.concat(
-            adatas,
-            join="outer",
-            merge="first",
-            uns_merge="first",
-            index_unique=None,
-        )
-
-        # Clean label-like var columns with missing values. Pandas 3 infers
-        # StringDtype instead of object dtype, so branch on semantic type.
-        # Problem: outer join creates NA values in var columns when genes don't exist in all samples
-        # When object columns contain NA, H5AD save corrupts var.index (becomes 0,1,2...)
-        # and moves gene names to _index column
-        # Solution: Fill NA with appropriate values or convert types
-        for col in combined.var.columns:
-            if (
-                pd.api.types.is_object_dtype(combined.var[col].dtype)
-                or pd.api.types.is_string_dtype(combined.var[col].dtype)
-            ) and combined.var[col].isna().any():
-                # For boolean-like columns (highly_variable, etc.), fill NA with False
-                unique_vals = combined.var[col].dropna().unique()
-                if set(unique_vals).issubset({True, False, "True", "False"}):
-                    combined.var[col] = (
-                        combined.var[col]
-                        .map({True: True, False: False, "True": True, "False": False})
-                        .fillna(False)
-                        .astype(bool)
-                    )
-                else:
-                    # For string columns, fill NA with empty string
-                    combined.var[col] = combined.var[col].fillna("").astype(str)
-
-        # FIX: Remove incomplete diffmap artifacts created by concatenation (scanpy issue #1021)
-        # Problem: concatenate() copies obsm['X_diffmap'] but NOT uns['diffmap_evals']
-        # This creates incomplete state that causes KeyError in sc.tl.umap()
-        # Solution: Delete incomplete artifacts to allow UMAP to use default initialization
-        if "X_diffmap" in combined.obsm:
-            del combined.obsm["X_diffmap"]
-        if "diffmap_evals" in combined.uns:
-            del combined.uns["diffmap_evals"]
-
-    else:
-        # If already a merged dataset, ensure it has batch information
-        combined = adatas
-        if batch_key not in combined.obs:
-            raise ParameterError(
-                f"Merged dataset is missing batch information key '{batch_key}'"
-            )
-
-    # Validate input data is preprocessed using SSOT integer check
-    is_int, _, _ = check_is_integer_counts(combined.X)
-    if is_int:
-        raise DataError("Data appears to be raw counts. Run preprocessing first.")
-
-    # Validate data quality before processing
-    validate_adata_basics(combined, min_obs=10, min_vars=10, check_empty_ratio=True)
-
-    # Check if data has highly variable genes marked (should be done in preprocessing)
-    if "highly_variable" not in combined.var.columns:
-        logger.warning(
-            "No highly variable genes marked after merge. Recalculating HVGs with batch correction."
-        )
-        # Recalculate HVGs with batch correction
-        sc.pp.highly_variable_genes(
-            combined,
-            min_mean=0.0125,
-            max_mean=3,
-            min_disp=0.5,
-            batch_key=batch_key,
-            n_top_genes=2000,
-        )
-        n_hvg = combined.var["highly_variable"].sum()
-    else:
-        n_hvg = combined.var["highly_variable"].sum()
-        if n_hvg == 0:
-            logger.warning(
-                "No genes marked as highly variable after merge, recalculating"
-            )
-            # Recalculate HVGs with batch correction
-            sc.pp.highly_variable_genes(
-                combined,
-                min_mean=0.0125,
-                max_mean=3,
-                min_disp=0.5,
-                batch_key=batch_key,
-                n_top_genes=2000,
-            )
-            n_hvg = combined.var["highly_variable"].sum()
-        elif n_hvg < 50:
-            logger.warning(
-                f"Very few HVGs ({n_hvg}), recalculating with batch correction"
-            )
-            sc.pp.highly_variable_genes(
-                combined,
-                min_mean=0.0125,
-                max_mean=3,
-                min_disp=0.5,
-                batch_key=batch_key,
-                n_top_genes=2000,
-            )
-            n_hvg = combined.var["highly_variable"].sum()
+    combined = _prepare_combined_input(
+        adatas,
+        batch_key=batch_key,
+        sample_keys=sample_keys,
+    )
+    _ensure_integration_hvgs(combined, batch_key)
 
     # NOTE: Do NOT set combined.raw here if it is None.
     # Input data is already normalized+log-transformed (see docstring).
@@ -315,341 +626,31 @@ def integrate_multiple_samples(
     # NOTE: scVI-tools methods work better with ALL genes, not just HVGs
     # ========================================================================
     if method == "scvi":
-        # Use user-configurable parameters if provided, otherwise use defaults
-        # This ensures scientific reproducibility and user control
-        scvi_n_hidden = params.scvi_n_hidden if params else 128
-        scvi_n_latent = params.scvi_n_latent if params else 10
-        scvi_n_layers = params.scvi_n_layers if params else 1
-        scvi_dropout_rate = params.scvi_dropout_rate if params else 0.1
-        scvi_gene_likelihood = params.scvi_gene_likelihood if params else "zinb"
-        scvi_n_epochs = params.n_epochs if params else None
-        scvi_use_gpu = params.use_gpu if params else False
-
-        try:
-            combined = integrate_with_scvi(
-                combined,
-                batch_key=batch_key,
-                n_hidden=scvi_n_hidden,
-                n_latent=scvi_n_latent,
-                n_layers=scvi_n_layers,
-                dropout_rate=scvi_dropout_rate,
-                gene_likelihood=scvi_gene_likelihood,
-                n_epochs=scvi_n_epochs,
-                use_gpu=scvi_use_gpu,
-            )
-        except ChatSpatialError:
-            raise
-        except Exception as e:
-            raise ProcessingError(
-                f"scVI integration failed: {e}. "
-                f"Ensure data is preprocessed and has ≥2 batches."
-            ) from e
-
-        # Calculate UMAP embedding to visualize integration effect
-        sc.tl.umap(combined)
-
-        # Store metadata for scientific provenance tracking
-        n_batches = combined.obs[batch_key].nunique()
-        batch_sizes = combined.obs[batch_key].value_counts().to_dict()
-
-        # CRITICAL FIX: Convert dict keys to strings for H5AD compatibility
-        batch_sizes = {str(k): int(v) for k, v in batch_sizes.items()}
-
-        store_analysis_metadata(
-            combined,
-            analysis_name="integration_scvi",
-            method="scvi",
-            parameters={
-                "batch_key": batch_key,
-                "n_hidden": scvi_n_hidden,
-                "n_latent": scvi_n_latent,
-                "n_layers": scvi_n_layers,
-                "dropout_rate": scvi_dropout_rate,
-                "gene_likelihood": scvi_gene_likelihood,
-                "n_epochs": scvi_n_epochs,
-                "use_gpu": scvi_use_gpu,
-            },
-            results_keys={"obsm": ["X_scvi"]},
-            statistics={
-                "n_batches": int(n_batches),
-                "batch_sizes": batch_sizes,
-                "n_cells_total": int(combined.n_obs),
-                "n_genes": int(combined.n_vars),
-            },
-        )
-
-        return combined
+        return _run_scvi_integration(combined, batch_key=batch_key, params=params)
 
     # ========================================================================
     # CLASSICAL METHODS: Continue with scale → PCA → integration
     # ========================================================================
 
-    # Filter to highly variable genes for classical methods
-    if "highly_variable" in combined.var.columns:
-        n_hvg = combined.var["highly_variable"].sum()
-        if n_hvg == 0:
-            raise DataError(
-                "No highly variable genes found. Check HVG selection parameters."
-            )
-        # Memory optimization: Subsetting creates view, reassignment triggers GC
-        # No need to materialize with .copy() - view will be materialized on first write
-        combined = combined[:, combined.var["highly_variable"]]
+    combined = _prepare_classical_integration(combined, n_pcs)
 
-    # Remove genes with zero variance to avoid NaN in scaling
-    from scipy import sparse
-
-    # MEMORY OPTIMIZATION: Calculate variance without toarray()
-    # Uses E[X²] - E[X]² formula for sparse matrices
-    # Saves ~80% memory (e.g., 76 MB → 15 MB for 10k cells × 2k genes)
-    if sparse.issparse(combined.X):
-        # Sparse matrix: compute variance using E[X²] - E[X]² formula
-        # This avoids creating dense copy (5-10x memory reduction)
-        mean_per_gene = np.array(combined.X.mean(axis=0)).flatten()
-
-        # Calculate E[X²] using .power(2) - cleaner and ~1.5x faster than copy + data**2
-        mean_squared = np.array(combined.X.power(2).mean(axis=0)).flatten()
-
-        # Variance = E[X²] - E[X]²
-        gene_var = mean_squared - mean_per_gene**2
-    else:
-        # Dense matrix: use standard variance calculation
-        gene_var = np.var(combined.X, axis=0)
-    nonzero_var_genes = gene_var > 0
-    if not np.all(nonzero_var_genes):
-        n_removed = np.sum(~nonzero_var_genes)
-        logger.warning(f"Removing {n_removed} genes with zero variance before scaling")
-        # Memory optimization: Subsetting creates view, no need to copy
-        # View will be materialized when scaling modifies the data
-        combined = combined[:, nonzero_var_genes]
-
-    # Scanpy scales AnnData in place and may mutate it before raising. Run each
-    # strategy on an isolated candidate so fallback never consumes partial state.
-    scale_errors: list[Exception] = []
-    for zero_center in (True, False):
-        scaled_candidate = combined.copy()
-        try:
-            sc.pp.scale(scaled_candidate, zero_center=zero_center, max_value=10)
-            scaled_values = (
-                scaled_candidate.X.data
-                if sparse.issparse(scaled_candidate.X)
-                else np.asarray(scaled_candidate.X)
-            )
-            if not np.isfinite(scaled_values).all():
-                raise ProcessingError("Scaling produced non-finite expression values")
-        except Exception as exc:
-            scale_errors.append(exc)
-            strategy = "zero-centered" if zero_center else "non-zero-centered"
-            logger.warning(f"{strategy.capitalize()} scaling failed: {exc}")
-            continue
-
-        combined = scaled_candidate
-        break
-    else:
-        raise ProcessingError(
-            "Data scaling failed completely. "
-            f"Zero-center error: {scale_errors[0]}. "
-            f"Non-zero-center error: {scale_errors[1]}. "
-            "This usually indicates data contains extreme outliers or invalid values. "
-            "Consider additional quality control or outlier removal."
-        ) from scale_errors[-1]
-
-    # PCA with proper error handling
-    # Determine safe number of components
-    max_possible_components = min(n_pcs, combined.n_vars, combined.n_obs - 1)
-
-    if max_possible_components < 2:
-        raise DataError(
-            f"Cannot perform PCA: only {max_possible_components} components possible. "
-            f"Dataset has {combined.n_obs} cells and {combined.n_vars} genes. "
-            f"Minimum 2 components required for downstream analysis."
-        )
-
-    # Check data matrix before PCA
-    # MEMORY OPTIMIZATION: Check sparse matrix .data directly without toarray()
-    # Sparse matrices only store non-zero elements, and zero elements cannot be NaN/Inf
-    # Saves ~80% memory (e.g., 76 MB → 15 MB for 10k cells × 2k genes)
-    if sparse.issparse(combined.X):
-        # Sparse matrix: only check non-zero elements stored in .data
-        # This avoids creating a dense copy (5-10x memory reduction)
-        if np.isnan(combined.X.data).any():
-            raise DataError("Data contains NaN values after scaling")
-        if np.isinf(combined.X.data).any():
-            raise DataError("Data contains infinite values after scaling")
-    else:
-        # Dense matrix: check all elements
-        if np.isnan(combined.X).any():
-            raise DataError("Data contains NaN values after scaling")
-        if np.isinf(combined.X).any():
-            raise DataError("Data contains infinite values after scaling")
-
-    # Variance check removed: zero-variance genes already filtered at lines 301-323
-
-    # Try PCA with different solvers, but fail properly if none work
-    pca_success = False
-    for solver, max_comps in [
-        ("arpack", min(max_possible_components, 50)),
-        ("randomized", min(max_possible_components, 50)),
-        ("full", min(max_possible_components, 20)),
-    ]:
-        try:
-            sc.tl.pca(combined, n_comps=max_comps, svd_solver=solver, zero_center=False)
-            pca_success = True
-            break
-        except Exception as e:
-            logger.warning(f"PCA with {solver} solver failed: {e}")
-            continue
-
-    if not pca_success:
-        raise ProcessingError(
-            f"PCA failed for {combined.n_obs}×{combined.n_vars} data. Check data quality."
-        )
-
-    # Apply batch correction based on selected method
-    if method == "harmony":
-        # Use Harmony for batch correction
-        # Direct harmonypy call for version compatibility (scanpy.external has issues
-        # with harmonypy >= 0.1.0, see: https://github.com/scverse/scanpy/issues/3940)
-        harmonypy = require("harmonypy", feature="Harmony integration")
-        try:
-            X_pca = combined.obsm["X_pca"]
-            n_cells = combined.n_obs
-            meta_data = pd.DataFrame({batch_key: combined.obs[batch_key].values})
-
-            harmony_out = harmonypy.run_harmony(
-                data_mat=X_pca,
-                meta_data=meta_data,
-                vars_use=[batch_key],
-                max_iter_harmony=10,
-                verbose=True,
-            )
-
-            # Shape normalization for version compatibility:
-            # - harmonypy < 0.1.0: Z_corr is (n_pcs, n_cells), needs .T
-            # - harmonypy >= 0.1.0: Z_corr is (n_cells, n_pcs), already correct
-            combined.obsm["X_pca_harmony"] = _orient_harmony_embedding(
-                harmony_out.Z_corr, n_cells
-            )
-
-            sc.pp.neighbors(combined, use_rep="X_pca_harmony")
-
-        except Exception as e:
-            raise ProcessingError(
-                f"Harmony integration failed: {e}. "
-                f"Check batch_key '{batch_key}' has ≥2 valid batches."
-            ) from e
-
-    elif method == "bbknn":
-        # Use BBKNN for batch correction
-        bbknn = require("bbknn", feature="BBKNN integration")
-
-        bbknn.bbknn(combined, batch_key=batch_key, neighbors_within_batch=3)
-
-    elif method == "scanorama":
-        # Use Scanorama for batch correction
-        # BEST PRACTICE: Use scanpy.external wrapper for better integration with scanpy workflow
-        scanorama = require("scanorama", feature="Scanorama integration")
-        try:
-            import scanpy.external as sce
-
-            # Check if scanorama_integrate is available in scanpy.external
-            if hasattr(sce.pp, "scanorama_integrate"):
-                # Use scanpy.external wrapper (preferred method)
-                sce.pp.scanorama_integrate(
-                    combined, key=batch_key, basis="X_pca", adjusted_basis="X_scanorama"
-                )
-                # Use integrated representation for neighbor graph
-                sc.pp.neighbors(combined, use_rep="X_scanorama")
-            else:
-                # Fallback to raw scanorama (same algorithm, different interface)
-                # Separate data by batch, tracking original row indices
-                datasets = []
-                genes_list = []
-                batch_indices = []  # original row positions per batch
-
-                for batch in combined.obs[batch_key].unique():
-                    batch_mask = (combined.obs[batch_key] == batch).to_numpy()
-                    idx = np.where(batch_mask)[0]
-                    batch_indices.append(idx)
-
-                    batch_data = combined[idx]
-                    # Scanorama natively supports sparse matrices
-                    datasets.append(batch_data.X)
-                    genes_list.append(batch_data.var_names.tolist())
-
-                # Run Scanorama integration
-                integrated, _corrected_genes = scanorama.integrate(
-                    datasets, genes_list, dimred=n_pcs
-                )
-
-                # Reassemble in original row order (handles interleaved batches)
-                integrated_X = _reassemble_scanorama_embeddings(
-                    batch_indices, integrated, combined.n_obs
-                )
-
-                # Store integrated representation in obsm
-                combined.obsm["X_scanorama"] = integrated_X
-
-                # Use integrated representation for neighbor graph
-                sc.pp.neighbors(combined, use_rep="X_scanorama")
-
-        except Exception as e:
-            raise ProcessingError(
-                f"Scanorama integration failed: {e}. "
-                f"Check gene overlap between batches."
-            ) from e
-
-    else:
-        # Default: use uncorrected PCA result
-        logger.warning(
-            f"Integration method '{method}' not recognized. "
-            f"Using uncorrected PCA embedding."
-        )
-        sc.pp.neighbors(combined)
-
-    # Calculate UMAP embedding to visualize integration effect
-    sc.tl.umap(combined)
-
-    # Store metadata for scientific provenance tracking
-    # Determine which representation was used
-    # Note: neighbors (connectivities/distances sparse matrices) not exported to CSV
-    if method == "harmony":
-        if "X_pca_harmony" in combined.obsm:
-            results_keys = {"obsm": ["X_pca_harmony"]}
-        else:
-            results_keys = {"obsm": ["X_harmony"]}
-    elif method == "bbknn":
-        # BBKNN primarily modifies neighbors graph, no obsm output to export
-        results_keys = {}
-    elif method == "scanorama":
-        results_keys = {"obsm": ["X_scanorama"]}
-    else:
-        results_keys = {"obsm": ["X_pca"]}
-
-    # Get batch statistics
-    n_batches = combined.obs[batch_key].nunique()
-    batch_sizes = combined.obs[batch_key].value_counts().to_dict()
-
-    # CRITICAL FIX: Convert dict keys to strings for H5AD compatibility
-    # H5AD requires all dictionary keys to be strings
-    # Without this, save_data() fails with "Can't implicitly convert non-string objects to strings"
-    batch_sizes = {str(k): int(v) for k, v in batch_sizes.items()}
-
-    store_analysis_metadata(
+    _apply_classical_batch_correction(
         combined,
-        analysis_name=f"integration_{method}",
         method=method,
+        batch_key=batch_key,
+        n_pcs=n_pcs,
+    )
+    sc.tl.umap(combined)
+    _store_integration_metadata(
+        combined,
+        method=method,
+        batch_key=batch_key,
         parameters={
             "batch_key": batch_key,
             "n_pcs": n_pcs,
-            "n_batches": n_batches,
+            "n_batches": int(combined.obs[batch_key].nunique()),
         },
-        results_keys=results_keys,
-        statistics={
-            "n_batches": int(n_batches),  # Also ensure int types for H5AD
-            "batch_sizes": batch_sizes,
-            "n_cells_total": int(combined.n_obs),
-            "n_genes": int(combined.n_vars),
-        },
+        results_keys=_integration_results_keys(combined, method),
     )
 
     return combined
@@ -927,19 +928,22 @@ async def integrate_samples(
         adatas.append(adata)
 
     # Integrate samples (pass full params for method-specific settings like scVI)
-    combined_adata = integrate_multiple_samples(
+    combined_adata = await run_sync(
+        integrate_multiple_samples,
         adatas,
         batch_key=params.batch_key,
         method=params.method,
         n_pcs=params.n_pcs,
         params=params,
+        sample_keys=data_ids,
     )
 
     # Rescale spatial coordinates if requested and available
     # Note: Spatial rescaling is optional - BBKNN, Harmony, MNN, Scanorama
     # work on gene expression/PCA space without spatial coordinates
     if params.align_spatial and get_spatial_key(combined_adata):
-        combined_adata = rescale_spatial_coordinates(
+        combined_adata = await run_sync(
+            rescale_spatial_coordinates,
             combined_adata,
             batch_key=params.batch_key,
             reference_batch=params.reference_batch,
@@ -953,14 +957,27 @@ async def integrate_samples(
     # Export results for reproducibility
     # Note: Metadata was stored in helper functions; export uses the appropriate analysis names
     if params.method == "scvi":
-        export_analysis_result(combined_adata, integrated_id, "integration_scvi")
+        await run_sync(
+            export_analysis_result,
+            combined_adata,
+            integrated_id,
+            "integration_scvi",
+        )
     else:
-        export_analysis_result(
-            combined_adata, integrated_id, f"integration_{params.method}"
+        await run_sync(
+            export_analysis_result,
+            combined_adata,
+            integrated_id,
+            f"integration_{params.method}",
         )
 
     if params.align_spatial and "spatial_aligned" in combined_adata.obsm:
-        export_analysis_result(combined_adata, integrated_id, "spatial_alignment")
+        await run_sync(
+            export_analysis_result,
+            combined_adata,
+            integrated_id,
+            "spatial_alignment",
+        )
 
     result = IntegrationResult(
         data_id=integrated_id,

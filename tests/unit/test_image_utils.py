@@ -130,6 +130,8 @@ async def test_optimize_fig_to_image_with_cache_jpg_sets_quality_and_suffix(
 
     assert fig.saved_path is not None
     assert fig.saved_path.suffix == ".jpg"
+    assert not fig.saved_path.exists()
+    assert (tmp_path / "exports" / "figure_without_suffix.jpg").read_bytes() == b"img"
     assert fig.saved_kwargs is not None
     assert fig.saved_kwargs["format"] == "jpg"
     assert fig.saved_kwargs["dpi"] == 144
@@ -159,12 +161,40 @@ async def test_optimize_fig_to_image_with_cache_removes_unsupported_metadata(
     )
 
     assert (
-        fig.saved_path
-        == tmp_path / "visualizations" / f"scatter_deadbeef.{output_format}"
-    )
+        tmp_path / "visualizations" / f"scatter_deadbeef.{output_format}"
+    ).read_bytes() == b"img"
+    assert fig.saved_path is not None
+    assert fig.saved_path.parent == tmp_path / "visualizations"
+    assert fig.saved_path.name.startswith(f".scatter_deadbeef.{output_format}.")
+    assert not fig.saved_path.exists()
     assert fig.saved_kwargs is not None
     assert fig.saved_kwargs["format"] == output_format
     assert fig.saved_kwargs["dpi"] == 100
     assert fig.saved_kwargs["bbox_extra_artists"] == ("artist",)
     assert "metadata" not in fig.saved_kwargs
     assert f"Format: {output_format.upper()}" in result
+
+
+async def test_optimize_fig_to_image_keeps_existing_file_when_save_fails(
+    monkeypatch, tmp_path: Path
+):
+    class _FailingFigure(_FakeFigure):
+        def savefig(self, path: str, **kwargs):
+            super().savefig(path, **kwargs)
+            raise RuntimeError("render failed")
+
+    target = tmp_path / "existing.png"
+    target.write_bytes(b"original")
+    fig = _FailingFigure()
+    closed = {"fig": None}
+    monkeypatch.setattr(plt, "close", lambda figure: closed.__setitem__("fig", figure))
+
+    with pytest.raises(RuntimeError, match="render failed"):
+        await image_utils.optimize_fig_to_image_with_cache(
+            fig,
+            SimpleNamespace(dpi=100, output_format="png", output_path=str(target)),
+        )
+
+    assert target.read_bytes() == b"original"
+    assert list(tmp_path.glob(".existing.png.*")) == []
+    assert closed["fig"] is fig

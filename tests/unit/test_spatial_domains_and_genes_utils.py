@@ -21,7 +21,9 @@ from chatspatial.utils.exceptions import (
 
 
 @pytest.fixture(autouse=True)
-def _resolve_fake_spatial_domain_submodules(monkeypatch: pytest.MonkeyPatch):
+def _resolve_fake_spatial_domain_submodules(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+):
     monkeypatch.setattr(
         sd,
         "require_module",
@@ -29,10 +31,17 @@ def _resolve_fake_spatial_domain_submodules(monkeypatch: pytest.MonkeyPatch):
             module_name
         ],
     )
+    if not request.node.name.endswith("timeout_is_wrapped"):
+        monkeypatch.setattr(sd, "run_sync_with_timeout", _run_timed_worker_inline)
 
 
 def _required_dependency(name: str, *_args, **_kwargs):
     return __import__("sys").modules.get(name, object())
+
+
+async def _run_timed_worker_inline(function, **_kwargs):
+    """Keep backend-focused tests in-process; process lifecycle is tested separately."""
+    return function()
 
 
 def _patch_stagate_dependencies(
@@ -631,7 +640,6 @@ async def test_identify_domains_spagcn_timeout_is_wrapped(
         "chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None
     )
 
-    import asyncio as _asyncio
     import sys
     import types
 
@@ -642,11 +650,10 @@ async def test_identify_domains_spagcn_timeout_is_wrapped(
     monkeypatch.setitem(sys.modules, "SpaGCN", pkg)
     monkeypatch.setitem(sys.modules, "SpaGCN.ez_mode", ez_mod)
 
-    async def _raise_timeout(_future, timeout=None):
-        del _future, timeout
-        raise _asyncio.TimeoutError()
+    async def _raise_timeout(*_args, **_kwargs):
+        raise TimeoutError
 
-    monkeypatch.setattr("asyncio.wait_for", _raise_timeout)
+    monkeypatch.setattr(sd, "run_sync_with_timeout", _raise_timeout)
 
     with pytest.raises(ProcessingError, match="SpaGCN timed out"):
         await sd._identify_domains_spagcn(
@@ -837,7 +844,6 @@ async def test_identify_domains_stagate_stats_failure_logs_debug_and_continues(
 async def test_identify_domains_stagate_timeout_is_wrapped(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import asyncio as _asyncio
     import sys
     import types
 
@@ -866,11 +872,10 @@ async def test_identify_domains_stagate_timeout_is_wrapped(
 
     monkeypatch.setattr(sd, "resolve_device_async", _fake_resolve_device)
 
-    async def _raise_timeout(_future, timeout=None):
-        del _future, timeout
-        raise _asyncio.TimeoutError()
+    async def _raise_timeout(*_args, **_kwargs):
+        raise TimeoutError
 
-    monkeypatch.setattr("asyncio.wait_for", _raise_timeout)
+    monkeypatch.setattr(sd, "run_sync_with_timeout", _raise_timeout)
 
     with pytest.raises(ProcessingError, match="STAGATE training timeout"):
         await sd._identify_domains_stagate(
@@ -953,7 +958,6 @@ async def test_identify_domains_graphst_mclust_path_success(
 async def test_identify_domains_graphst_timeout_is_wrapped(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import asyncio as _asyncio
     import sys
     import types
 
@@ -986,11 +990,10 @@ async def test_identify_domains_graphst_timeout_is_wrapped(
 
     monkeypatch.setattr(sd, "resolve_device_async", _fake_resolve_device)
 
-    async def _raise_timeout(_future, timeout=None):
-        del _future, timeout
-        raise _asyncio.TimeoutError()
+    async def _raise_timeout(*_args, **_kwargs):
+        raise TimeoutError
 
-    monkeypatch.setattr("asyncio.wait_for", _raise_timeout)
+    monkeypatch.setattr(sd, "run_sync_with_timeout", _raise_timeout)
 
     with pytest.raises(ProcessingError, match="GraphST training timeout"):
         await sd._identify_domains_graphst(
@@ -1037,6 +1040,7 @@ async def test_identify_domains_banksy_success_path(
         "leiden",
         _assign_banksy_clusters,
     )
+    monkeypatch.setattr(sd, "run_sync_with_timeout", _run_timed_worker_inline)
 
     labels, emb_key, stats = await sd._identify_domains_banksy(
         adata,
@@ -1056,7 +1060,6 @@ async def test_identify_domains_banksy_success_path(
 async def test_identify_domains_banksy_timeout_is_wrapped(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import asyncio as _asyncio
     import sys
     import types
 
@@ -1073,11 +1076,10 @@ async def test_identify_domains_banksy_timeout_is_wrapped(
 
     monkeypatch.setattr(sd, "require", _required_dependency)
 
-    async def _raise_timeout(_future, timeout=None):
-        del _future, timeout
-        raise _asyncio.TimeoutError()
+    async def _raise_timeout(*_args, **_kwargs):
+        raise TimeoutError
 
-    monkeypatch.setattr("asyncio.wait_for", _raise_timeout)
+    monkeypatch.setattr(sd, "run_sync_with_timeout", _raise_timeout)
 
     with pytest.raises(ProcessingError, match="BANKSY timeout"):
         await sd._identify_domains_banksy(
@@ -1375,6 +1377,7 @@ async def test_identify_domains_spagcn_histology_image_selection_and_scaling(
         "chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None
     )
     _install_fake_spagcn_modules(monkeypatch, _detect_fn)
+    monkeypatch.setattr(sd, "run_sync_with_timeout", _run_timed_worker_inline)
 
     labels, emb_key, stats = await sd._identify_domains_spagcn(
         adata,
@@ -1935,6 +1938,7 @@ async def test_identify_domains_aestetik_success_path(
             return self
 
     _install_fake_aestetik(monkeypatch, _FakeAestetik)
+    monkeypatch.setattr(sd, "run_sync_with_timeout", _run_timed_worker_inline)
 
     labels, emb_key, stats = await sd._identify_domains_aestetik(
         adata,
@@ -2026,6 +2030,7 @@ async def test_identify_domains_aestetik_uses_resolution_for_graph_clustering(
             return self
 
     _install_fake_aestetik(monkeypatch, _FakeAestetik)
+    monkeypatch.setattr(sd, "run_sync_with_timeout", _run_timed_worker_inline)
 
     await sd._identify_domains_aestetik(
         adata,
@@ -2236,8 +2241,6 @@ async def test_identify_domains_aestetik_reports_python_314_incompatibility(
 async def test_identify_domains_aestetik_timeout_is_wrapped(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    import asyncio as _asyncio
-
     adata = _aestetik_adata(minimal_spatial_adata)
 
     class _FakeAestetik:
@@ -2250,11 +2253,10 @@ async def test_identify_domains_aestetik_timeout_is_wrapped(
 
     _install_fake_aestetik(monkeypatch, _FakeAestetik)
 
-    async def _raise_timeout(_future, timeout=None):
-        del _future, timeout
-        raise _asyncio.TimeoutError()
+    async def _raise_timeout(*_args, **_kwargs):
+        raise TimeoutError
 
-    monkeypatch.setattr("asyncio.wait_for", _raise_timeout)
+    monkeypatch.setattr(sd, "run_sync_with_timeout", _raise_timeout)
 
     with pytest.raises(ProcessingError, match="AESTETIK timeout"):
         await sd._identify_domains_aestetik(

@@ -22,8 +22,8 @@ async def test_prepare_counts_require_counts_raises_for_normalized_data(
 
     adata = minimal_spatial_adata.copy()
     # Replace X with clearly normalized (non-integer) data
-    adata.X = np.random.default_rng(42).uniform(0, 5, size=adata.shape).astype(
-        np.float32
+    adata.X = (
+        np.random.default_rng(42).uniform(0, 5, size=adata.shape).astype(np.float32)
     )
     # Remove any counts layer that might exist
     if "counts" in adata.layers:
@@ -37,7 +37,9 @@ async def test_prepare_counts_require_counts_raises_for_normalized_data(
 
     with pytest.raises(DataError, match="No raw integer counts found"):
         await _prepare_counts(
-            adata, "Spatial", ctx,
+            adata,
+            "Spatial",
+            ctx,
             require_int_dtype=False,
             require_counts=True,
         )
@@ -62,7 +64,9 @@ async def test_prepare_counts_require_counts_succeeds_for_integer_data(
     ctx = FakeCtx()
 
     result = await _prepare_counts(
-        adata, "Spatial", ctx,
+        adata,
+        "Spatial",
+        ctx,
         require_int_dtype=False,
         require_counts=True,
     )

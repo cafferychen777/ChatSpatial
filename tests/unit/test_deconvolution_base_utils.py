@@ -97,13 +97,13 @@ async def test_prepare_counts_falls_back_to_x_when_no_counts_layer(
 
     original_x = np.asarray(adata.X).copy()
     out = await _prepare_counts(adata, "Spatial", DummyCtx(), require_int_dtype=False)
-    assert np.allclose(np.asarray(out.X), original_x), (
-        "Should use adata.X, not .raw"
-    )
+    assert np.allclose(np.asarray(out.X), original_x), "Should use adata.X, not .raw"
 
 
 @pytest.mark.asyncio
-async def test_prepare_counts_converts_integer_like_data_to_int32(minimal_spatial_adata):
+async def test_prepare_counts_converts_integer_like_data_to_int32(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     adata.X = np.rint(np.asarray(adata.X)).astype(np.float64)
 
@@ -112,7 +112,9 @@ async def test_prepare_counts_converts_integer_like_data_to_int32(minimal_spatia
 
 
 @pytest.mark.asyncio
-async def test_prepare_counts_prefers_counts_layer_when_raw_absent(minimal_spatial_adata):
+async def test_prepare_counts_prefers_counts_layer_when_raw_absent(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     if adata.raw is not None:
         adata.raw = None
@@ -125,7 +127,9 @@ async def test_prepare_counts_prefers_counts_layer_when_raw_absent(minimal_spati
 
 
 @pytest.mark.asyncio
-async def test_prepare_counts_does_not_force_int_for_decimal_values(minimal_spatial_adata):
+async def test_prepare_counts_does_not_force_int_for_decimal_values(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     adata.X = np.asarray(adata.X, dtype=np.float64) + 0.123
 
@@ -134,7 +138,9 @@ async def test_prepare_counts_does_not_force_int_for_decimal_values(minimal_spat
 
 
 @pytest.mark.asyncio
-async def test_prepare_counts_handles_empty_sparse_matrix_sampling(minimal_spatial_adata):
+async def test_prepare_counts_handles_empty_sparse_matrix_sampling(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     adata.X = sparse.csr_matrix((adata.n_obs, adata.n_vars), dtype=np.float64)
 
@@ -251,9 +257,7 @@ def test_check_model_convergence_returns_true_without_history():
 
 def test_check_model_convergence_returns_true_for_short_history():
     model = type("Model", (), {"history": {"elbo_train": [1.0, 0.9, 0.8]}})()
-    converged, message = check_model_convergence(
-        model, "Dummy", convergence_window=10
-    )
+    converged, message = check_model_convergence(model, "Dummy", convergence_window=10)
     assert converged is True
     assert message is None
 

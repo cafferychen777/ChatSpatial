@@ -8,14 +8,18 @@ import pytest
 from chatspatial.utils import compute
 
 
-def test_ensure_neighbors_skips_when_graph_already_available(minimal_spatial_adata) -> None:
+def test_ensure_neighbors_skips_when_graph_already_available(
+    minimal_spatial_adata,
+) -> None:
     adata = minimal_spatial_adata.copy()
     adata.uns["neighbors"] = {"params": {}}
     adata.obsp["connectivities"] = np.eye(adata.n_obs)
     assert compute.ensure_neighbors(adata) is False
 
 
-def test_ensure_umap_and_leiden_and_louvain_skip_if_present(minimal_spatial_adata) -> None:
+def test_ensure_umap_and_leiden_and_louvain_skip_if_present(
+    minimal_spatial_adata,
+) -> None:
     adata = minimal_spatial_adata.copy()
     adata.obsm["X_umap"] = np.zeros((adata.n_obs, 2))
     adata.obs["leiden"] = ["0"] * adata.n_obs

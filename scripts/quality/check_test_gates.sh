@@ -3,6 +3,18 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
+echo "[gate] Checking formatting"
+black --check chatspatial tests scripts
+isort --check-only chatspatial tests scripts
+
+echo "[gate] Running Ruff"
+ruff check chatspatial tests
+ruff check scripts
+ruff check chatspatial --select C901
+
+echo "[gate] Running mypy"
+mypy chatspatial
+
 echo "[gate] Collecting tests"
 collect_output=$(pytest --collect-only -q 2>&1 || true)
 echo "$collect_output"

@@ -35,6 +35,7 @@ from ...utils.adata_utils import (
     store_analysis_metadata,
     validate_obs_column,
 )
+from ...utils.async_utils import run_sync
 from ...utils.exceptions import (
     DataError,
     DependencyError,
@@ -180,7 +181,7 @@ METHOD_REGISTRY: dict[str, MethodConfig] = {
     ),
     "tangram": MethodConfig(
         module_name="tangram",
-        dependencies=("scvi", "torch", "tangram", "mudata"),
+        dependencies=("tangram",),
         supports_gpu=True,
         param_mapping=(
             ("tangram_n_epochs", "n_epochs"),
@@ -281,7 +282,7 @@ async def deconvolve_spatial_data(
     )
 
     # Dispatch to method-specific implementation
-    proportions, stats = _dispatch_method(data, params, config)
+    proportions, stats = await run_sync(_dispatch_method, data, params, config)
 
     # Memory cleanup
     del data
@@ -290,7 +291,7 @@ async def deconvolve_spatial_data(
     # Publish onto a fresh copy only after the backend has completed. This keeps
     # preparation, backend, metadata, and export failures from contaminating the
     # managed dataset while avoiding another full copy during model execution.
-    result_adata = spatial_adata.copy()
+    result_adata = await run_sync(spatial_adata.copy)
     ensure_unique_var_names(result_adata, "spatial data")
 
     # Store results in AnnData
@@ -318,7 +319,7 @@ def _check_method_availability(method: str, config: MethodConfig) -> None:
 
     missing = []
     for dep in config.dependencies:
-        import_name = "scvi" if dep == "scvi-tools" else dep.replace("-", "_")
+        import_name = _dependency_import_name(dep)
         if importlib.util.find_spec(import_name) is None:
             missing.append(dep)
 
@@ -326,10 +327,7 @@ def _check_method_availability(method: str, config: MethodConfig) -> None:
         # Find available methods for helpful error message
         available = []
         for name, cfg in METHOD_REGISTRY.items():
-            check_deps = [
-                "scvi" if x == "scvi-tools" else x.replace("-", "_")
-                for x in cfg.dependencies
-            ]
+            check_deps = [_dependency_import_name(x) for x in cfg.dependencies]
             if all(importlib.util.find_spec(x) is not None for x in check_deps):
                 available.append(name)
 
@@ -340,6 +338,13 @@ def _check_method_availability(method: str, config: MethodConfig) -> None:
         raise DependencyError(
             f"Method '{method}' requires: {', '.join(missing)}. {alt_msg}"
         )
+
+
+def _dependency_import_name(dependency: str) -> str:
+    """Return the importable module provided by an optional distribution."""
+    return {
+        "scvi-tools": "scvi",
+    }.get(dependency, dependency.replace("-", "_"))
 
 
 def _get_preprocess_hook(params: DeconvolutionParameters):
@@ -490,7 +495,6 @@ async def _store_results(
 
     # Store metadata for provenance tracking
     analysis_key = _build_deconvolution_key(method, reference_data_id)
-    obs_keys: list[str] = [dominant_key]
     store_analysis_metadata(
         spatial_adata,
         analysis_name=analysis_key,
@@ -498,7 +502,7 @@ async def _store_results(
         parameters={},  # Method-specific params already in stats
         results_keys={
             "obsm": [proportions_key],
-            "obs": obs_keys,
+            "obs": [dominant_key],
             "uns": [f"{proportions_key}_cell_types"],
         },
         statistics={

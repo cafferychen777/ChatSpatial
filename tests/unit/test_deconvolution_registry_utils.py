@@ -52,7 +52,9 @@ async def test_deconvolve_spatial_data_rejects_empty_reference_dataset(
         cell_type_key="cell_type",
     )
 
-    with pytest.raises(DataError, match="Reference dataset ref contains no observations"):
+    with pytest.raises(
+        DataError, match="Reference dataset ref contains no observations"
+    ):
         await deconv_module.deconvolve_spatial_data("d1", ctx, params)
 
 
@@ -73,6 +75,24 @@ def test_check_method_availability_maps_scvi_tools_to_scvi(
     )
 
     assert calls == ["scvi"]
+
+
+def test_tangram_availability_depends_only_on_its_runtime_package(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def _find_spec(name: str):
+        calls.append(name)
+        return object() if name == "tangram" else None
+
+    monkeypatch.setattr(importlib.util, "find_spec", _find_spec)
+
+    deconv_module._check_method_availability(
+        "tangram", deconv_module.METHOD_REGISTRY["tangram"]
+    )
+
+    assert calls == ["tangram"]
 
 
 def test_check_method_availability_reports_available_alternatives(

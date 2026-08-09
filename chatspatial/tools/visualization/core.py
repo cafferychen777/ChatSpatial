@@ -8,7 +8,8 @@ This module contains:
 """
 
 import warnings
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 
 import anndata as ad
@@ -52,6 +53,27 @@ FIGURE_DEFAULTS = {
     "integration": (16, 12),
     "default": (10, 8),
 }
+
+
+@contextmanager
+def temporary_obs_column(
+    adata: ad.AnnData,
+    preferred_key: str,
+    values: Any,
+) -> Iterator[str]:
+    """Expose plotting values through a collision-free temporary obs column."""
+    key = preferred_key
+    suffix = 1
+    while key in adata.obs.columns:
+        key = f"{preferred_key}_{suffix}"
+        suffix += 1
+
+    adata.obs[key] = values
+    try:
+        yield key
+    finally:
+        if key in adata.obs.columns:
+            del adata.obs[key]
 
 
 def resolve_figure_size(

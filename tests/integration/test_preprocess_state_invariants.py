@@ -13,7 +13,9 @@ from chatspatial.server import data_manager, load_data, preprocess_data
 async def test_preprocess_creates_expected_state_artifacts(
     spatial_dataset_path, reset_data_manager
 ):
-    dataset = await load_data(str(spatial_dataset_path), "generic", name="prep_invariants")
+    dataset = await load_data(
+        str(spatial_dataset_path), "generic", name="prep_invariants"
+    )
 
     params = PreprocessingParameters(
         filter_genes_min_cells=1,

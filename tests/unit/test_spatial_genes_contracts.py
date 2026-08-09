@@ -847,12 +847,14 @@ async def test_sparkx_success_covers_filtering_and_housekeeping_warning(
             del locus_in, X_in, numCores, option, verbose
             n = count_in.nrow
             return SimpleNamespace(
-                rx2=lambda key: {
-                    "combinedPval": np.linspace(0.001, 0.02, n),
-                    "adjustedPval": np.linspace(0.002, 0.04, n),
-                }
-                if key == "res_mtest"
-                else None
+                rx2=lambda key: (
+                    {
+                        "combinedPval": np.linspace(0.001, 0.02, n),
+                        "adjustedPval": np.linspace(0.002, 0.04, n),
+                    }
+                    if key == "res_mtest"
+                    else None
+                )
             )
 
     _install_fake_rpy2_runtime(monkeypatch, spark_factory=lambda: _SparkPkg())
@@ -916,12 +918,14 @@ async def test_sparkx_success_with_hvg_only_branch_and_low_result_warning(
             del locus_in, X_in, numCores, option, verbose
             # Return fewer rows than input genes to trigger quality warning branch.
             return SimpleNamespace(
-                rx2=lambda key: {
-                    "combinedPval": [0.01],
-                    "adjustedPval": [0.02],
-                }
-                if key == "res_mtest"
-                else None
+                rx2=lambda key: (
+                    {
+                        "combinedPval": [0.01],
+                        "adjustedPval": [0.02],
+                    }
+                    if key == "res_mtest"
+                    else None
+                )
             )
 
     _install_fake_rpy2_runtime(monkeypatch, spark_factory=lambda: _SparkPkg())

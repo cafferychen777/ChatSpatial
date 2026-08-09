@@ -39,11 +39,9 @@ def _create_xenium_zarr_fixture(tmp_path):
         indptr = np.concatenate(
             [
                 np.arange(0, n_cells, dtype=np.int64),
-                np.array(
-                    [n_cells] * (n_features - n_cells + 1), dtype=np.int64
-                ),
+                np.array([n_cells] * (n_features - n_cells + 1), dtype=np.int64),
             ]
-        )[:n_features + 1]
+        )[: n_features + 1]
 
         # zarr v3: use create_array with data= (shape inferred)
         cf.create_array("data", data=data)
@@ -53,9 +51,7 @@ def _create_xenium_zarr_fixture(tmp_path):
         cf.attrs["number_cells"] = n_cells
         cf.attrs["number_features"] = n_features
         cf.attrs["feature_keys"] = [f"Gene_{i}" for i in range(n_features)]
-        cf.attrs["feature_ids"] = [
-            f"ENSG{i:011d}" for i in range(n_features)
-        ]
+        cf.attrs["feature_ids"] = [f"ENSG{i:011d}" for i in range(n_features)]
 
     # Build cells.zarr.zip
     cells_zip = str(tmp_path / "cells.zarr.zip")

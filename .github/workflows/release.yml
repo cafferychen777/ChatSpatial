@@ -19,10 +19,24 @@ jobs:
       with:
         python-version: "3.12"
     
-    - name: Install dependencies
+    - name: Install uv
+      uses: astral-sh/setup-uv@v9.0.0
+
+    - name: Install release toolchain
       run: |
-        python3 -m pip install --upgrade pip
-        python3 -m pip install build twine
+        uv pip install -e ".[dev]" --system
+        uv pip install build twine --system
+
+    - name: Verify release tag matches package version
+      run: |
+        package_version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+        test "$GITHUB_REF_NAME" = "v${package_version}" || {
+          echo "Tag $GITHUB_REF_NAME does not match package version v${package_version}" >&2
+          exit 1
+        }
+
+    - name: Run release quality gate
+      run: scripts/quality/check_test_gates.sh
 
     - name: Build package
       run: python3 -m build

@@ -6,6 +6,8 @@ This module provides:
 - Figure export to file with user-specified format/DPI
 """
 
+import os
+import tempfile
 import threading
 import uuid
 from collections.abc import AsyncIterator, Generator
@@ -15,6 +17,8 @@ from typing import TYPE_CHECKING, Any, Optional
 import anyio
 
 from ..config import get_default_output_dir
+from .async_utils import run_sync
+from .exceptions import ParameterError
 
 if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
@@ -136,7 +140,11 @@ async def optimize_fig_to_image_with_cache(
     import matplotlib.pyplot as plt
 
     # Extract parameters
-    target_dpi = getattr(params, "dpi", None) or 100
+    target_dpi = getattr(params, "dpi", None)
+    if target_dpi is None:
+        target_dpi = 100
+    if isinstance(target_dpi, bool) or target_dpi <= 0:
+        raise ParameterError("Visualization DPI must be greater than zero.")
     output_format = getattr(params, "output_format", None) or "png"
     output_path = getattr(params, "output_path", None)
     extra_artists = getattr(fig, "_chatspatial_extra_artists", None)
@@ -147,8 +155,6 @@ async def optimize_fig_to_image_with_cache(
         from pathlib import Path
 
         filepath = Path(output_path)
-        # Ensure parent directory exists
-        filepath.parent.mkdir(parents=True, exist_ok=True)
         # Ensure extension matches output_format
         expected_suffix = f".{output_format}"
         if not filepath.suffix:
@@ -159,7 +165,6 @@ async def optimize_fig_to_image_with_cache(
     else:
         # Default path
         output_dir = get_default_output_dir() / "visualizations"
-        output_dir.mkdir(parents=True, exist_ok=True)
         filename = (
             f"{plot_type}_{uuid.uuid4().hex[:8]}.{output_format}"
             if plot_type
@@ -190,10 +195,24 @@ async def optimize_fig_to_image_with_cache(
     elif output_format in ["svg", "eps", "tif", "tiff"]:
         save_params.pop("metadata", None)
 
-    # Save figure
-    fig.savefig(str(filepath), **save_params)
-    actual_size = filepath.stat().st_size
-    plt.close(fig)
+    def _save_atomically() -> int:
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_path = tempfile.mkstemp(
+            dir=filepath.parent,
+            prefix=f".{filepath.name}.",
+            suffix=filepath.suffix,
+        )
+        os.close(descriptor)
+        try:
+            fig.savefig(temporary_path, **save_params)
+            os.replace(temporary_path, filepath)
+            return filepath.stat().st_size
+        finally:
+            if os.path.exists(temporary_path):
+                os.unlink(temporary_path)
+            plt.close(fig)
+
+    actual_size = await run_sync(_save_atomically)
 
     return (
         f"Visualization saved: {filepath}\n"

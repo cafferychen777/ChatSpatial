@@ -12,7 +12,11 @@ import pandas as pd
 import pytest
 
 from chatspatial.utils import data_loader as dl
-from chatspatial.utils.exceptions import DataCompatibilityError, ParameterError, ProcessingError
+from chatspatial.utils.exceptions import (
+    DataCompatibilityError,
+    ParameterError,
+    ProcessingError,
+)
 
 
 @pytest.mark.asyncio
@@ -56,7 +60,9 @@ async def test_load_spatial_data_generic_sets_raw_and_counts_layer(
 
 
 @pytest.mark.asyncio
-async def test_load_spatial_data_rejects_unsupported_platform(tmp_path: Path, monkeypatch):
+async def test_load_spatial_data_rejects_unsupported_platform(
+    tmp_path: Path, monkeypatch
+):
     path = tmp_path / "sample.h5ad"
     path.write_text("placeholder")
     monkeypatch.setitem(sys.modules, "scanpy", ModuleType("scanpy"))
@@ -73,7 +79,9 @@ def test_find_spatial_folder_requires_expected_files(tmp_path: Path):
 
     assert dl._find_spatial_folder(str(h5)) is None
 
-    (spatial_dir / "tissue_positions_list.csv").write_text("barcode,in_tissue,array_row,array_col,pxl_row_in_fullres,pxl_col_in_fullres\n")
+    (spatial_dir / "tissue_positions_list.csv").write_text(
+        "barcode,in_tissue,array_row,array_col,pxl_row_in_fullres,pxl_col_in_fullres\n"
+    )
     (spatial_dir / "scalefactors_json.json").write_text("{}")
     found = dl._find_spatial_folder(str(h5))
     assert found is not None
@@ -113,7 +121,9 @@ def test_add_spatial_info_handles_barcode_suffix_alignment(
         }
     )
     positions.to_csv(spatial_dir / "tissue_positions_list.csv", index=False)
-    (spatial_dir / "scalefactors_json.json").write_text(json.dumps({"spot_diameter_fullres": 10}))
+    (spatial_dir / "scalefactors_json.json").write_text(
+        json.dumps({"spot_diameter_fullres": 10})
+    )
 
     monkeypatch.setattr(dl, "is_available", lambda _name: False)
 
@@ -135,7 +145,9 @@ def test_add_spatial_info_rejects_invalid_positions_format(
     (spatial_dir / "scalefactors_json.json").write_text("{}")
     monkeypatch.setattr(dl, "is_available", lambda _name: False)
 
-    with pytest.raises(DataCompatibilityError, match="Unexpected tissue positions format"):
+    with pytest.raises(
+        DataCompatibilityError, match="Unexpected tissue positions format"
+    ):
         dl._add_spatial_info_to_adata(adata, str(spatial_dir))
 
 
@@ -169,7 +181,14 @@ async def test_load_creates_counts_from_raw_when_x_is_normalized(
 
     assert "counts" in out.layers
     # counts should come from .raw (integer), not from X (float)
-    assert np.allclose(out.layers["counts"].toarray() if hasattr(out.layers["counts"], "toarray") else out.layers["counts"], raw_X)
+    assert np.allclose(
+        (
+            out.layers["counts"].toarray()
+            if hasattr(out.layers["counts"], "toarray")
+            else out.layers["counts"]
+        ),
+        raw_X,
+    )
 
 
 @pytest.mark.asyncio
@@ -182,13 +201,13 @@ async def test_load_does_not_crash_when_raw_has_more_genes(
     adata = minimal_spatial_adata.copy()
     # .raw has full gene set
     n_extra = 10
-    raw_X = np.hstack([
-        adata.X,
-        np.ones((adata.n_obs, n_extra), dtype=np.float32),
-    ])
-    raw_var = pd.DataFrame(
-        index=[f"gene_{i}" for i in range(adata.n_vars + n_extra)]
+    raw_X = np.hstack(
+        [
+            adata.X,
+            np.ones((adata.n_obs, n_extra), dtype=np.float32),
+        ]
     )
+    raw_var = pd.DataFrame(index=[f"gene_{i}" for i in range(adata.n_vars + n_extra)])
     adata.raw = ad.AnnData(X=raw_X, var=raw_var)
     # Normalize X so it's not integer
     adata.X = np.log1p(adata.X)

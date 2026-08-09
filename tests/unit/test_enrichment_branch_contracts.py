@@ -27,7 +27,11 @@ from chatspatial.tools.enrichment import (
     perform_spatial_enrichment,
     perform_ssgsea,
 )
-from chatspatial.utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
+from chatspatial.utils.exceptions import (
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 
 
 def _patch_gseapy(monkeypatch: pytest.MonkeyPatch, **methods):
@@ -76,11 +80,17 @@ def _gsea_res_df() -> pd.DataFrame:
 
 
 def _patch_metadata_noop(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(enrichment_module, "store_analysis_metadata", lambda *_a, **_k: None)
-    monkeypatch.setattr(enrichment_module, "export_analysis_result", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        enrichment_module, "store_analysis_metadata", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(
+        enrichment_module, "export_analysis_result", lambda *_a, **_k: None
+    )
 
 
-def test_filter_significant_statistics_no_pvalues_and_default_method_threshold() -> None:
+def test_filter_significant_statistics_no_pvalues_and_default_method_threshold() -> (
+    None
+):
     stats = {"A": {"x": 1}, "B": {"x": 2}}
     scores = {"A": 0.4, "B": 0.2}
     pvals = {"A": 0.01, "B": 0.2}
@@ -276,9 +286,7 @@ def test_perform_gsea_propagates_prerank_failures(
 
     _patch_gseapy(
         monkeypatch,
-        prerank=lambda **_kwargs: (_ for _ in ()).throw(
-            RuntimeError("prerank failed")
-        ),
+        prerank=lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("prerank failed")),
     )
     with pytest.raises(RuntimeError, match="prerank failed"):
         perform_gsea(
@@ -375,7 +383,10 @@ def test_perform_ora_uses_highly_variable_genes_when_rank_genes_missing(
 
     out = perform_ora(
         adata=adata,
-        gene_sets={"GS_A": adata.var_names[:3].tolist(), "GS_B": adata.var_names[5:8].tolist()},
+        gene_sets={
+            "GS_A": adata.var_names[:3].tolist(),
+            "GS_B": adata.var_names[5:8].tolist(),
+        },
         gene_list=None,
         min_size=1,
         max_size=100,
@@ -482,7 +493,9 @@ def test_perform_ssgsea_large_batch_processing_path(
     assert resolved_contexts == [None]
 
 
-def test_perform_enrichr_propagates_service_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_perform_enrichr_propagates_service_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _patch_gseapy(
         monkeypatch,
         enrichr=lambda **_kwargs: (_ for _ in ()).throw(
@@ -490,7 +503,9 @@ def test_perform_enrichr_propagates_service_failures(monkeypatch: pytest.MonkeyP
         ),
     )
     with pytest.raises(RuntimeError, match="service unavailable"):
-        perform_enrichr(gene_list=["G1", "G2"], gene_sets="KEGG_Pathways", organism="human")
+        perform_enrichr(
+            gene_list=["G1", "G2"], gene_sets="KEGG_Pathways", organism="human"
+        )
 
 
 @pytest.mark.asyncio
@@ -519,8 +534,12 @@ async def test_perform_spatial_enrichment_normalizes_list_input_and_score_keys(
     fake_enrichmap = SimpleNamespace(tl=SimpleNamespace(score=_fake_score))
     monkeypatch.setattr(enrichment_module, "require", lambda *_a, **_k: fake_enrichmap)
     monkeypatch.setitem(sys.modules, "enrichmap", fake_enrichmap)
-    monkeypatch.setattr(enrichment_module, "store_analysis_metadata", lambda *_a, **_k: None)
-    monkeypatch.setattr(enrichment_module, "export_analysis_result", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        enrichment_module, "store_analysis_metadata", lambda *_a, **_k: None
+    )
+    monkeypatch.setattr(
+        enrichment_module, "export_analysis_result", lambda *_a, **_k: None
+    )
 
     out = await perform_spatial_enrichment(
         data_id="d1",

@@ -68,9 +68,11 @@ async def test_create_multi_gene_visualization_spatial_success_and_cleanup(
     monkeypatch.setattr(
         viz_mg,
         "get_gene_expression",
-        lambda _adata, gene: np.linspace(0.0, 1.0, _adata.n_obs)
-        if gene == "gene_0"
-        else np.linspace(1.0, 0.0, _adata.n_obs),
+        lambda _adata, gene: (
+            np.linspace(0.0, 1.0, _adata.n_obs)
+            if gene == "gene_0"
+            else np.linspace(1.0, 0.0, _adata.n_obs)
+        ),
     )
 
     def _plot_spatial(_adata, ax, values=None, params=None, show_colorbar=False, **_kw):
@@ -220,12 +222,7 @@ async def test_create_lr_pairs_visualization_limits_pairs_and_cleans_temp(
     monkeypatch.setattr(
         viz_mg,
         "plot_spatial_feature",
-        lambda _adata,
-        ax,
-        values=None,
-        params=None,
-        show_colorbar=False,
-        **_kw: ax.scatter(
+        lambda _adata, ax, values=None, params=None, show_colorbar=False, **_kw: ax.scatter(
             _adata.obsm["spatial"][:, 0],
             _adata.obsm["spatial"][:, 1],
             c=values if values is not None else np.zeros(_adata.n_obs),
@@ -271,12 +268,7 @@ async def test_create_lr_pairs_visualization_covers_scaling_colorbar_and_pearson
     monkeypatch.setattr(
         viz_mg,
         "plot_spatial_feature",
-        lambda _adata,
-        ax,
-        values=None,
-        params=None,
-        show_colorbar=False,
-        **_kw: ax.scatter(
+        lambda _adata, ax, values=None, params=None, show_colorbar=False, **_kw: ax.scatter(
             _adata.obsm["spatial"][:, 0],
             _adata.obsm["spatial"][:, 1],
             c=values if values is not None else np.zeros(_adata.n_obs),

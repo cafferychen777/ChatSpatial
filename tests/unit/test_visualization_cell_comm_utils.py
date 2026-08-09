@@ -391,7 +391,9 @@ def test_matrix_to_liana_format_skips_invalid_pipe_split():
 
 
 @pytest.mark.asyncio
-async def test_get_cell_communication_data_requires_stored_results(minimal_spatial_adata):
+async def test_get_cell_communication_data_requires_stored_results(
+    minimal_spatial_adata,
+):
     with pytest.raises(DataNotFoundError, match="No cell communication results found"):
         await viz_cc.get_cell_communication_data(minimal_spatial_adata)
 
@@ -528,7 +530,9 @@ async def test_cluster_only_communication_visualizations_reject_spatial_results(
 
     monkeypatch.setattr(viz_cc, "get_cell_communication_data", _fake_get)
 
-    with pytest.raises(ParameterError, match="requires cluster-level communication results"):
+    with pytest.raises(
+        ParameterError, match="requires cluster-level communication results"
+    ):
         await viz_cc.create_cell_communication_visualization(
             adata,
             VisualizationParameters(plot_type="communication", subtype="circle_plot"),
@@ -566,7 +570,9 @@ async def test_create_cell_communication_visualization_logs_context_and_spatial_
 
     monkeypatch.setattr(viz_cc, "get_cell_communication_data", _fake_get)
 
-    with pytest.raises(ParameterError, match="Available: spatial, dotplot, tileplot, circle_plot"):
+    with pytest.raises(
+        ParameterError, match="Available: spatial, dotplot, tileplot, circle_plot"
+    ):
         await viz_cc.create_cell_communication_visualization(
             adata,
             VisualizationParameters(plot_type="communication", subtype="bad"),
@@ -642,7 +648,9 @@ async def test_create_cell_communication_visualization_defaults_to_spatial_for_s
         return data
 
     monkeypatch.setattr(viz_cc, "get_cell_communication_data", _fake_get)
-    monkeypatch.setattr(viz_cc, "_create_spatial_lr_visualization", lambda *_a, **_k: sentinel)
+    monkeypatch.setattr(
+        viz_cc, "_create_spatial_lr_visualization", lambda *_a, **_k: sentinel
+    )
 
     params = VisualizationParameters(plot_type="communication", subtype="dotplot")
     params.subtype = None
@@ -667,8 +675,12 @@ async def test_create_cell_communication_visualization_routes_tile_and_circle(
     sentinel_circle = object()
 
     monkeypatch.setattr(viz_cc, "get_cell_communication_data", _fake_get)
-    monkeypatch.setattr(viz_cc, "_create_unified_tileplot", lambda *_a, **_k: sentinel_tile)
-    monkeypatch.setattr(viz_cc, "_create_unified_circle_plot", lambda *_a, **_k: sentinel_circle)
+    monkeypatch.setattr(
+        viz_cc, "_create_unified_tileplot", lambda *_a, **_k: sentinel_tile
+    )
+    monkeypatch.setattr(
+        viz_cc, "_create_unified_circle_plot", lambda *_a, **_k: sentinel_circle
+    )
 
     tile = await viz_cc.create_cell_communication_visualization(
         adata, VisualizationParameters(plot_type="communication", subtype="tileplot")
@@ -681,8 +693,12 @@ async def test_create_cell_communication_visualization_routes_tile_and_circle(
 
 
 def test_create_spatial_lr_visualization_requires_scores(minimal_spatial_adata):
-    data = _mock_cc_data(_mock_liana_results(), analysis_type="spatial", spatial_scores=None)
-    with pytest.raises(DataNotFoundError, match="No spatial communication scores found"):
+    data = _mock_cc_data(
+        _mock_liana_results(), analysis_type="spatial", spatial_scores=None
+    )
+    with pytest.raises(
+        DataNotFoundError, match="No spatial communication scores found"
+    ):
         viz_cc._create_spatial_lr_visualization(
             minimal_spatial_adata.copy(),
             data,
@@ -782,7 +798,9 @@ def test_create_spatial_lr_visualization_errors_for_empty_selected_pairs_and_mis
         plot_top_pairs=1,
     )
     params.plot_top_pairs = -1
-    with pytest.raises(DataNotFoundError, match="No LR pairs found in spatial results."):
+    with pytest.raises(
+        DataNotFoundError, match="No LR pairs found in spatial results."
+    ):
         viz_cc._create_spatial_lr_visualization(
             adata,
             data,
@@ -795,7 +813,9 @@ def test_create_spatial_lr_visualization_errors_for_empty_selected_pairs_and_mis
         lr_pairs=[],
         spatial_scores=None,
     )
-    with pytest.raises(DataNotFoundError, match="No spatial communication scores found"):
+    with pytest.raises(
+        DataNotFoundError, match="No spatial communication scores found"
+    ):
         viz_cc._create_spatial_lr_visualization(
             adata,
             no_scores_data,
@@ -803,7 +823,9 @@ def test_create_spatial_lr_visualization_errors_for_empty_selected_pairs_and_mis
         )
 
 
-def test_create_unified_dotplot_validates_required_columns(monkeypatch: pytest.MonkeyPatch):
+def test_create_unified_dotplot_validates_required_columns(
+    monkeypatch: pytest.MonkeyPatch,
+):
     monkeypatch.setattr(viz_cc, "require", _required_dependency)
     fake_liana = ModuleType("liana")
     fake_liana.pl = ModuleType("liana.pl")
@@ -818,7 +840,9 @@ def test_create_unified_dotplot_validates_required_columns(monkeypatch: pytest.M
         )
 
 
-def test_create_unified_dotplot_rejects_when_no_score_columns(monkeypatch: pytest.MonkeyPatch):
+def test_create_unified_dotplot_rejects_when_no_score_columns(
+    monkeypatch: pytest.MonkeyPatch,
+):
     monkeypatch.setattr(viz_cc, "require", _required_dependency)
     df = _mock_liana_results(include_scores=False)
     data = _mock_cc_data(df)
@@ -828,14 +852,18 @@ def test_create_unified_dotplot_rejects_when_no_score_columns(monkeypatch: pytes
     fake_liana.pl.dotplot = lambda **_kwargs: _FakePlotnine()
     monkeypatch.setitem(sys.modules, "liana", fake_liana)
 
-    with pytest.raises(DataNotFoundError, match="No suitable columns for visualization"):
+    with pytest.raises(
+        DataNotFoundError, match="No suitable columns for visualization"
+    ):
         viz_cc._create_unified_dotplot(
             data,
             VisualizationParameters(plot_type="communication", subtype="dotplot"),
         )
 
 
-def test_create_unified_dotplot_falls_back_on_liana_error(monkeypatch: pytest.MonkeyPatch):
+def test_create_unified_dotplot_falls_back_on_liana_error(
+    monkeypatch: pytest.MonkeyPatch,
+):
     monkeypatch.setattr(viz_cc, "require", _required_dependency)
     data = _mock_cc_data(_mock_liana_results())
     sentinel = object()
@@ -857,7 +885,9 @@ def test_create_unified_dotplot_falls_back_on_liana_error(monkeypatch: pytest.Mo
     assert out is sentinel
 
 
-def test_create_unified_dotplot_success_and_empty_contract(monkeypatch: pytest.MonkeyPatch):
+def test_create_unified_dotplot_success_and_empty_contract(
+    monkeypatch: pytest.MonkeyPatch,
+):
     monkeypatch.setattr(viz_cc, "require", _required_dependency)
 
     fake_liana = ModuleType("liana")
@@ -911,7 +941,9 @@ def test_create_fallback_dotplot_requires_rank_and_scales_positive_rank():
     fig.clf()
 
 
-def test_create_unified_tileplot_requires_value_columns(monkeypatch: pytest.MonkeyPatch):
+def test_create_unified_tileplot_requires_value_columns(
+    monkeypatch: pytest.MonkeyPatch,
+):
     monkeypatch.setattr(viz_cc, "require", _required_dependency)
     df = _mock_liana_results(include_scores=False)
     data = _mock_cc_data(df)
@@ -928,7 +960,9 @@ def test_create_unified_tileplot_requires_value_columns(monkeypatch: pytest.Monk
         )
 
 
-def test_create_unified_tileplot_falls_back_on_liana_error(monkeypatch: pytest.MonkeyPatch):
+def test_create_unified_tileplot_falls_back_on_liana_error(
+    monkeypatch: pytest.MonkeyPatch,
+):
     monkeypatch.setattr(viz_cc, "require", _required_dependency)
     data = _mock_cc_data(_mock_liana_results())
     sentinel = object()
@@ -950,7 +984,9 @@ def test_create_unified_tileplot_falls_back_on_liana_error(monkeypatch: pytest.M
     assert out is sentinel
 
 
-def test_create_unified_tileplot_success_and_empty_contract(monkeypatch: pytest.MonkeyPatch):
+def test_create_unified_tileplot_success_and_empty_contract(
+    monkeypatch: pytest.MonkeyPatch,
+):
     monkeypatch.setattr(viz_cc, "require", _required_dependency)
 
     fake_liana = ModuleType("liana")
@@ -1028,7 +1064,9 @@ def test_create_unified_circle_plot_supports_weighted_and_count_modes():
 
     with pytest.raises(DataNotFoundError, match="Missing source/target columns"):
         viz_cc._create_unified_circle_plot(
-            _mock_cc_data(pd.DataFrame({"ligand_complex": ["L"], "receptor_complex": ["R"]})),
+            _mock_cc_data(
+                pd.DataFrame({"ligand_complex": ["L"], "receptor_complex": ["R"]})
+            ),
             VisualizationParameters(plot_type="communication", subtype="circle_plot"),
         )
 
@@ -1129,7 +1167,9 @@ async def test_create_cell_communication_visualization_passes_analysis_method(
 
 
 @pytest.mark.asyncio
-async def test_get_cell_communication_data_per_method_spatial_obsm(minimal_spatial_adata):
+async def test_get_cell_communication_data_per_method_spatial_obsm(
+    minimal_spatial_adata,
+):
     """Per-method obsm keys should be used when method is specified."""
     adata = minimal_spatial_adata.copy()
     _store_cluster_ccc(adata)
@@ -1145,8 +1185,6 @@ async def test_get_cell_communication_data_per_method_spatial_obsm(minimal_spati
     assert data_shared.spatial_scores is not None
     assert data_shared.spatial_scores[0, 0] == pytest.approx(1.0)
 
-    data_method = await viz_cc.get_cell_communication_data(
-        adata, method="cellphonedb"
-    )
+    data_method = await viz_cc.get_cell_communication_data(adata, method="cellphonedb")
     assert data_method.spatial_scores is not None
     assert data_method.spatial_scores[0, 0] == pytest.approx(2.0)

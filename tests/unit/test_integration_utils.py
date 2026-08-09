@@ -336,9 +336,10 @@ def test_integrate_multiple_samples_autofills_missing_batch_labels_with_concat(
 ):
     adata1 = minimal_spatial_adata.copy()
     adata2 = minimal_spatial_adata.copy()
-    adata2.obs_names = [f"b_{i}" for i in range(adata2.n_obs)]
     adata1.var_names = [f"a_{g}" for g in adata1.var_names]
     adata2.var_names = [f"b_{g}" for g in adata2.var_names]
+    original_names_1 = adata1.obs_names.copy()
+    original_names_2 = adata2.obs_names.copy()
 
     captured: dict[str, object] = {}
 
@@ -359,8 +360,46 @@ def test_integrate_multiple_samples_autofills_missing_batch_labels_with_concat(
     out = integrate_multiple_samples([adata1, adata2], method="scvi", batch_key="batch")
 
     assert out.n_obs == adata1.n_obs + adata2.n_obs
+    assert out.obs_names.is_unique
+    assert out.obs_names.str.endswith(":sample_0").sum() == adata1.n_obs
+    assert out.obs_names.str.endswith(":sample_1").sum() == adata2.n_obs
+    assert out.obs["_chatspatial_original_obs_name"].tolist() == [
+        *original_names_1,
+        *original_names_2,
+    ]
     assert set(out.obs["batch"].astype(str).unique()) == {"sample_0", "sample_1"}
+    assert "batch" not in adata1.obs
+    assert "batch" not in adata2.obs
     assert captured["analysis_name"] == "integration_scvi"
+
+
+def test_integrate_multiple_samples_failure_does_not_mutate_inputs(
+    minimal_spatial_adata,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    adata1 = minimal_spatial_adata.copy()
+    adata2 = minimal_spatial_adata.copy()
+    original_obs_1 = adata1.obs.copy(deep=True)
+    original_obs_2 = adata2.obs.copy(deep=True)
+
+    monkeypatch.setattr(
+        "chatspatial.tools.integration.validate_adata_basics",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "chatspatial.tools.integration.check_is_integer_counts",
+        lambda *_args, **_kwargs: (False, False, False),
+    )
+    monkeypatch.setattr(
+        "chatspatial.tools.integration.integrate_with_scvi",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(DataError("backend failed")),
+    )
+
+    with pytest.raises(DataError, match="backend failed"):
+        integrate_multiple_samples([adata1, adata2], method="scvi", batch_key="batch")
+
+    pd.testing.assert_frame_equal(adata1.obs, original_obs_1)
+    pd.testing.assert_frame_equal(adata2.obs, original_obs_2)
 
 
 def test_integrate_multiple_samples_requires_at_least_two_datasets(

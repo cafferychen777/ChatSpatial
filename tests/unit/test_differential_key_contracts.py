@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from chatspatial.tools.differential import _build_de_key
 
-
 # ---------------------------------------------------------------------------
 # _build_de_key unit tests
 # ---------------------------------------------------------------------------
@@ -24,7 +23,10 @@ def test_build_de_key_pairwise_vs_rest():
 
 
 def test_build_de_key_pydeseq2():
-    assert _build_de_key("pydeseq2", "treated", "control") == "de_pydeseq2_treated_vs_control"
+    assert (
+        _build_de_key("pydeseq2", "treated", "control")
+        == "de_pydeseq2_treated_vs_control"
+    )
 
 
 # ---------------------------------------------------------------------------

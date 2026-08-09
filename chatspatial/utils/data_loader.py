@@ -27,6 +27,7 @@ from .adata_utils import (
     get_spatial_key,
     has_tissue_image,
 )
+from .async_utils import run_sync
 from .dependency_manager import is_available
 from .exceptions import (
     DataCompatibilityError,
@@ -157,6 +158,306 @@ async def load_spatial_data(
     data_type: SpatialPlatform,
     name: Optional[str] = None,
 ) -> dict[str, Any]:
+    """Load spatial data without blocking concurrent MCP requests."""
+    return await run_sync(_load_spatial_data_sync, data_path, data_type, name)
+
+
+def _load_visium_directory(data_path: str, scanpy: Any) -> Any:
+    """Load either supported Space Ranger directory layout."""
+    h5_matrix = os.path.join(data_path, "filtered_feature_bc_matrix.h5")
+    matrix_dir = os.path.join(data_path, "filtered_feature_bc_matrix")
+    if os.path.exists(h5_matrix):
+        return scanpy.read_visium(data_path)
+    if not os.path.isdir(matrix_dir):
+        raise DataCompatibilityError(
+            f"Directory {data_path} does not have the expected 10x Visium structure"
+        )
+    if not any(
+        os.path.exists(os.path.join(matrix_dir, filename))
+        for filename in ("matrix.mtx.gz", "matrix.mtx")
+    ):
+        raise DataCompatibilityError(
+            f"Directory {matrix_dir} is missing matrix.mtx or matrix.mtx.gz"
+        )
+
+    adata = scanpy.read_10x_mtx(
+        matrix_dir,
+        var_names="gene_symbols",
+        cache=False,
+    )
+    spatial_dir = os.path.join(data_path, "spatial")
+    if not os.path.isdir(spatial_dir):
+        raise DataNotFoundError(
+            f"Visium spatial directory not found: {spatial_dir}. "
+            "Use data_type='generic' to load expression-only data."
+        )
+    try:
+        return _add_spatial_info_to_adata(adata, spatial_dir)
+    except (DataNotFoundError, DataCompatibilityError):
+        raise
+    except Exception as exc:
+        raise DataCompatibilityError(
+            f"Visium spatial information failed to load: {exc}. "
+            "Spatial coordinates are required for Visium data. "
+            "If you only need expression data, use data_type='generic'."
+        ) from exc
+
+
+def _load_visium_h5(data_path: str, scanpy: Any) -> Any:
+    """Load a standalone 10x H5 matrix and its adjacent spatial metadata."""
+    adata = scanpy.read_10x_h5(data_path)
+    spatial_path = _find_spatial_folder(data_path)
+    if spatial_path is None:
+        raise DataNotFoundError(
+            f"Visium spatial metadata not found for {data_path}. "
+            "Expected a spatial directory containing a tissue positions "
+            "file and scalefactors_json.json. Use data_type='generic' "
+            "to load expression-only data."
+        )
+    try:
+        return _add_spatial_info_to_adata(adata, spatial_path)
+    except (DataNotFoundError, DataCompatibilityError):
+        raise
+    except Exception as exc:
+        raise DataCompatibilityError(
+            f"Visium spatial information failed to load: {exc}. "
+            "Spatial coordinates are required for Visium data. "
+            "If you only need expression data, use data_type='generic'."
+        ) from exc
+
+
+def _visium_error_message(data_path: str, error: Exception) -> str:
+    """Build actionable guidance for unexpected Visium loader failures."""
+    message = f"Error loading Visium data from {data_path}: {error}"
+    error_text = str(error)
+    if "No matching barcodes" in error_text:
+        return message + (
+            "\n\nPossible solutions:"
+            "\n1. Check if the H5 file and spatial coordinates are from the same sample"
+            "\n2. Verify barcode format (with or without -1 suffix)"
+            "\n3. Ensure the spatial folder contains tissue_positions.csv "
+            "or tissue_positions_list.csv"
+        )
+    if ".h5" in data_path and "read_10x_h5" in error_text:
+        return message + (
+            "\n\nThis might not be a valid 10x H5 file. Try:"
+            "\n1. Set data_type='generic' if this is an AnnData H5AD file"
+            "\n2. Verify the file is from 10x Genomics Cell Ranger output"
+        )
+    if "spatial" in error_text.lower():
+        return message + (
+            "\n\nSpatial data issue detected. Try:"
+            "\n1. Loading without spatial data by using data_type='generic'"
+            "\n2. Ensuring the spatial folder contains: tissue_positions.csv "
+            "(or tissue_positions_list.csv) and scalefactors_json.json"
+        )
+    return message
+
+
+def _load_visium_data(data_path: str, scanpy: Any) -> Any:
+    """Load a Visium dataset while preserving domain-specific errors."""
+    try:
+        if os.path.isdir(data_path):
+            return _load_visium_directory(data_path, scanpy)
+        if os.path.isfile(data_path) and data_path.endswith(".h5"):
+            return _load_visium_h5(data_path, scanpy)
+        if os.path.isfile(data_path) and data_path.endswith(".h5ad"):
+            adata = scanpy.read_h5ad(data_path)
+            if "spatial" not in adata.uns and get_spatial_key(adata) is None:
+                logger.warning(
+                    "The h5ad file does not contain spatial information typically "
+                    "required for Visium data"
+                )
+            return adata
+        raise ParameterError(
+            f"Unsupported file format for visium: {data_path}. Supported formats: "
+            "directory with Visium structure, .h5 file, or .h5ad file"
+        )
+    except (DataNotFoundError, DataCompatibilityError, ParameterError):
+        raise
+    except FileNotFoundError as exc:
+        raise DataNotFoundError(f"File not found: {exc}") from exc
+    except Exception as exc:
+        raise ProcessingError(_visium_error_message(data_path, exc)) from exc
+
+
+def _align_xenium_metadata(adata: Any, cells: Any) -> Any:
+    """Align Xenium cell metadata to count-matrix observation identity."""
+    if "cell_id" in cells.columns:
+        cells = cells.set_index("cell_id")
+    cells.index = cells.index.astype(str)
+    if not adata.obs_names.is_unique:
+        raise DataCompatibilityError(
+            "Xenium count matrix contains duplicate cell IDs; "
+            "cell-level metadata cannot be aligned unambiguously."
+        )
+    if not cells.index.is_unique:
+        examples = cells.index[cells.index.duplicated()].unique()[:5]
+        raise DataCompatibilityError(
+            "Xenium cells metadata contains duplicate cell IDs: " f"{examples.tolist()}"
+        )
+
+    common_cells = adata.obs_names[adata.obs_names.isin(cells.index)]
+    if len(common_cells) == 0:
+        raise DataCompatibilityError(
+            "No matching cell IDs between count matrix and cells metadata. "
+            f"Count matrix has {adata.n_obs} cells, cells metadata has {len(cells)} cells."
+        )
+    if len(common_cells) < adata.n_obs:
+        logger.info(
+            "Filtering to %d cells with spatial coordinates (from %d total)",
+            len(common_cells),
+            adata.n_obs,
+        )
+        adata = adata[common_cells, :].copy()
+
+    cells = cells.reindex(adata.obs_names)
+    required_coordinates = ["x_centroid", "y_centroid"]
+    if not set(required_coordinates).issubset(cells.columns):
+        raise DataCompatibilityError(
+            "Xenium cells metadata missing x_centroid/y_centroid columns. "
+            f"Available columns: {list(cells.columns)}"
+        )
+    adata.obsm["spatial"] = cells[required_coordinates].to_numpy()
+    for column in (
+        "transcript_counts",
+        "control_probe_counts",
+        "control_codeword_counts",
+        "cell_area",
+        "nucleus_area",
+    ):
+        if column in cells:
+            adata.obs[column] = cells[column]
+    return adata
+
+
+def _load_xenium_data(data_path: str, scanpy: Any) -> Any:
+    """Load one supported Xenium directory layout."""
+    import pandas as pd
+
+    matrix_zarr = os.path.join(data_path, "cell_feature_matrix.zarr.zip")
+    cells_zarr = os.path.join(data_path, "cells.zarr.zip")
+    matrix_h5 = os.path.join(data_path, "cell_feature_matrix.h5")
+    matrix_dir = os.path.join(data_path, "cell_feature_matrix")
+    cells_parquet = os.path.join(data_path, "cells.parquet")
+    cells_csv = os.path.join(data_path, "cells.csv.gz")
+
+    try:
+        if os.path.exists(matrix_zarr) and os.path.exists(cells_zarr):
+            logger.info("Loading Xenium data from zarr format")
+            return _load_xenium_zarr(data_path)
+
+        has_matrix = os.path.exists(matrix_h5) or os.path.exists(matrix_dir)
+        has_cells = os.path.exists(cells_parquet) or os.path.exists(cells_csv)
+        if not has_matrix or not has_cells:
+            raise DataNotFoundError(
+                f"No valid Xenium data found in {data_path}. Expected either zarr "
+                "format (cell_feature_matrix.zarr.zip + cells.zarr.zip) or standard "
+                "format (cell_feature_matrix.h5 + cells.parquet/csv.gz)"
+            )
+
+        logger.info("Loading Xenium data from standard format")
+        adata = (
+            scanpy.read_10x_h5(matrix_h5)
+            if os.path.exists(matrix_h5)
+            else scanpy.read_10x_mtx(matrix_dir, var_names="gene_symbols")
+        )
+        cells = (
+            pd.read_parquet(cells_parquet)
+            if os.path.exists(cells_parquet)
+            else pd.read_csv(cells_csv, compression="gzip")
+        )
+        return _align_xenium_metadata(adata, cells)
+    except (DataNotFoundError, DataCompatibilityError):
+        raise
+    except Exception as exc:
+        raise ProcessingError(
+            f"Error loading Xenium data from {data_path}: {exc}"
+        ) from exc
+
+
+def _ensure_raw_count_sources(adata: Any) -> None:
+    """Populate raw/count containers only when integer counts are proven."""
+    import anndata as ad
+
+    if adata.raw is None:
+        is_integer, has_negative, _ = check_is_integer_counts(adata.X)
+        if is_integer and not has_negative:
+            adata.raw = ad.AnnData(X=adata.X.copy(), var=adata.var)
+    if "counts" in adata.layers:
+        return
+
+    is_integer, has_negative, _ = check_is_integer_counts(adata.X)
+    if is_integer and not has_negative:
+        adata.layers["counts"] = adata.X.copy()
+        return
+    if adata.raw is None:
+        logger.info(
+            "Loaded data does not contain proven raw integer counts. "
+            "Run preprocess_data() to generate a counts layer."
+        )
+        return
+
+    raw_adata = adata.raw.to_adata()
+    same_genes = len(raw_adata.var_names) == adata.n_vars and set(
+        raw_adata.var_names
+    ) == set(adata.var_names)
+    if not same_genes:
+        logger.info(
+            "adata.raw has different genes than current adata (%d vs %d). "
+            "Skipping layers['counts'] creation.",
+            raw_adata.n_vars,
+            adata.n_vars,
+        )
+        return
+
+    is_raw_integer, raw_has_negative, _ = check_is_integer_counts(raw_adata.X)
+    if not is_raw_integer or raw_has_negative:
+        logger.info(
+            "Neither adata.X nor adata.raw contain raw integer counts. "
+            "Skipping layers['counts'] creation."
+        )
+        return
+    aligned_raw = (
+        raw_adata
+        if raw_adata.var_names.equals(adata.var_names)
+        else raw_adata[:, adata.var_names]
+    )
+    adata.layers["counts"] = aligned_raw.X.copy()
+
+
+def _finalize_loaded_data(
+    adata: Any,
+    *,
+    data_path: str,
+    platform: SpatialPlatform,
+    name: str | None,
+) -> dict[str, Any]:
+    """Apply shared invariants and build the loader response."""
+    dataset_name = name or os.path.basename(data_path).split(".")[0]
+    n_cells, n_genes = adata.n_obs, adata.n_vars
+    spatial_coordinates_available = get_spatial_key(adata) is not None
+    tissue_image_available = has_tissue_image(adata)
+    ensure_unique_var_names(adata)
+    _ensure_raw_count_sources(adata)
+    return {
+        "name": dataset_name,
+        "type": platform,
+        "path": data_path,
+        "adata": adata,
+        "n_cells": n_cells,
+        "n_genes": n_genes,
+        "spatial_coordinates_available": spatial_coordinates_available,
+        "tissue_image_available": tissue_image_available,
+        **get_adata_profile(adata),
+    }
+
+
+def _load_spatial_data_sync(
+    data_path: str,
+    data_type: SpatialPlatform,
+    name: Optional[str] = None,
+) -> dict[str, Any]:
     """Load spatial transcriptomics data.
 
     Args:
@@ -167,9 +468,8 @@ async def load_spatial_data(
     Returns:
         Dictionary with dataset information and AnnData object
 
-    Note:
-        Async interface for consistency with data management layer, enabling
-        future async I/O (aiofiles, remote storage) without API changes.
+    This private implementation is synchronous and is called through the public
+    async boundary above.
     """
     # Validate path
     if not os.path.exists(data_path):
@@ -180,233 +480,10 @@ async def load_spatial_data(
     # Import dependencies
     import scanpy as sc
 
-    # Load data based on platform type
     if platform == "visium":
-        # For 10x Visium, we need to provide the path to the directory containing the data
-        try:
-            # Check if it's a directory or an h5ad file
-            if os.path.isdir(data_path):
-                # Check if the directory has the expected structure
-                if os.path.exists(
-                    os.path.join(data_path, "filtered_feature_bc_matrix.h5")
-                ):
-                    # H5 file based 10x Visium directory structure
-                    adata = sc.read_visium(data_path)
-                elif os.path.exists(
-                    os.path.join(data_path, "filtered_feature_bc_matrix")
-                ):
-                    # Check if it contains MTX files (compressed or uncompressed)
-                    mtx_dir = os.path.join(data_path, "filtered_feature_bc_matrix")
-                    if os.path.exists(
-                        os.path.join(mtx_dir, "matrix.mtx.gz")
-                    ) or os.path.exists(os.path.join(mtx_dir, "matrix.mtx")):
-                        # Matrix files based 10x Visium directory structure
-                        # Use scanpy's read_10x_mtx function
-                        adata = sc.read_10x_mtx(
-                            os.path.join(data_path, "filtered_feature_bc_matrix"),
-                            var_names="gene_symbols",
-                            cache=False,
-                        )
-                        # Load spatial metadata through the same path used for
-                        # standalone H5 inputs. This keeps the AnnData layout
-                        # consistent across supported Visium matrix formats.
-                        spatial_dir = os.path.join(data_path, "spatial")
-                        if not os.path.isdir(spatial_dir):
-                            raise DataNotFoundError(
-                                f"Visium spatial directory not found: {spatial_dir}. "
-                                "Use data_type='generic' to load expression-only data."
-                            )
-                        try:
-                            adata = _add_spatial_info_to_adata(adata, spatial_dir)
-                        except (DataNotFoundError, DataCompatibilityError):
-                            raise
-                        except Exception as e:
-                            raise DataCompatibilityError(
-                                f"Visium spatial information failed to load: {e}. "
-                                "Spatial coordinates are required for Visium data. "
-                                "If you only need expression data, use data_type='generic'."
-                            ) from e
-                    else:
-                        raise DataCompatibilityError(
-                            f"Directory {mtx_dir} is missing matrix.mtx or matrix.mtx.gz"
-                        )
-                else:
-                    raise DataCompatibilityError(
-                        f"Directory {data_path} does not have the expected 10x Visium structure"
-                    )
-            elif os.path.isfile(data_path) and data_path.endswith(".h5"):
-                # Single H5 file - new support for 10x H5 format
-                adata = sc.read_10x_h5(data_path)
-
-                # Try to find and add spatial information
-                spatial_path = _find_spatial_folder(data_path)
-                if spatial_path is None:
-                    raise DataNotFoundError(
-                        f"Visium spatial metadata not found for {data_path}. "
-                        "Expected a spatial directory containing a tissue positions "
-                        "file and scalefactors_json.json. Use data_type='generic' "
-                        "to load expression-only data."
-                    )
-                try:
-                    adata = _add_spatial_info_to_adata(adata, spatial_path)
-                except (DataNotFoundError, DataCompatibilityError):
-                    raise
-                except Exception as e:
-                    raise DataCompatibilityError(
-                        f"Visium spatial information failed to load: {e}. "
-                        "Spatial coordinates are required for Visium data. "
-                        "If you only need expression data, use data_type='generic'."
-                    ) from e
-            elif os.path.isfile(data_path) and data_path.endswith(".h5ad"):
-                # If it's an h5ad file but marked as visium, read it as h5ad
-                adata = sc.read_h5ad(data_path)
-                # Check if it has the necessary spatial information
-                if "spatial" not in adata.uns and get_spatial_key(adata) is None:
-                    logger.warning(
-                        "The h5ad file does not contain spatial information typically required for Visium data"
-                    )
-            else:
-                raise ParameterError(
-                    f"Unsupported file format for visium: {data_path}. Supported formats: directory with Visium structure, .h5 file, or .h5ad file"
-                )
-
-        except (DataNotFoundError, DataCompatibilityError, ParameterError):
-            raise
-        except FileNotFoundError as e:
-            raise DataNotFoundError(f"File not found: {e}") from e
-        except Exception as e:
-            # Provide more detailed error information
-            error_msg = f"Error loading Visium data from {data_path}: {e}"
-
-            # Add helpful suggestions based on error type
-            if "No matching barcodes" in str(e):
-                error_msg += "\n\nPossible solutions:"
-                error_msg += "\n1. Check if the H5 file and spatial coordinates are from the same sample"
-                error_msg += "\n2. Verify barcode format (with or without -1 suffix)"
-                error_msg += (
-                    "\n3. Ensure the spatial folder contains tissue_positions.csv "
-                    "or tissue_positions_list.csv"
-                )
-            elif ".h5" in data_path and "read_10x_h5" in str(e):
-                error_msg += "\n\nThis might not be a valid 10x H5 file. Try:"
-                error_msg += (
-                    "\n1. Set data_type='generic' if this is an AnnData H5AD file"
-                )
-                error_msg += (
-                    "\n2. Verify the file is from 10x Genomics Cell Ranger output"
-                )
-            elif "spatial" in str(e).lower():
-                error_msg += "\n\nSpatial data issue detected. Try:"
-                error_msg += (
-                    "\n1. Loading without spatial data by using data_type='generic'"
-                )
-                error_msg += (
-                    "\n2. Ensuring the spatial folder contains: "
-                    "tissue_positions.csv (or tissue_positions_list.csv) "
-                    "and scalefactors_json.json"
-                )
-
-            raise ProcessingError(error_msg) from e
+        adata = _load_visium_data(data_path, sc)
     elif platform == "xenium":
-        # For 10x Xenium data - supports two formats:
-        # 1. Zarr format: cell_feature_matrix.zarr.zip + cells.zarr.zip
-        # 2. Standard format: cell_feature_matrix.h5 + cells.parquet/csv.gz
-        try:
-            import pandas as pd
-
-            # Check for zarr format
-            matrix_zarr = os.path.join(data_path, "cell_feature_matrix.zarr.zip")
-            cells_zarr = os.path.join(data_path, "cells.zarr.zip")
-            has_zarr = os.path.exists(matrix_zarr) and os.path.exists(cells_zarr)
-
-            # Check for standard format
-            cell_matrix_h5 = os.path.join(data_path, "cell_feature_matrix.h5")
-            cell_matrix_dir = os.path.join(data_path, "cell_feature_matrix")
-            cells_parquet = os.path.join(data_path, "cells.parquet")
-            cells_csv = os.path.join(data_path, "cells.csv.gz")
-            has_standard = (
-                os.path.exists(cell_matrix_h5) or os.path.exists(cell_matrix_dir)
-            ) and (os.path.exists(cells_parquet) or os.path.exists(cells_csv))
-
-            if has_zarr:
-                # Load zarr format
-                logger.info("Loading Xenium data from zarr format")
-                adata = _load_xenium_zarr(data_path)
-
-            elif has_standard:
-                # Load standard format
-                logger.info("Loading Xenium data from standard format")
-                if os.path.exists(cell_matrix_h5):
-                    adata = sc.read_10x_h5(cell_matrix_h5)
-                else:
-                    adata = sc.read_10x_mtx(cell_matrix_dir, var_names="gene_symbols")
-
-                # Load cell metadata
-                if os.path.exists(cells_parquet):
-                    cells = pd.read_parquet(cells_parquet)
-                else:
-                    cells = pd.read_csv(cells_csv, compression="gzip")
-
-                # Set cell_id as index for alignment
-                if "cell_id" in cells.columns:
-                    cells = cells.set_index("cell_id")
-
-                # Align cells metadata with adata
-                common_cells = adata.obs_names.intersection(cells.index)
-                if len(common_cells) == 0:
-                    cells.index = cells.index.astype(str)
-                    common_cells = adata.obs_names.intersection(cells.index)
-
-                if len(common_cells) == 0:
-                    raise DataCompatibilityError(
-                        "No matching cell IDs between count matrix and cells metadata. "
-                        f"Count matrix has {adata.n_obs} cells, "
-                        f"cells metadata has {len(cells)} cells."
-                    )
-
-                # Filter to common cells
-                if len(common_cells) < adata.n_obs:
-                    logger.info(
-                        f"Filtering to {len(common_cells)} cells with spatial coordinates "
-                        f"(from {adata.n_obs} total)"
-                    )
-                    adata = adata[common_cells, :].copy()
-                    cells = cells.loc[common_cells]
-
-                # Add spatial coordinates
-                if "x_centroid" in cells.columns and "y_centroid" in cells.columns:
-                    adata.obsm["spatial"] = cells[["x_centroid", "y_centroid"]].values
-                else:
-                    raise DataCompatibilityError(
-                        "Xenium cells metadata missing x_centroid/y_centroid columns. "
-                        f"Available columns: {list(cells.columns)}"
-                    )
-
-                # Add other useful cell metadata
-                metadata_cols = [
-                    "transcript_counts",
-                    "control_probe_counts",
-                    "control_codeword_counts",
-                    "cell_area",
-                    "nucleus_area",
-                ]
-                for col in metadata_cols:
-                    if col in cells.columns:
-                        adata.obs[col] = cells[col].values
-
-            else:
-                raise DataNotFoundError(
-                    f"No valid Xenium data found in {data_path}. "
-                    "Expected either zarr format (cell_feature_matrix.zarr.zip + cells.zarr.zip) "
-                    "or standard format (cell_feature_matrix.h5 + cells.parquet/csv.gz)"
-                )
-
-        except (DataNotFoundError, DataCompatibilityError):
-            raise
-        except Exception as e:
-            raise ProcessingError(
-                f"Error loading Xenium data from {data_path}: {e}"
-            ) from e
+        adata = _load_xenium_data(data_path, sc)
 
     elif platform in ("slide_seq", "merfish", "seqfish", "generic"):
         # For h5ad files or other spatial platforms
@@ -417,93 +494,12 @@ async def load_spatial_data(
     else:
         raise ParameterError(f"Unsupported platform type: {platform}")
 
-    # Set dataset name
-    dataset_name = name or os.path.basename(data_path).split(".")[0]
-
-    # Calculate basic statistics
-    n_cells = adata.n_obs
-    n_genes = adata.n_vars
-
-    # Check if spatial coordinates are available using the unified key probe
-    # (supports "spatial", "X_spatial", "coordinates", etc.)
-    spatial_key = get_spatial_key(adata)
-    spatial_coordinates_available = spatial_key is not None
-
-    tissue_image_available = has_tissue_image(adata)
-
-    # Make variable names unique to avoid reindexing issues
-    ensure_unique_var_names(adata)
-
-    # Preserve raw data for downstream analysis (C2 strategy)
-    # Only save if .raw doesn't already exist - respect user's existing .raw
-    import anndata as ad
-
-    if adata.raw is None:
-        is_int, has_neg, _ = check_is_integer_counts(adata.X)
-        if is_int and not has_neg:
-            adata.raw = ad.AnnData(X=adata.X.copy(), var=adata.var)
-
-    # Create layers["counts"] from the best available raw-count source.
-    # Priority: adata.X (same shape guaranteed) > adata.raw (must match n_vars).
-    # Avoids shape mismatch when .raw has the full gene set but adata is filtered.
-    if "counts" not in adata.layers:
-        is_int_x, has_neg_x, _ = check_is_integer_counts(adata.X)
-        if is_int_x and not has_neg_x:
-            # adata.X is raw counts — copy directly (shape always compatible)
-            adata.layers["counts"] = adata.X.copy()
-        elif adata.raw is not None:
-            # X is normalized but .raw may have raw counts.
-            # Must verify var_names match exactly (same genes, same order)
-            # to avoid silently misaligning gene columns.
-            raw_adata = adata.raw.to_adata()
-            raw_vars = raw_adata.var_names
-            cur_vars = adata.var_names
-
-            if len(raw_vars) == len(cur_vars) and set(raw_vars) == set(cur_vars):
-                is_int_raw, has_neg_raw, _ = check_is_integer_counts(raw_adata.X)
-                if is_int_raw and not has_neg_raw:
-                    if (raw_vars == cur_vars).all():
-                        # Same order — direct copy
-                        adata.layers["counts"] = raw_adata.X.copy()
-                    else:
-                        # Same genes, different order — reindex to match
-                        adata.layers["counts"] = raw_adata[:, cur_vars].X.copy()
-                else:
-                    logger.info(
-                        "Neither adata.X nor adata.raw contain raw integer "
-                        "counts. Skipping layers['counts'] creation."
-                    )
-            else:
-                logger.info(
-                    "adata.raw has different genes than current adata "
-                    "(%d vs %d). Skipping layers['counts'] creation.",
-                    len(raw_vars),
-                    len(cur_vars),
-                )
-        else:
-            logger.info(
-                "Loaded data does not appear to contain raw integer counts "
-                "and adata.raw is absent or has incompatible shape. "
-                "Skipping layers['counts'] creation. "
-                "Run preprocess_data() to generate a proper counts layer."
-            )
-
-    # Get metadata profile for LLM understanding
-    profile = get_adata_profile(adata)
-
-    # Return dataset info and AnnData object with comprehensive metadata
-    return {
-        "name": dataset_name,
-        "type": platform,  # Always a valid SpatialPlatform value
-        "path": data_path,
-        "adata": adata,
-        "n_cells": n_cells,
-        "n_genes": n_genes,
-        "spatial_coordinates_available": spatial_coordinates_available,
-        "tissue_image_available": tissue_image_available,
-        # Metadata profile from adata_utils
-        **profile,
-    }
+    return _finalize_loaded_data(
+        adata,
+        data_path=data_path,
+        platform=platform,
+        name=name,
+    )
 
 
 def _find_spatial_folder(h5_path: str) -> Optional[str]:

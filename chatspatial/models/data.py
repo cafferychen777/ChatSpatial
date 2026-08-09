@@ -11,7 +11,8 @@ from typing_extensions import Self
 
 from .base import FiniteModel, StrictParameters
 
-IntPair = Annotated[list[int], Field(min_length=2, max_length=2)]
+PositiveInt = Annotated[int, Field(gt=0)]
+IntPair = Annotated[list[PositiveInt], Field(min_length=2, max_length=2)]
 FloatPair = Annotated[list[float], Field(min_length=2, max_length=2)]
 StringPair = Annotated[list[str], Field(min_length=2, max_length=2)]
 
@@ -412,10 +413,11 @@ class VisualizationParameters(StrictParameters):
 
     # Figure parameters
     figure_size: Optional[IntPair] = None  # [width, height] - auto-determined if None
-    dpi: int = 300  # Publication quality (Nature/Cell standard)
-    alpha: float = 0.9  # Spot transparency (higher = more opaque)
+    dpi: int = Field(300, gt=0)  # Publication quality (Nature/Cell standard)
+    alpha: float = Field(0.9, ge=0.0, le=1.0)
     spot_size: Optional[float] = Field(
         None,
+        gt=0.0,
         description="Spot size in pixels. None=auto. Set manually: 50 for dense, 150 for sparse.",
     )
     alpha_img: float = Field(
@@ -550,6 +552,20 @@ class VisualizationParameters(StrictParameters):
         "png",
         description="Output format. 'pdf'/'svg' for vector graphics (publication).",
     )
+
+    @field_validator("colorbar_size")
+    @classmethod
+    def validate_colorbar_size(cls, value: str) -> str:
+        """Require the percentage format accepted by axes-grid dividers."""
+        if not value.endswith("%"):
+            raise ValueError("colorbar_size must be a percentage such as '3%'")
+        try:
+            percentage = float(value[:-1])
+        except ValueError as exc:
+            raise ValueError("colorbar_size must be a percentage such as '3%'") from exc
+        if not 0 < percentage <= 100:
+            raise ValueError("colorbar_size percentage must be in (0, 100]")
+        return value
 
     @model_validator(mode="after")
     def validate_conditional_parameters(self) -> Self:
@@ -1008,13 +1024,13 @@ class IntegrationParameters(StrictParameters):
 
     # Common scvi-tools parameters
     use_gpu: bool = False
-    n_epochs: Optional[int] = None
+    n_epochs: Optional[int] = Field(default=None, gt=0)
 
     # scVI integration parameters
-    scvi_n_hidden: int = 128
-    scvi_n_latent: int = 10
-    scvi_n_layers: int = 1
-    scvi_dropout_rate: float = 0.1
+    scvi_n_hidden: int = Field(128, gt=0)
+    scvi_n_latent: int = Field(10, gt=0)
+    scvi_n_layers: int = Field(1, gt=0)
+    scvi_dropout_rate: float = Field(0.1, ge=0.0, lt=1.0)
     scvi_gene_likelihood: Literal["zinb", "nb", "poisson"] = "zinb"
 
 
@@ -1085,14 +1101,18 @@ class DeconvolutionParameters(StrictParameters):
     )
     cell2location_gene_filter_cell_count_cutoff: int = Field(
         5,
+        ge=0,
         description="Minimum cells expressing a gene. Cell2location only.",
     )
     cell2location_gene_filter_cell_percentage_cutoff2: float = Field(
         0.03,
+        ge=0.0,
+        le=1.0,
         description="Minimum cell percentage for gene filtering. Cell2location only.",
     )
     cell2location_gene_filter_nonz_mean_cutoff: float = Field(
         1.12,
+        ge=0.0,
         description="Minimum non-zero mean expression. Cell2location only.",
     )
 
@@ -1122,7 +1142,7 @@ class DeconvolutionParameters(StrictParameters):
         45,
         description="Epochs to wait before stopping. Cell2location only.",
     )
-    cell2location_early_stopping_threshold: Annotated[float, Field(gt=0)] = Field(
+    cell2location_early_stopping_threshold: Annotated[float, Field(ge=0)] = Field(
         0.0,
         description="Minimum relative change for improvement. Cell2location only.",
     )
@@ -1162,11 +1182,11 @@ class DeconvolutionParameters(StrictParameters):
         2000,
         description="Training epochs. DestVI only.",
     )
-    destvi_n_hidden: int = 128
-    destvi_n_latent: int = 10
-    destvi_n_layers: int = 1
-    destvi_dropout_rate: float = 0.1
-    destvi_learning_rate: float = 1e-3
+    destvi_n_hidden: int = Field(128, gt=0)
+    destvi_n_latent: int = Field(10, gt=0)
+    destvi_n_layers: int = Field(1, gt=0)
+    destvi_dropout_rate: float = Field(0.1, ge=0.0, lt=1.0)
+    destvi_learning_rate: float = Field(1e-3, gt=0.0)
 
     # DestVI advanced parameters (official scvi-tools defaults)
     destvi_train_size: Annotated[float, Field(gt=0.0, le=1.0)] = Field(
@@ -1183,9 +1203,9 @@ class DeconvolutionParameters(StrictParameters):
     )
 
     # Stereoscope parameters
-    stereoscope_n_epochs: int = 150000
-    stereoscope_learning_rate: float = 0.01
-    stereoscope_batch_size: int = 128
+    stereoscope_n_epochs: int = Field(150000, gt=0)
+    stereoscope_learning_rate: float = Field(0.01, gt=0.0)
+    stereoscope_batch_size: int = Field(128, gt=0)
 
     # RCTD specific parameters
     rctd_mode: Literal["full", "doublet", "multi"] = Field(
@@ -1209,7 +1229,6 @@ class DeconvolutionParameters(StrictParameters):
         4,
         description="Max cell types per spot in multi mode. 4-6 for Visium, 2-3 for higher resolution.",
     )
-
     # CARD specific parameters
     card_minCountGene: Annotated[int, Field(gt=0)] = Field(
         100,
@@ -1400,7 +1419,11 @@ class SpatialDomainParameters(StrictParameters):
     aestetik_random_seed: int = 2023
 
     # Simple timeout configuration
-    timeout: Optional[int] = None  # Timeout in seconds (default: 600)
+    timeout: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description="Maximum backend runtime in seconds. None uses 600 seconds.",
+    )
 
     @field_validator("aestetik_window_size")
     @classmethod

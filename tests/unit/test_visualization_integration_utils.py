@@ -157,7 +157,9 @@ async def test_umap_by_cluster_auto_detects_cluster_and_uses_two_column_legend(
     minimal_spatial_adata,
 ):
     adata = minimal_spatial_adata.copy()
-    adata.obsm["X_umap"] = np.column_stack([np.arange(adata.n_obs), np.arange(adata.n_obs)])
+    adata.obsm["X_umap"] = np.column_stack(
+        [np.arange(adata.n_obs), np.arange(adata.n_obs)]
+    )
     # 12 clusters -> legend ncol path (2)
     adata.obs["cluster"] = pd.Categorical([f"c{i % 12}" for i in range(adata.n_obs)])
     ctx = DummyCtx()
@@ -196,7 +198,9 @@ async def test_batch_highlight_requires_batch_and_umap(minimal_spatial_adata):
 
 
 @pytest.mark.asyncio
-async def test_batch_highlight_creates_grid_and_hides_unused_axes(minimal_spatial_adata):
+async def test_batch_highlight_creates_grid_and_hides_unused_axes(
+    minimal_spatial_adata,
+):
     adata = _with_umap_and_batch(minimal_spatial_adata, n_batches=5, categorical=True)
     ctx = DummyCtx()
     fig = await viz_integ._create_batch_highlight(

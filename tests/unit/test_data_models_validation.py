@@ -19,8 +19,10 @@ from chatspatial.models.data import (
     CellCommunicationParameters,
     CNVParameters,
     ColumnInfo,
+    DeconvolutionParameters,
     DifferentialExpressionParameters,
     EnrichmentParameters,
+    IntegrationParameters,
     PreprocessingParameters,
     RegistrationParameters,
     RNAVelocityParameters,
@@ -425,6 +427,62 @@ def test_pair_parameters_accept_tuple_like_inputs_as_json_arrays():
         0.0,
         1.0,
     ]
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"dpi": 0},
+        {"alpha": -0.1},
+        {"alpha": 1.1},
+        {"figure_size": [0, 5]},
+        {"panel_layout": [2, -1]},
+        {"spot_size": 0},
+        {"colorbar_size": "wide"},
+        {"colorbar_size": "0%"},
+    ],
+)
+def test_visualization_parameters_reject_invalid_rendering_bounds(kwargs):
+    with pytest.raises(ValidationError):
+        VisualizationParameters(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"n_epochs": 0},
+        {"scvi_n_hidden": 0},
+        {"scvi_n_latent": -1},
+        {"scvi_n_layers": 0},
+        {"scvi_dropout_rate": 1.0},
+    ],
+)
+def test_integration_parameters_reject_invalid_training_bounds(kwargs):
+    with pytest.raises(ValidationError):
+        IntegrationParameters(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"destvi_n_hidden": 0},
+        {"destvi_n_latent": 0},
+        {"destvi_n_layers": 0},
+        {"destvi_dropout_rate": 1.0},
+        {"destvi_learning_rate": 0},
+        {"stereoscope_n_epochs": 0},
+        {"stereoscope_learning_rate": -0.1},
+        {"stereoscope_batch_size": 0},
+    ],
+)
+def test_deconvolution_parameters_reject_invalid_training_bounds(kwargs):
+    with pytest.raises(ValidationError):
+        DeconvolutionParameters(cell_type_key="cell_type", **kwargs)
+
+
+def test_spatial_domain_timeout_must_be_positive():
+    with pytest.raises(ValidationError):
+        SpatialDomainParameters(timeout=0)
 
 
 @pytest.mark.parametrize(

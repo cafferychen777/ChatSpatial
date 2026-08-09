@@ -124,12 +124,15 @@ async def test_integrate_samples_adds_integrated_dataset_and_exports(
 
     called: dict[str, object] = {}
 
-    def fake_integrate_multiple_samples(adatas, batch_key, method, n_pcs, params):
+    def fake_integrate_multiple_samples(
+        adatas, batch_key, method, n_pcs, params, sample_keys
+    ):
         called["integrate"] = {
             "n_adatas": len(adatas),
             "batch_key": batch_key,
             "method": method,
             "n_pcs": n_pcs,
+            "sample_keys": sample_keys,
         }
         return integrated
 
@@ -165,6 +168,8 @@ async def test_integrate_samples_adds_integrated_dataset_and_exports(
         align_spatial=True,
     )
     result = await integrate_samples(["d1", "d2"], ctx, params)
+
+    assert called["integrate"]["sample_keys"] == ["d1", "d2"]
 
     assert isinstance(result, IntegrationResult)
     assert result.data_id == "integrated_1"

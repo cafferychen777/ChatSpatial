@@ -66,7 +66,9 @@ class TestBuildTrajectoryKey:
     def test_cellrank_default(self):
         from chatspatial.tools.trajectory import _build_trajectory_key
 
-        assert _build_trajectory_key(self._make_params()) == "trajectory_cellrank_sw0_50"
+        assert (
+            _build_trajectory_key(self._make_params()) == "trajectory_cellrank_sw0_50"
+        )
 
     def test_cellrank_different_weight(self):
         from chatspatial.tools.trajectory import _build_trajectory_key

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-
 import pandas as pd
+import pytest
 
 from chatspatial.models.analysis import ConditionComparisonResult
 from chatspatial.models.data import ConditionComparisonParameters

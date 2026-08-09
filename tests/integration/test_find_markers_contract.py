@@ -12,11 +12,16 @@ from tests.fixtures.helpers import load_generic_dataset
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_find_markers_all_groups_contract(spatial_dataset_path, reset_data_manager):
+async def test_find_markers_all_groups_contract(
+    spatial_dataset_path, reset_data_manager
+):
     dataset = await load_generic_dataset(spatial_dataset_path, name="de_contract")
 
     params = DifferentialExpressionParameters(
-        group_key="group", method="wilcoxon", n_top_genes=5, min_cells=3,
+        group_key="group",
+        method="wilcoxon",
+        n_top_genes=5,
+        min_cells=3,
     )
     result = await find_markers(data_id=dataset.id, params=params)
 
@@ -31,11 +36,17 @@ async def test_find_markers_all_groups_contract(spatial_dataset_path, reset_data
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_find_markers_group_vs_rest_contract(spatial_dataset_path, reset_data_manager):
+async def test_find_markers_group_vs_rest_contract(
+    spatial_dataset_path, reset_data_manager
+):
     dataset = await load_generic_dataset(spatial_dataset_path, name="de_contract")
 
     params = DifferentialExpressionParameters(
-        group_key="group", group1="A", method="wilcoxon", n_top_genes=6, min_cells=3,
+        group_key="group",
+        group1="A",
+        method="wilcoxon",
+        n_top_genes=6,
+        min_cells=3,
     )
     result = await find_markers(data_id=dataset.id, params=params)
 
@@ -46,12 +57,18 @@ async def test_find_markers_group_vs_rest_contract(spatial_dataset_path, reset_d
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_find_markers_specific_groups_contract(spatial_dataset_path, reset_data_manager):
+async def test_find_markers_specific_groups_contract(
+    spatial_dataset_path, reset_data_manager
+):
     dataset = await load_generic_dataset(spatial_dataset_path, name="de_contract")
 
     params = DifferentialExpressionParameters(
-        group_key="group", group1="A", group2="B", method="wilcoxon",
-        n_top_genes=4, min_cells=3,
+        group_key="group",
+        group1="A",
+        group2="B",
+        method="wilcoxon",
+        n_top_genes=4,
+        min_cells=3,
     )
     result = await find_markers(data_id=dataset.id, params=params)
 
@@ -68,7 +85,11 @@ async def test_find_markers_invalid_group_raises_parameter_error(
     dataset = await load_generic_dataset(spatial_dataset_path, name="de_contract")
 
     params = DifferentialExpressionParameters(
-        group_key="group", group1="Z", method="wilcoxon", n_top_genes=5, min_cells=3,
+        group_key="group",
+        group1="Z",
+        method="wilcoxon",
+        n_top_genes=5,
+        min_cells=3,
     )
     with pytest.raises(ParameterError, match="Group 'Z' not found"):
         await find_markers(data_id=dataset.id, params=params)

@@ -16,9 +16,7 @@ from chatspatial.tools.trajectory import (
 class TestPalantirAutoRoot:
     """Issue 5a: Palantir auto root should use abs() for sign invariance."""
 
-    def test_auto_root_uses_abs_of_first_dc(
-        self, minimal_spatial_adata, caplog
-    ):
+    def test_auto_root_uses_abs_of_first_dc(self, minimal_spatial_adata, caplog):
         """Auto-selected root cell should be based on abs(DC1),
         making it invariant to eigenvector sign flips."""
         adata = minimal_spatial_adata.copy()
@@ -52,12 +50,8 @@ class TestPalantirAutoRoot:
 
         class FakePalantirResult:
             def __init__(self, n):
-                self.pseudotime = pd.Series(
-                    np.linspace(0, 1, n), index=adata.obs_names
-                )
-                self.branch_probs = pd.DataFrame(
-                    np.ones((n, 1)), index=adata.obs_names
-                )
+                self.pseudotime = pd.Series(np.linspace(0, 1, n), index=adata.obs_names)
+                self.branch_probs = pd.DataFrame(np.ones((n, 1)), index=adata.obs_names)
 
         def fake_run_palantir(ms_data, start_cell, num_waypoints=500):
             captured["start_cell"] = start_cell
@@ -72,9 +66,7 @@ class TestPalantirAutoRoot:
                 result["EigenVectors"], index=adata.obs_names
             ),
         )
-        fake_palantir.core = types.SimpleNamespace(
-            run_palantir=fake_run_palantir
-        )
+        fake_palantir.core = types.SimpleNamespace(run_palantir=fake_run_palantir)
         with caplog.at_level(logging.WARNING):
             infer_pseudotime_palantir(
                 adata,
@@ -83,17 +75,13 @@ class TestPalantirAutoRoot:
             )
 
         # With abs(), cell_2 should be selected (|-0.9| > |0.5|)
-        assert captured["start_cell"] == "cell_2", (
-            f"Expected cell_2 (largest abs DC1), got {captured['start_cell']}"
-        )
+        assert (
+            captured["start_cell"] == "cell_2"
+        ), f"Expected cell_2 (largest abs DC1), got {captured['start_cell']}"
         # Warning should be emitted
-        assert any(
-            "No root cell specified" in msg for msg in caplog.messages
-        )
+        assert any("No root cell specified" in msg for msg in caplog.messages)
 
-    def test_explicit_root_skips_auto_selection(
-        self, minimal_spatial_adata
-    ):
+    def test_explicit_root_skips_auto_selection(self, minimal_spatial_adata):
         """When root_cells is provided, auto-selection is skipped."""
         adata = minimal_spatial_adata.copy()
 
@@ -118,12 +106,8 @@ class TestPalantirAutoRoot:
 
         class FakePalantirResult:
             def __init__(self, n):
-                self.pseudotime = pd.Series(
-                    np.linspace(0, 1, n), index=adata.obs_names
-                )
-                self.branch_probs = pd.DataFrame(
-                    np.ones((n, 1)), index=adata.obs_names
-                )
+                self.pseudotime = pd.Series(np.linspace(0, 1, n), index=adata.obs_names)
+                self.branch_probs = pd.DataFrame(np.ones((n, 1)), index=adata.obs_names)
 
         def fake_run_palantir(ms_data, start_cell, num_waypoints=500):
             captured["start_cell"] = start_cell
@@ -138,9 +122,7 @@ class TestPalantirAutoRoot:
                 result["EigenVectors"], index=adata.obs_names
             ),
         )
-        fake_palantir.core = types.SimpleNamespace(
-            run_palantir=fake_run_palantir
-        )
+        fake_palantir.core = types.SimpleNamespace(run_palantir=fake_run_palantir)
         infer_pseudotime_palantir(
             adata,
             root_cells=["cell_5"],
@@ -167,21 +149,17 @@ class TestDPTAutoRoot:
 
         # Manually set diffmap so cell at index 3 has largest abs value
         n_comps = adata.obsm["X_diffmap"].shape[1]
-        adata.obsm["X_diffmap"] = np.zeros(
-            (adata.n_obs, n_comps), dtype=np.float64
-        )
+        adata.obsm["X_diffmap"] = np.zeros((adata.n_obs, n_comps), dtype=np.float64)
         adata.obsm["X_diffmap"][3, 0] = -2.5  # largest absolute
         adata.obsm["X_diffmap"][0, 0] = 1.0  # smaller absolute
 
         with caplog.at_level(logging.WARNING):
             compute_dpt_trajectory(adata, root_cells=None)
 
-        assert adata.uns["iroot"] == 3, (
-            f"Expected iroot=3 (largest abs DC1), got {adata.uns['iroot']}"
-        )
-        assert any(
-            "No root cell specified" in msg for msg in caplog.messages
-        )
+        assert (
+            adata.uns["iroot"] == 3
+        ), f"Expected iroot=3 (largest abs DC1), got {adata.uns['iroot']}"
+        assert any("No root cell specified" in msg for msg in caplog.messages)
 
     def test_auto_root_fallback_without_diffmap(
         self, minimal_spatial_adata, monkeypatch, caplog
@@ -202,9 +180,7 @@ class TestDPTAutoRoot:
         # recompute, simulating the edge case)
         from chatspatial.tools import trajectory as traj_mod
 
-        monkeypatch.setattr(
-            traj_mod, "ensure_diffmap", lambda adata: None
-        )
+        monkeypatch.setattr(traj_mod, "ensure_diffmap", lambda adata: None)
         if "X_diffmap" in adata.obsm:
             del adata.obsm["X_diffmap"]
 
@@ -212,6 +188,4 @@ class TestDPTAutoRoot:
             compute_dpt_trajectory(adata, root_cells=None)
 
         assert adata.uns["iroot"] == 0
-        assert any(
-            "No root cell specified" in msg for msg in caplog.messages
-        )
+        assert any("No root cell specified" in msg for msg in caplog.messages)

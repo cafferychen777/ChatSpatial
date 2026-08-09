@@ -120,7 +120,9 @@ def test_export_wraps_underlying_write_errors(tmp_path: Path):
             raise RuntimeError("disk full")
 
     with pytest.raises(IOError, match="Failed to export data"):
-        persistence.export_adata("broken", _BrokenAnnData(), tmp_path / "x" / "broken.h5ad")
+        persistence.export_adata(
+            "broken", _BrokenAnnData(), tmp_path / "x" / "broken.h5ad"
+        )
 
 
 def test_export_failure_preserves_previous_complete_file(tmp_path: Path) -> None:

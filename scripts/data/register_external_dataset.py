@@ -23,7 +23,9 @@ def main() -> None:
         with manifest.open("r", encoding="utf-8") as f:
             payload = json.load(f)
 
-    payload.setdefault("datasets", {})[args.dataset_id] = str(Path(args.path).expanduser().resolve())
+    payload.setdefault("datasets", {})[args.dataset_id] = str(
+        Path(args.path).expanduser().resolve()
+    )
 
     with manifest.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)

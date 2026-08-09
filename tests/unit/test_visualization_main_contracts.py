@@ -110,9 +110,7 @@ async def test_visualize_data_builds_plot_type_key_with_subtype(monkeypatch):
     monkeypatch.setattr(viz_main, "PLOT_HANDLERS", {"feature": _handler})
     monkeypatch.setattr(viz_main, "optimize_fig_to_image_with_cache", _optimize)
 
-    result = await viz_main.visualize_data(
-        "d1", _Ctx(adata), _params(subtype="umap")
-    )
+    result = await viz_main.visualize_data("d1", _Ctx(adata), _params(subtype="umap"))
 
     assert result == "saved"
     assert captured["plot_type"] == "feature_umap"

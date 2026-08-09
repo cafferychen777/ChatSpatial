@@ -545,6 +545,74 @@ async def test_load_xenium_standard_h5_filters_to_cells_with_metadata(
 
 
 @pytest.mark.asyncio
+async def test_load_xenium_standard_aligns_reordered_metadata_by_cell_id(
+    minimal_spatial_adata,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    xen_dir = tmp_path / "xenium_reordered"
+    xen_dir.mkdir()
+    (xen_dir / "cell_feature_matrix.h5").write_text("h5")
+
+    adata = minimal_spatial_adata.copy()
+    adata.obs_names = [f"cell_{i}" for i in range(adata.n_obs)]
+    reversed_names = list(reversed(adata.obs_names.tolist()))
+    expected_x = {name: float(index) for index, name in enumerate(adata.obs_names)}
+    cells = pd.DataFrame(
+        {
+            "cell_id": reversed_names,
+            "x_centroid": [expected_x[name] for name in reversed_names],
+            "y_centroid": [expected_x[name] + 100.0 for name in reversed_names],
+            "transcript_counts": [int(expected_x[name]) for name in reversed_names],
+        }
+    )
+    with gzip.open(xen_dir / "cells.csv.gz", "wt") as handle:
+        cells.to_csv(handle, index=False)
+
+    fake_scanpy = _FakeScanpy()
+    fake_scanpy._read_10x_h5_ret = adata
+    monkeypatch.setitem(sys.modules, "scanpy", fake_scanpy)
+
+    out_adata = (await dl.load_spatial_data(str(xen_dir), "xenium"))["adata"]
+
+    expected = np.arange(adata.n_obs, dtype=float)
+    np.testing.assert_array_equal(out_adata.obsm["spatial"][:, 0], expected)
+    np.testing.assert_array_equal(
+        out_adata.obs["transcript_counts"].to_numpy(), expected.astype(int)
+    )
+
+
+@pytest.mark.asyncio
+async def test_load_xenium_standard_rejects_duplicate_metadata_cell_ids(
+    minimal_spatial_adata,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    xen_dir = tmp_path / "xenium_duplicate_ids"
+    xen_dir.mkdir()
+    (xen_dir / "cell_feature_matrix.h5").write_text("h5")
+
+    adata = minimal_spatial_adata.copy()
+    adata.obs_names = [f"cell_{i}" for i in range(adata.n_obs)]
+    cells = pd.DataFrame(
+        {
+            "cell_id": ["cell_0", "cell_0"],
+            "x_centroid": [1.0, 2.0],
+            "y_centroid": [3.0, 4.0],
+        }
+    )
+    with gzip.open(xen_dir / "cells.csv.gz", "wt") as handle:
+        cells.to_csv(handle, index=False)
+
+    fake_scanpy = _FakeScanpy()
+    fake_scanpy._read_10x_h5_ret = adata
+    monkeypatch.setitem(sys.modules, "scanpy", fake_scanpy)
+
+    with pytest.raises(DataCompatibilityError, match="duplicate cell IDs"):
+        await dl.load_spatial_data(str(xen_dir), "xenium")
+
+
+@pytest.mark.asyncio
 async def test_load_xenium_zarr_format_branch_uses_zarr_loader(
     minimal_spatial_adata,
     tmp_path: Path,

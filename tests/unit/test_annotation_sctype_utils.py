@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 from collections import OrderedDict
 from contextlib import contextmanager
@@ -497,6 +499,11 @@ async def test_annotate_with_sctype_uses_one_isolated_r_environment(
             raise KeyError(name)
 
     environment = _mock_validate_r_environment(monkeypatch, _R())
+    monkeypatch.setattr(
+        ann,
+        "_materialize_sctype_resource",
+        lambda name: Path("/verified-sctype") / name,
+    )
     params = AnnotationParameters(
         method="sctype",
         sctype_custom_markers={
@@ -617,6 +624,11 @@ def test_load_sctype_functions_runs_install_and_load_scripts(
             return None
 
     _mock_validate_r_environment(monkeypatch, _R())
+    monkeypatch.setattr(
+        ann,
+        "_materialize_sctype_resource",
+        lambda name: Path("/verified-sctype") / name,
+    )
 
     ann._load_sctype_functions(DummyCtx())
 
@@ -648,6 +660,11 @@ def test_load_sctype_functions_allows_remote_per_call(
             return None
 
     _mock_validate_r_environment(monkeypatch, _R())
+    monkeypatch.setattr(
+        ann,
+        "_materialize_sctype_resource",
+        lambda name: Path("/verified-sctype") / name,
+    )
 
     ann._load_sctype_functions(DummyCtx(), allow_remote=True)
 
@@ -722,6 +739,7 @@ def test_prepare_sctype_genesets_rejects_remote_db_by_default():
 
 def test_prepare_sctype_genesets_allows_remote_db_per_call(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ):
     class _R:
         def __call__(self, _code: str):
@@ -736,6 +754,13 @@ def test_prepare_sctype_genesets_allows_remote_db_per_call(
         monkeypatch, _R(), converter=_FakeConverter()
     )
     monkeypatch.delenv("CHATSPATIAL_ALLOW_REMOTE_SCTYPE_DB", raising=False)
+    verified_db = tmp_path / "verified-db.xlsx"
+    verified_db.write_bytes(b"verified")
+    monkeypatch.setattr(
+        ann,
+        "_materialize_sctype_resource",
+        lambda _name: verified_db,
+    )
 
     out = ann._prepare_sctype_genesets(
         AnnotationParameters(method="sctype", sctype_tissue="Brain"),
@@ -745,7 +770,65 @@ def test_prepare_sctype_genesets_allows_remote_db_per_call(
 
     assert out == {"ok": True}
     assert environment.robjects.globalenv == {}
-    assert environment.robjects.last_localenv["db_path"] == ann._SCTYPE_DEFAULT_DB_URL
+    assert environment.robjects.last_localenv["db_path"] == verified_db.as_posix()
+
+
+def test_materialize_sctype_resource_verifies_and_reuses_cached_content(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    payload = b"pinned resource"
+    expected_hash = hashlib.sha256(payload).hexdigest()
+    monkeypatch.setattr(ann, "_get_sctype_cache_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        ann,
+        "_SCTYPE_PINNED_RESOURCES",
+        {
+            "resource.R": ann._PinnedResource(
+                "https://example.test/resource.R", expected_hash
+            )
+        },
+    )
+    downloads = {"count": 0}
+
+    def _urlopen(_request, timeout, context):
+        assert timeout == 30
+        assert context is not None
+        downloads["count"] += 1
+        return io.BytesIO(payload)
+
+    monkeypatch.setattr(ann, "urlopen", _urlopen)
+
+    first = ann._materialize_sctype_resource("resource.R")
+    second = ann._materialize_sctype_resource("resource.R")
+
+    assert first == second
+    assert first.read_bytes() == payload
+    assert downloads["count"] == 1
+
+
+def test_materialize_sctype_resource_rejects_hash_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    monkeypatch.setattr(ann, "_get_sctype_cache_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        ann,
+        "_SCTYPE_PINNED_RESOURCES",
+        {
+            "resource.R": ann._PinnedResource(
+                "https://example.test/resource.R", "0" * 64
+            )
+        },
+    )
+    monkeypatch.setattr(
+        ann, "urlopen", lambda *_args, **_kwargs: io.BytesIO(b"tampered")
+    )
+
+    with pytest.raises(ann.DependencyError, match="failed SHA-256 verification"):
+        ann._materialize_sctype_resource("resource.R")
+
+    assert list(tmp_path.rglob("resource.R")) == []
 
 
 def test_run_sctype_scoring_converts_r_matrix_to_dataframe(

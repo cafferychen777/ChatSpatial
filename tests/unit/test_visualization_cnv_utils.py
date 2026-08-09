@@ -65,7 +65,9 @@ async def test_create_cnv_visualization_routes_and_validates_subtype(
 @pytest.mark.asyncio
 async def test_spatial_cnv_requires_cnv_features(minimal_spatial_adata, monkeypatch):
     adata = minimal_spatial_adata.copy()
-    monkeypatch.setattr(viz_cnv, "require_spatial_coords", lambda _a: _a.obsm["spatial"])
+    monkeypatch.setattr(
+        viz_cnv, "require_spatial_coords", lambda _a: _a.obsm["spatial"]
+    )
     ctx = DummyCtx()
 
     with pytest.raises(DataNotFoundError, match="No CNV features found"):
@@ -86,9 +88,13 @@ async def test_spatial_cnv_auto_detect_priority_and_categorical_colormap(
     adata.obs["cnv_score"] = np.linspace(0.0, 1.0, adata.n_obs)
     adata.obs["numbat_p_cnv"] = np.linspace(0.0, 1.0, adata.n_obs)
 
-    monkeypatch.setattr(viz_cnv, "require_spatial_coords", lambda _a: _a.obsm["spatial"])
+    monkeypatch.setattr(
+        viz_cnv, "require_spatial_coords", lambda _a: _a.obsm["spatial"]
+    )
     fig, ax = plt.subplots()
-    monkeypatch.setattr(viz_cnv, "create_figure_from_params", lambda *_a, **_k: (fig, [ax]))
+    monkeypatch.setattr(
+        viz_cnv, "create_figure_from_params", lambda *_a, **_k: (fig, [ax])
+    )
 
     captured: dict[str, Any] = {}
 
@@ -113,13 +119,19 @@ async def test_spatial_cnv_auto_detect_priority_and_categorical_colormap(
 
 
 @pytest.mark.asyncio
-async def test_spatial_cnv_numeric_feature_sets_rdbu(minimal_spatial_adata, monkeypatch):
+async def test_spatial_cnv_numeric_feature_sets_rdbu(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     adata.obs["cnv_score"] = np.linspace(0.0, 1.0, adata.n_obs)
 
-    monkeypatch.setattr(viz_cnv, "require_spatial_coords", lambda _a: _a.obsm["spatial"])
+    monkeypatch.setattr(
+        viz_cnv, "require_spatial_coords", lambda _a: _a.obsm["spatial"]
+    )
     fig, ax = plt.subplots()
-    monkeypatch.setattr(viz_cnv, "create_figure_from_params", lambda *_a, **_k: (fig, [ax]))
+    monkeypatch.setattr(
+        viz_cnv, "create_figure_from_params", lambda *_a, **_k: (fig, [ax])
+    )
     captured_cmap: dict[str, str] = {}
     monkeypatch.setattr(
         viz_cnv,
@@ -139,14 +151,20 @@ async def test_spatial_cnv_numeric_feature_sets_rdbu(minimal_spatial_adata, monk
 
 
 @pytest.mark.asyncio
-async def test_spatial_cnv_feature_list_uses_first_entry(minimal_spatial_adata, monkeypatch):
+async def test_spatial_cnv_feature_list_uses_first_entry(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     adata.obs["cnv_score"] = np.linspace(0.0, 1.0, adata.n_obs)
     adata.obs["numbat_p_cnv"] = np.linspace(1.0, 2.0, adata.n_obs)
 
-    monkeypatch.setattr(viz_cnv, "require_spatial_coords", lambda _a: _a.obsm["spatial"])
+    monkeypatch.setattr(
+        viz_cnv, "require_spatial_coords", lambda _a: _a.obsm["spatial"]
+    )
     fig, ax = plt.subplots()
-    monkeypatch.setattr(viz_cnv, "create_figure_from_params", lambda *_a, **_k: (fig, [ax]))
+    monkeypatch.setattr(
+        viz_cnv, "create_figure_from_params", lambda *_a, **_k: (fig, [ax])
+    )
     captured: dict[str, str] = {}
     monkeypatch.setattr(
         viz_cnv,
@@ -169,13 +187,19 @@ async def test_spatial_cnv_feature_list_uses_first_entry(minimal_spatial_adata, 
 
 
 @pytest.mark.asyncio
-async def test_spatial_cnv_auto_detects_numbat_probability(minimal_spatial_adata, monkeypatch):
+async def test_spatial_cnv_auto_detects_numbat_probability(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     adata.obs["numbat_p_cnv"] = np.linspace(0.0, 1.0, adata.n_obs)
 
-    monkeypatch.setattr(viz_cnv, "require_spatial_coords", lambda _a: _a.obsm["spatial"])
+    monkeypatch.setattr(
+        viz_cnv, "require_spatial_coords", lambda _a: _a.obsm["spatial"]
+    )
     fig, ax = plt.subplots()
-    monkeypatch.setattr(viz_cnv, "create_figure_from_params", lambda *_a, **_k: (fig, [ax]))
+    monkeypatch.setattr(
+        viz_cnv, "create_figure_from_params", lambda *_a, **_k: (fig, [ax])
+    )
     captured: dict[str, str] = {}
     monkeypatch.setattr(
         viz_cnv,
@@ -207,7 +231,9 @@ async def test_cnv_heatmap_requires_cnv_data(minimal_spatial_adata):
 
 
 @pytest.mark.asyncio
-async def test_cnv_heatmap_requires_uns_cnv_metadata(minimal_spatial_adata, monkeypatch):
+async def test_cnv_heatmap_requires_uns_cnv_metadata(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     adata.obsm["X_cnv"] = np.zeros((adata.n_obs, 10), dtype=float)
     monkeypatch.setattr(viz_cnv, "require", _required_dependency)
@@ -226,7 +252,9 @@ async def test_cnv_heatmap_requires_uns_cnv_metadata(minimal_spatial_adata, monk
 async def test_cnv_heatmap_numbat_aggregated_branch(minimal_spatial_adata, monkeypatch):
     adata = minimal_spatial_adata.copy()
     adata.obsm["X_cnv_numbat"] = np.random.default_rng(1).normal(size=(adata.n_obs, 50))
-    adata.obs["clone"] = ["A"] * (adata.n_obs // 2) + ["B"] * (adata.n_obs - adata.n_obs // 2)
+    adata.obs["clone"] = ["A"] * (adata.n_obs // 2) + ["B"] * (
+        adata.n_obs - adata.n_obs // 2
+    )
 
     def _unexpected_require(*_args, **_kwargs):
         raise AssertionError("Numbat aggregation must not require infercnvpy")
@@ -264,7 +292,9 @@ async def test_cnv_heatmap_numbat_ungrouped_branch(minimal_spatial_adata, monkey
 
 
 @pytest.mark.asyncio
-async def test_cnv_heatmap_infercnvpy_chromosome_branch(minimal_spatial_adata, monkeypatch):
+async def test_cnv_heatmap_infercnvpy_chromosome_branch(
+    minimal_spatial_adata, monkeypatch
+):
     adata = minimal_spatial_adata.copy()
     adata.obsm["X_cnv"] = np.random.default_rng(3).normal(size=(adata.n_obs, 12))
     adata.uns["cnv"] = {"genomic_positions": True}
@@ -285,7 +315,9 @@ async def test_cnv_heatmap_infercnvpy_chromosome_branch(minimal_spatial_adata, m
 
     fig = await viz_cnv._create_cnv_heatmap(
         adata,
-        VisualizationParameters(plot_type="cnv", subtype="heatmap", cluster_key="group"),
+        VisualizationParameters(
+            plot_type="cnv", subtype="heatmap", cluster_key="group"
+        ),
         context=DummyCtx(),
     )
     assert captured["groupby"] == "group"
@@ -302,9 +334,9 @@ async def test_cnv_heatmap_infercnvpy_auto_selects_groupby(
     adata.obsm["X_cnv"] = np.random.default_rng(4).normal(size=(adata.n_obs, 12))
     adata.uns["cnv"] = {"genomic_positions": True}
     adata.var["chromosome"] = ["chr1"] * adata.n_vars
-    adata.obs["cell_type"] = ["A"] * (adata.n_obs // 2) + [
-        "B"
-    ] * (adata.n_obs - adata.n_obs // 2)
+    adata.obs["cell_type"] = ["A"] * (adata.n_obs // 2) + ["B"] * (
+        adata.n_obs - adata.n_obs // 2
+    )
 
     monkeypatch.setattr(viz_cnv, "require", _required_dependency)
     captured: dict[str, object] = {}

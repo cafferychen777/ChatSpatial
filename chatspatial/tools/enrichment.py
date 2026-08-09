@@ -1352,8 +1352,30 @@ def perform_ssgsea(
             # Store per-cell scores in adata.obs, preserving NaN to
             # distinguish "not estimable" from "zero enrichment".
             scores_T = scores_df.T
+            scores_T.index = scores_T.index.astype(str)
+            expected_cells = pd.Index(adata.obs_names.astype(str))
+            if not expected_cells.is_unique:
+                raise ProcessingError(
+                    "ssGSEA requires unique observation names to map scores to cells."
+                )
+            if not scores_T.index.is_unique:
+                raise ProcessingError(
+                    "ssGSEA returned duplicate sample names; scores cannot be mapped "
+                    "to cells unambiguously."
+                )
+
+            missing_cells = expected_cells.difference(scores_T.index)
+            unexpected_cells = scores_T.index.difference(expected_cells)
+            if len(missing_cells) or len(unexpected_cells):
+                raise ProcessingError(
+                    "ssGSEA result sample names do not match the dataset "
+                    f"(missing={missing_cells[:5].tolist()}, "
+                    f"unexpected={unexpected_cells[:5].tolist()})."
+                )
+
+            scores_T = scores_T.reindex(expected_cells)
             for gs_name in scores_df.index:
-                adata.obs[f"ssgsea_{gs_name}"] = scores_T[gs_name].values
+                adata.obs[f"ssgsea_{gs_name}"] = scores_T[gs_name].to_numpy()
 
             # Per-run parametrized key so multiple database runs coexist
             analysis_key = _build_enrichment_key("ssgsea", database)

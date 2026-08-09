@@ -30,6 +30,7 @@ from .core import (
     get_validated_features,
     plot_spatial_feature,
     setup_multi_panel_figure,
+    temporary_obs_column,
 )
 
 if TYPE_CHECKING:
@@ -147,12 +148,12 @@ async def create_multi_gene_visualization(
 
             else:  # umap
                 # scanpy requires obs column for color= parameter
-                _umap_temp_key = "_multi_gene_umap_temp"
-                adata.obs[_umap_temp_key] = gene_expr
-                try:
+                with temporary_obs_column(
+                    adata, "_multi_gene_umap_temp", gene_expr
+                ) as umap_color_key:
                     sc.pl.umap(
                         adata,
-                        color=_umap_temp_key,
+                        color=umap_color_key,
                         cmap=params.colormap,
                         ax=ax,
                         show=False,
@@ -161,9 +162,6 @@ async def create_multi_gene_visualization(
                         vmax=vmax,
                         colorbar_loc="right" if params.show_colorbar else None,
                     )
-                finally:
-                    if _umap_temp_key in adata.obs.columns:
-                        del adata.obs[_umap_temp_key]
 
             if params.add_gene_labels:
                 ax.set_title(gene, fontsize=12)

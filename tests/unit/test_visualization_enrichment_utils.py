@@ -230,7 +230,9 @@ def test_ensure_enrichmap_compatibility_adds_minimum_metadata(minimal_spatial_ad
     assert "sample_1" in result.uns["spatial"]
 
 
-def test_ensure_enrichmap_compatibility_uses_existing_spatial_library(minimal_spatial_adata):
+def test_ensure_enrichmap_compatibility_uses_existing_spatial_library(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     if "library_id" in adata.obs.columns:
         del adata.obs["library_id"]
@@ -469,8 +471,14 @@ async def test_create_pathway_enrichment_visualization_routes_enrichment_plot_an
     sentinel_enrichment = object()
     sentinel_dot = object()
 
-    monkeypatch.setattr(viz_enrich, "_create_gsea_enrichment_plot", lambda *_a, **_k: sentinel_enrichment)
-    monkeypatch.setattr(viz_enrich, "_create_gsea_dotplot", lambda *_a, **_k: sentinel_dot)
+    monkeypatch.setattr(
+        viz_enrich,
+        "_create_gsea_enrichment_plot",
+        lambda *_a, **_k: sentinel_enrichment,
+    )
+    monkeypatch.setattr(
+        viz_enrich, "_create_gsea_dotplot", lambda *_a, **_k: sentinel_dot
+    )
 
     out_enrich = await viz_enrich.create_pathway_enrichment_visualization(
         adata,
@@ -515,7 +523,9 @@ def test_create_enrichment_violin_multifeature_layout(minimal_spatial_adata):
     fig.clf()
 
 
-def test_create_enrichment_violin_defaults_to_score_cols_and_single_axis(minimal_spatial_adata):
+def test_create_enrichment_violin_defaults_to_score_cols_and_single_axis(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     adata.obs["A_score"] = np.linspace(0.0, 1.0, adata.n_obs)
     fig = viz_enrich._create_enrichment_violin(
@@ -600,7 +610,8 @@ async def test_create_enrichment_spatial_multifeature_suffix_resolution_and_miss
     monkeypatch.setattr(
         viz_enrich,
         "plot_spatial_feature",
-        lambda _adata, feature, ax, params: seen.append(feature) or ax.scatter([0], [0], c=[1.0]),
+        lambda _adata, feature, ax, params: seen.append(feature)
+        or ax.scatter([0], [0], c=[1.0]),
     )
 
     fig = await viz_enrich._create_enrichment_spatial(
@@ -684,7 +695,9 @@ def test_create_enrichmap_spatial_routes_cross_and_wraps_errors(
     )
     out = viz_enrich._create_enrichmap_spatial(
         adata,
-        VisualizationParameters(plot_type="enrichment", subtype="spatial_cross_correlation"),
+        VisualizationParameters(
+            plot_type="enrichment", subtype="spatial_cross_correlation"
+        ),
         score_cols=["A_score"],
     )
     assert out is sentinel
@@ -693,10 +706,14 @@ def test_create_enrichmap_spatial_routes_cross_and_wraps_errors(
         raise RuntimeError("bad")
 
     monkeypatch.setattr(viz_enrich, "_create_enrichmap_single_score", _boom)
-    with pytest.raises(ProcessingError, match="EnrichMap spatial_score visualization failed"):
+    with pytest.raises(
+        ProcessingError, match="EnrichMap spatial_score visualization failed"
+    ):
         viz_enrich._create_enrichmap_spatial(
             adata,
-            VisualizationParameters(plot_type="enrichment", subtype="spatial_score", feature="A"),
+            VisualizationParameters(
+                plot_type="enrichment", subtype="spatial_score", feature="A"
+            ),
             score_cols=["A_score"],
         )
 
@@ -802,7 +819,9 @@ def test_create_enrichmap_cross_correlation_prefers_per_run_gene_sets(
         "PathE": ["G5"],
         "PathF": ["G6"],
     }
-    with pytest.raises(DataNotFoundError, match="Spatial enrichment gene sets not found"):
+    with pytest.raises(
+        DataNotFoundError, match="Spatial enrichment gene sets not found"
+    ):
         viz_enrich._create_enrichmap_cross_correlation(
             adata2, params, "sample_1", em=_EM()
         )
@@ -868,7 +887,9 @@ def test_create_enrichmap_cross_correlation_analysis_method_selects_kegg(
     assert captured_kwargs[-1]["score_y"] == "PathB_score"
 
 
-def test_create_enrichmap_cross_correlation_validation_and_success(minimal_spatial_adata):
+def test_create_enrichmap_cross_correlation_validation_and_success(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     params = VisualizationParameters(
         plot_type="enrichment",
@@ -877,12 +898,18 @@ def test_create_enrichmap_cross_correlation_validation_and_success(minimal_spati
         dpi=140,
     )
 
-    with pytest.raises(DataNotFoundError, match="Spatial enrichment gene sets not found"):
-        viz_enrich._create_enrichmap_cross_correlation(adata, params, "sample_1", em=object())
+    with pytest.raises(
+        DataNotFoundError, match="Spatial enrichment gene sets not found"
+    ):
+        viz_enrich._create_enrichmap_cross_correlation(
+            adata, params, "sample_1", em=object()
+        )
 
     adata.uns["enrichment_spatial_gene_sets"] = {"PathA": {"G1"}}
     with pytest.raises(DataNotFoundError, match="Need at least 2 pathways"):
-        viz_enrich._create_enrichmap_cross_correlation(adata, params, "sample_1", em=object())
+        viz_enrich._create_enrichmap_cross_correlation(
+            adata, params, "sample_1", em=object()
+        )
 
     adata.uns["enrichment_spatial_gene_sets"] = {"PathA": {"G1"}, "PathB": {"G2"}}
 
@@ -894,7 +921,9 @@ def test_create_enrichmap_cross_correlation_validation_and_success(minimal_spati
     class _EM:
         pl = _PL()
 
-    fig = viz_enrich._create_enrichmap_cross_correlation(adata, params, "sample_1", em=_EM())
+    fig = viz_enrich._create_enrichmap_cross_correlation(
+        adata, params, "sample_1", em=_EM()
+    )
     assert tuple(fig.get_size_inches()) == pytest.approx((8.0, 5.0))
     assert fig.get_dpi() == 140
     fig.clf()
@@ -929,7 +958,9 @@ def test_create_enrichmap_single_score_routes_all_supported_subtypes(
     for subtype in ["spatial_correlogram", "spatial_variogram", "spatial_score"]:
         fig = viz_enrich._create_enrichmap_single_score(
             adata,
-            VisualizationParameters(plot_type="enrichment", subtype=subtype, feature="A"),
+            VisualizationParameters(
+                plot_type="enrichment", subtype=subtype, feature="A"
+            ),
             library_id="sample_1",
             em=_EM(),
             context=None,
@@ -956,7 +987,9 @@ def test_create_enrichmap_single_score_routes_all_supported_subtypes(
     fig2.clf()
 
 
-def test_create_gsea_enrichment_plot_validation_and_success(monkeypatch: pytest.MonkeyPatch):
+def test_create_gsea_enrichment_plot_validation_and_success(
+    monkeypatch: pytest.MonkeyPatch,
+):
     with pytest.raises(DataNotFoundError, match="requires running enrichment scores"):
         viz_enrich._create_gsea_enrichment_plot(
             pd.DataFrame({"Term": ["PathA"]}),
@@ -1033,7 +1066,9 @@ def test_create_gsea_dotplot_nested_and_error_wrap(monkeypatch: pytest.MonkeyPat
         )
 
 
-def test_create_gsea_barplot_success_empty_and_figure_size(monkeypatch: pytest.MonkeyPatch):
+def test_create_gsea_barplot_success_empty_and_figure_size(
+    monkeypatch: pytest.MonkeyPatch,
+):
     captured: dict[str, object] = {}
     fake_gp = ModuleType("gseapy")
 
@@ -1065,7 +1100,9 @@ def test_create_gsea_barplot_success_empty_and_figure_size(monkeypatch: pytest.M
 def test_utility_branches_for_dataframe_conversion_and_feature_resolution():
     assert viz_enrich._resolve_feature_list(None, pd.Index(["A"]), ["A_score"]) == []
     assert viz_enrich._resolve_feature_list("A", pd.Index(["A"]), ["A_score"]) == ["A"]
-    assert viz_enrich._resolve_feature_list(["A", "B"], pd.Index(["A"]), ["A_score"]) == [
+    assert viz_enrich._resolve_feature_list(
+        ["A", "B"], pd.Index(["A"]), ["A_score"]
+    ) == [
         "A",
         "B",
     ]
@@ -1082,7 +1119,9 @@ def test_utility_branches_for_dataframe_conversion_and_feature_resolution():
     assert x_col == "Group"
     assert set(df["Group"]) == {"A", "B"}
 
-    assert viz_enrich._find_pvalue_column(pd.DataFrame({"x": [1]})) == "Adjusted P-value"
+    assert (
+        viz_enrich._find_pvalue_column(pd.DataFrame({"x": [1]})) == "Adjusted P-value"
+    )
 
     df3 = pd.DataFrame({"score": [1, 2]}, index=pd.Index(["P1", "P2"], name="path"))
     viz_enrich._ensure_term_column(df3)

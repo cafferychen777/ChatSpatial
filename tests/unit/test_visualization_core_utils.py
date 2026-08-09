@@ -31,6 +31,26 @@ def test_resolve_figure_size_prioritizes_user_size_and_defaults():
     assert viz_core.resolve_figure_size(auto_params, "unknown") == (10, 8)
 
 
+def test_temporary_obs_column_never_overwrites_existing_data(
+    minimal_spatial_adata,
+):
+    adata = minimal_spatial_adata.copy()
+    original = pd.Series(
+        np.arange(adata.n_obs), index=adata.obs_names, name="_temporary"
+    )
+    adata.obs["_temporary"] = original
+
+    with viz_core.temporary_obs_column(
+        adata, "_temporary", np.repeat(-1, adata.n_obs)
+    ) as key:
+        assert key == "_temporary_1"
+        np.testing.assert_array_equal(adata.obs[key], -1)
+        pd.testing.assert_series_equal(adata.obs["_temporary"], original)
+
+    assert "_temporary_1" not in adata.obs
+    pd.testing.assert_series_equal(adata.obs["_temporary"], original)
+
+
 def test_create_figure_from_params_normalizes_axes_shape():
     params = VisualizationParameters(plot_type="feature", dpi=123)
 

@@ -213,9 +213,9 @@ def test_get_ot_backend_selects_torch_backend_when_cuda_available(
     monkeypatch.setattr(
         du,
         "require",
-        lambda name, **_kwargs: fake_ot
-        if name == "ot"
-        else pytest.fail(f"Unexpected dependency: {name}"),
+        lambda name, **_kwargs: (
+            fake_ot if name == "ot" else pytest.fail(f"Unexpected dependency: {name}")
+        ),
     )
     monkeypatch.setattr(du, "cuda_available", lambda: True)
 
@@ -243,9 +243,9 @@ def test_get_ot_backend_uses_numpy_when_gpu_not_requested(
     monkeypatch.setattr(
         du,
         "require",
-        lambda name, **_kwargs: fake_ot
-        if name == "ot"
-        else pytest.fail(f"Unexpected dependency: {name}"),
+        lambda name, **_kwargs: (
+            fake_ot if name == "ot" else pytest.fail(f"Unexpected dependency: {name}")
+        ),
     )
     monkeypatch.setattr(du, "cuda_available", lambda: True)
 

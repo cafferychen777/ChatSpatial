@@ -15,7 +15,11 @@ from chatspatial.tools.cell_communication import (
     _validate_ccc_params,
     analyze_cell_communication,
 )
-from chatspatial.utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
+from chatspatial.utils.exceptions import (
+    DataNotFoundError,
+    ParameterError,
+    ProcessingError,
+)
 
 
 class DummyCtx:
@@ -53,7 +57,9 @@ async def test_validate_ccc_params_requires_spatial_connectivity_for_liana_spati
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_validate_ccc_params_warns_for_mouse_consensus_choice(minimal_spatial_adata):
+async def test_validate_ccc_params_warns_for_mouse_consensus_choice(
+    minimal_spatial_adata,
+):
     adata = minimal_spatial_adata.copy()
     adata.obs["cell_type"] = ["T"] * 30 + ["B"] * 30
     adata.obsp["spatial_connectivities"] = np.eye(adata.n_obs)
@@ -116,8 +122,12 @@ async def test_analyze_cell_communication_stores_results_and_returns_contract(
 
     monkeypatch.setattr(ccc_module, "_validate_ccc_params", fake_validate)
     monkeypatch.setattr(ccc_module, "_run_ccc_analysis", fake_run)
-    monkeypatch.setattr("chatspatial.utils.adata_utils.store_analysis_metadata", lambda *a, **k: None)
-    monkeypatch.setattr("chatspatial.utils.results_export.export_analysis_result", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "chatspatial.utils.adata_utils.store_analysis_metadata", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.results_export.export_analysis_result", lambda *a, **k: None
+    )
 
     params = CellCommunicationParameters(
         method="liana",
