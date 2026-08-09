@@ -8,6 +8,7 @@ these tests fail immediately.
 
 from __future__ import annotations
 
+import json
 import tomllib
 from pathlib import Path
 
@@ -25,6 +26,19 @@ def test_runtime_version_matches_pyproject():
         expected_version = tomllib.load(f)["project"]["version"]
 
     assert chatspatial.__version__ == expected_version
+
+
+@pytest.mark.unit
+def test_mcp_registry_versions_match_pyproject():
+    """MCP Registry metadata versions should match pyproject.toml."""
+    repo_root = Path(__file__).resolve().parents[2]
+    with (repo_root / "pyproject.toml").open("rb") as f:
+        expected_version = tomllib.load(f)["project"]["version"]
+    with (repo_root / "server.json").open("r", encoding="utf-8") as f:
+        server = json.load(f)
+
+    assert server["version"] == expected_version
+    assert all(package["version"] == expected_version for package in server["packages"])
 
 
 @pytest.mark.unit

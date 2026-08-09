@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   separately permissioned GitHub draft, PyPI trusted-publishing, and GitHub
   publication jobs, with pinned build backends and reproducible archive metadata.
 
+## [v1.3.2] - 2026-08-09 - Registry Metadata Fix
+
+### Fixed
+
+- Synchronized package, citation, and MCP Registry version metadata so the tagged release can be published transactionally to every configured registry.
+
 ## [v1.3.1] - 2026-08-09 - Optional rctd-py Backend
 
 ### Added
