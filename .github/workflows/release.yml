@@ -127,3 +127,14 @@ jobs:
         run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-mcp-registry:
+    name: Publish to MCP Registry
+    needs: publish-github
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/mcp-registry.yml
+    with:
+      release_tag: ${{ github.ref_name }}

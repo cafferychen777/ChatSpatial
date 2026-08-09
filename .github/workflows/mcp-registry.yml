@@ -1,31 +1,156 @@
 name: Publish to MCP Registry
 
 on:
-  workflow_run:
-    workflows: ["Release"]
-    types: [completed]
-  workflow_dispatch:  # Allow manual trigger
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Published GitHub release tag to register
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published GitHub release tag to register (for example, v1.3.0)
+        required: true
+        type: string
+
+concurrency:
+  group: mcp-registry-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+env:
+  MCP_PUBLISHER_VERSION: v1.8.1
+  MCP_PUBLISHER_LINUX_AMD64_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
 
 jobs:
-  publish:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+  verify:
+    name: Verify Registry publication
     runs-on: ubuntu-latest
+    outputs:
+      already_published: ${{ steps.registry.outputs.already_published }}
     permissions:
-      id-token: write  # Required for OIDC
       contents: read
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
+      - name: Checkout the released source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ inputs.release_tag }}
 
-      - name: Download MCP Publisher
+      - name: Verify release identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
-          # Get the latest release tag dynamically
-          LATEST_TAG=$(curl -s https://api.github.com/repos/modelcontextprotocol/registry/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-          echo "Downloading MCP Publisher version: $LATEST_TAG"
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/download/${LATEST_TAG}/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          python3 - <<'PY'
+          import json
+          import os
+          import tomllib
+          from pathlib import Path
+
+          release_tag = os.environ["RELEASE_TAG"]
+          package_version = tomllib.loads(Path("pyproject.toml").read_text())[
+              "project"
+          ]["version"]
+          server = json.loads(Path("server.json").read_text())
+
+          if release_tag != f"v{package_version}":
+              raise RuntimeError(
+                  f"Release tag {release_tag!r} does not match package version v{package_version}"
+              )
+          if server["version"] != package_version:
+              raise RuntimeError(
+                  f"server.json version {server['version']!r} does not match package version {package_version}"
+              )
+          for package in server["packages"]:
+              if package["version"] != package_version:
+                  raise RuntimeError(
+                      f"Registry package {package['identifier']!r} has version "
+                      f"{package['version']!r}, expected {package_version}"
+                  )
+          PY
+
+          is_draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)
+          test "$is_draft" = "false" || {
+            echo "GitHub Release $RELEASE_TAG is not published" >&2
+            exit 1
+          }
+
+      - name: Check existing Registry state
+        id: registry
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from copy import deepcopy
+          from pathlib import Path
+
+          def canonical_registry_metadata(metadata):
+              canonical = deepcopy(metadata)
+              for package in canonical["packages"]:
+                  if package.get("registryType") == "pypi":
+                      # The Registry validates this publisher hint but omits it
+                      # from the immutable public server representation.
+                      package.pop("runtime", None)
+              return canonical
+
+          server = json.loads(Path("server.json").read_text())
+          name = urllib.parse.quote(server["name"], safe="")
+          version = urllib.parse.quote(server["version"], safe="")
+          url = f"https://registry.modelcontextprotocol.io/v0.1/servers/{name}/versions/{version}"
+
+          try:
+              with urllib.request.urlopen(url, timeout=20) as response:
+                  published = json.load(response)["server"]
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              print(f"MCP Registry does not contain {server['name']} {server['version']}")
+              already_published = False
+          else:
+              published_metadata = canonical_registry_metadata(published)
+              expected_metadata = canonical_registry_metadata(server)
+              if published_metadata != expected_metadata:
+                  raise RuntimeError(
+                      "MCP Registry already contains this immutable version with different metadata"
+                  )
+              print(
+                  f"MCP Registry already contains the same canonical "
+                  f"{server['name']} {server['version']} metadata"
+              )
+              already_published = True
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"already_published={str(already_published).lower()}", file=output)
+          PY
+
+  publish:
+    name: Publish new Registry version
+    needs: verify
+    if: needs.verify.outputs.already_published != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout the released source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.release_tag }}
+
+      - name: Download verified MCP Publisher
+        run: |
+          archive=mcp-publisher_linux_amd64.tar.gz
+          curl --fail --location --retry 3 \
+            --output "$archive" \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/${archive}"
+          echo "${MCP_PUBLISHER_LINUX_AMD64_SHA256}  ${archive}" > "${archive}.sha256"
+          sha256sum -c "${archive}.sha256"
+          tar xzf "$archive" mcp-publisher
 
       - name: Login with GitHub OIDC
         run: ./mcp-publisher login github-oidc

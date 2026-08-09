@@ -187,8 +187,9 @@ Releases follow one tested path rather than a separate set of manual commands:
    promotes its immutable artifacts without resolving dependencies or rebuilding.
    Separate single-purpose jobs create a draft GitHub Release, publish the same
    files to PyPI with trusted publishing, and make the GitHub Release public only
-   after the PyPI upload succeeds. Repository write access and PyPI's OIDC token
-   are never granted to the same job.
+   after the PyPI upload succeeds. The final job then registers that exact release
+   with the MCP Registry. Repository write access, PyPI's OIDC token, and the MCP
+   Registry's OIDC token are never granted to the same job.
 
 The release frontend and build backend versions are intentionally pinned in
 `pyproject.toml` and `constraints/release-build.txt`. Runtime dependencies remain
@@ -201,6 +202,12 @@ are immutable; publish a new patch version for any subsequent correction.
 Maintainers can dispatch the **Release** workflow on a branch to dry-run CI
 artifact discovery, download, and re-auditing. All externally mutating jobs also
 require a tag-push event, so a manual dispatch cannot create or publish a release.
+
+To retry only MCP Registry publication, dispatch **Publish to MCP Registry** with
+the immutable GitHub release tag. The workflow checks out that tag, verifies that
+its GitHub Release is public and that all package versions agree, then compares the
+exact version with the Registry. Identical canonical metadata is a successful
+no-op; a conflicting immutable version fails without attempting to overwrite it.
 
 ## Reporting Issues
 
