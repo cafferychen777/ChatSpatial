@@ -18,14 +18,30 @@ import asyncio
 import csv
 import json
 import os
-import re
-import sys
 import time
 from pathlib import Path
 
+import anndata as ad
 import numpy as np
-
+import pandas as pd
+from ablation_invocation import (
+    SCHEMA_VARIANTS,
+    call_anthropic,
+    call_gemini,
+    call_openai,
+    parse_json,
+    resolve_tool_name,
+)
 from paths import find_chatspatial_code_dir, load_env_file
+
+from chatspatial.models.data import (
+    DeconvolutionParameters,
+    SpatialDomainParameters,
+    SpatialVariableGenesParameters,
+)
+from chatspatial.tools.deconvolution import deconvolve_spatial_data
+from chatspatial.tools.spatial_domains import identify_spatial_domains
+from chatspatial.tools.spatial_genes import identify_spatial_genes
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -35,19 +51,24 @@ SCRIPT_DIR = Path(__file__).parent
 CODE_ROOT = find_chatspatial_code_dir(required=True)
 DATA_DIR = SCRIPT_DIR.parent / "data" / "ablation" / "e2e"
 OUTPUT_DIR = DATA_DIR / "outputs"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-for sub in ("spatial_domains", "svg", "deconvolution"):
-    (OUTPUT_DIR / sub).mkdir(parents=True, exist_ok=True)
 
 RAW_PATH = DATA_DIR / "ablation_e2e_raw.jsonl"
 CSV_PATH = DATA_DIR / "ablation_e2e_results.csv"
 
 OSCC_S1_PATH = (
-    CODE_ROOT / "data" / "geo_data" / "analyzed_projects" / "GSE208253"
-    / "processed_h5ad" / "s1_processed.h5ad"
+    CODE_ROOT
+    / "data"
+    / "geo_data"
+    / "analyzed_projects"
+    / "GSE208253"
+    / "processed_h5ad"
+    / "s1_processed.h5ad"
 )
 PURAM_REF_PATH = (
-    CODE_ROOT / "data" / "reference_datasets" / "puram_hnscc"
+    CODE_ROOT
+    / "data"
+    / "reference_datasets"
+    / "puram_hnscc"
     / "puram_hnscc_reference.h5ad"
 )
 
@@ -80,27 +101,9 @@ if OPENAI_KEY and OPENAI_API_URL:
     MODELS[OPENAI_MODEL] = "openai"
 
 # ---------------------------------------------------------------------------
-# Ensure chatspatial importable
-# ---------------------------------------------------------------------------
-
-if str(CODE_ROOT) not in sys.path:
-    sys.path.insert(0, str(CODE_ROOT))
-
-import anndata as ad
-import pandas as pd
-
-from chatspatial.models.data import (
-    DeconvolutionParameters,
-    SpatialDomainParameters,
-    SpatialVariableGenesParameters,
-)
-from chatspatial.tools.spatial_domains import identify_spatial_domains
-from chatspatial.tools.spatial_genes import identify_spatial_genes
-from chatspatial.tools.deconvolution import deconvolve_spatial_data
-
-# ---------------------------------------------------------------------------
 # Minimal ToolContext for direct execution (bypasses MCP server)
 # ---------------------------------------------------------------------------
+
 
 class AblationCtx:
     """Minimal ToolContext matching the interface in spatial_mcp_adapter.py."""
@@ -108,11 +111,14 @@ class AblationCtx:
     def __init__(self, datasets: dict[str, ad.AnnData]):
         self._datasets = datasets
         import logging
+
         self._logger = logging.getLogger("ablation")
 
     async def get_adata(self, data_id: str):
         if data_id not in self._datasets:
-            raise ValueError(f"Dataset '{data_id}' not found. Available: {list(self._datasets.keys())}")
+            raise ValueError(
+                f"Dataset '{data_id}' not found. Available: {list(self._datasets.keys())}"
+            )
         return self._datasets[data_id]
 
     async def get_dataset_info(self, data_id: str) -> dict:
@@ -147,14 +153,6 @@ class AblationCtx:
 # Schema Variants (identical to Part 1)
 # ---------------------------------------------------------------------------
 
-# Import from Part 1 script to keep them in sync
-from ablation_invocation import (
-    SCHEMA_VARIANTS,
-    RESPONSE_INSTRUCTION,
-    resolve_tool_name,
-    parse_json,
-)
-
 # ---------------------------------------------------------------------------
 # E2E Task Definitions
 # ---------------------------------------------------------------------------
@@ -183,8 +181,21 @@ E2E_TASKS = [
 # Parameter aliases for Condition C (map free-form names to Pydantic fields)
 PARAM_ALIASES = {
     "identify_spatial_domains": {
-        "method": ["method", "clustering_method", "algorithm", "approach", "clustering_algorithm"],
-        "n_domains": ["n_domains", "num_domains", "n_clusters", "num_clusters", "k", "n_groups"],
+        "method": [
+            "method",
+            "clustering_method",
+            "algorithm",
+            "approach",
+            "clustering_algorithm",
+        ],
+        "n_domains": [
+            "n_domains",
+            "num_domains",
+            "n_clusters",
+            "num_clusters",
+            "k",
+            "n_groups",
+        ],
         "resolution": ["resolution", "res", "clustering_resolution"],
     },
     "find_spatial_genes": {
@@ -193,9 +204,22 @@ PARAM_ALIASES = {
     },
     "deconvolve_data": {
         "method": ["method", "deconv_method", "algorithm"],
-        "reference_data_id": ["reference_data_id", "ref_id", "reference_id", "ref_data_id", "reference"],
-        "cell_type_key": ["cell_type_key", "celltype_key", "cell_type_column", "celltype_column",
-                          "cell_type", "celltype", "annotation_key"],
+        "reference_data_id": [
+            "reference_data_id",
+            "ref_id",
+            "reference_id",
+            "ref_data_id",
+            "reference",
+        ],
+        "cell_type_key": [
+            "cell_type_key",
+            "celltype_key",
+            "cell_type_column",
+            "celltype_column",
+            "cell_type",
+            "celltype",
+            "annotation_key",
+        ],
     },
 }
 
@@ -218,14 +242,6 @@ def remap_params(tool_name: str, raw_params: dict) -> dict:
     return remapped
 
 
-# ---------------------------------------------------------------------------
-# API Callers (shared with Part 1)
-# ---------------------------------------------------------------------------
-
-import requests
-
-from ablation_invocation import call_gemini, call_anthropic, call_openai
-
 CALLERS = {
     "gemini": call_gemini,
     "anthropic": call_anthropic,
@@ -235,6 +251,7 @@ CALLERS = {
 # ---------------------------------------------------------------------------
 # Checkpoint / Resume
 # ---------------------------------------------------------------------------
+
 
 def load_completed(path: Path) -> set[str]:
     completed = set()
@@ -347,7 +364,12 @@ async def execute_tool(
 # Main Experiment
 # ---------------------------------------------------------------------------
 
+
 async def run_experiment():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    for subdirectory in ("spatial_domains", "svg", "deconvolution"):
+        (OUTPUT_DIR / subdirectory).mkdir(parents=True, exist_ok=True)
+
     print("Schema-Enforcement Ablation — Part 2: End-to-End Output")
     print(f"Models: {list(MODELS.keys())}")
     print(f"Tasks: {[t['id'] for t in E2E_TASKS]}")
@@ -366,6 +388,7 @@ async def run_experiment():
 
     # Preprocessing check: ensure neighbors and HVGs exist for Leiden
     import scanpy as sc
+
     adata_check = adata_original.copy()
     needs_preprocess = "highly_variable" not in adata_check.var.columns
     if needs_preprocess:
@@ -384,8 +407,6 @@ async def run_experiment():
 
     completed = load_completed(RAW_PATH)
     print(f"Resuming: {len(completed)} trials already completed\n")
-
-    results = []
 
     for condition, schema_text in SCHEMA_VARIANTS.items():
         for model_name, provider in MODELS.items():
@@ -440,7 +461,10 @@ async def run_experiment():
                     use_params = raw_params
                     if tier1_valid or tier2_valid:
                         exec_success, exec_error, artifacts = await execute_tool(
-                            canonical_tool, use_params, adata_original, ref_original,
+                            canonical_tool,
+                            use_params,
+                            adata_original,
+                            ref_original,
                         )
 
                     # Step 4: Save output artifacts
@@ -482,7 +506,15 @@ async def run_experiment():
                     append_raw(RAW_PATH, record)
                     completed.add(trial_key)
 
-                    status = "O" if exec_success else ("v" if (tier1_valid or tier2_valid) else ("p" if parsed else "x"))
+                    status = (
+                        "O"
+                        if exec_success
+                        else (
+                            "v"
+                            if (tier1_valid or tier2_valid)
+                            else ("p" if parsed else "x")
+                        )
+                    )
                     print(status, end="", flush=True)
                     time.sleep(DELAY)
 
@@ -500,23 +532,28 @@ async def run_experiment():
 
     rows = []
     from collections import defaultdict
+
     groups = defaultdict(list)
     for r in all_records:
         groups[(r["condition"], r["model"], r["task_id"])].append(r)
 
     for (cond, model, task_id), recs in sorted(groups.items()):
         n = len(recs)
-        rows.append({
-            "condition": cond,
-            "model": model,
-            "task_id": task_id,
-            "n_trials": n,
-            "parse_rate": round(sum(r["parse_success"] for r in recs) / n, 3),
-            "tier1_rate": round(sum(r["tier1_valid"] for r in recs) / n, 3),
-            "tier2_rate": round(sum(r["tier2_valid"] for r in recs) / n, 3),
-            "any_valid_rate": round(sum(r["tier1_valid"] or r["tier2_valid"] for r in recs) / n, 3),
-            "exec_success_rate": round(sum(r["exec_success"] for r in recs) / n, 3),
-        })
+        rows.append(
+            {
+                "condition": cond,
+                "model": model,
+                "task_id": task_id,
+                "n_trials": n,
+                "parse_rate": round(sum(r["parse_success"] for r in recs) / n, 3),
+                "tier1_rate": round(sum(r["tier1_valid"] for r in recs) / n, 3),
+                "tier2_rate": round(sum(r["tier2_valid"] for r in recs) / n, 3),
+                "any_valid_rate": round(
+                    sum(r["tier1_valid"] or r["tier2_valid"] for r in recs) / n, 3
+                ),
+                "exec_success_rate": round(sum(r["exec_success"] for r in recs) / n, 3),
+            }
+        )
 
     if rows:
         with open(CSV_PATH, "w", newline="") as f:
@@ -531,10 +568,12 @@ async def run_experiment():
         if not cond_recs:
             continue
         n = len(cond_recs)
-        print(f"\n{cond.upper()}: "
-              f"parse={sum(r['parse_success'] for r in cond_recs)/n:.0%} "
-              f"valid={sum(r['tier1_valid'] or r['tier2_valid'] for r in cond_recs)/n:.0%} "
-              f"exec={sum(r['exec_success'] for r in cond_recs)/n:.0%}")
+        print(
+            f"\n{cond.upper()}: "
+            f"parse={sum(r['parse_success'] for r in cond_recs)/n:.0%} "
+            f"valid={sum(r['tier1_valid'] or r['tier2_valid'] for r in cond_recs)/n:.0%} "
+            f"exec={sum(r['exec_success'] for r in cond_recs)/n:.0%}"
+        )
 
     print("\nDone! Run ablation_analysis.py to compute concordance metrics.")
 

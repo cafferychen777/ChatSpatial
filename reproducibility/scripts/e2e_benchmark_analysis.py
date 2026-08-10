@@ -35,14 +35,19 @@ SUMMARY_PATH = DATA_DIR / "e2e_benchmark_summary.txt"
 
 
 def committed_outputs_available() -> bool:
-    return all(path.exists() and path.stat().st_size > 0 for path in (
-        RESULTS_CSV,
-        SUMMARY_PATH,
-    ))
+    return all(
+        path.exists() and path.stat().st_size > 0
+        for path in (
+            RESULTS_CSV,
+            SUMMARY_PATH,
+        )
+    )
+
 
 # ---------------------------------------------------------------------------
 # Load raw data
 # ---------------------------------------------------------------------------
+
 
 def load_raw():
     records = []
@@ -56,6 +61,7 @@ def load_raw():
 # Output extraction
 # ---------------------------------------------------------------------------
 
+
 def extract_spatial_domain_labels(system: str, task_id: str, rep: int) -> dict | None:
     """Extract cluster labels from a spatial domains trial.
 
@@ -66,7 +72,11 @@ def extract_spatial_domain_labels(system: str, task_id: str, rep: int) -> dict |
 
     def _extract_from_adata(adata):
         # Prefer columns with domain/leiden/cluster in the name
-        domain_cols = [c for c in adata.obs.columns if any(kw in c.lower() for kw in ["domain", "leiden", "cluster", "louvain"])]
+        domain_cols = [
+            c
+            for c in adata.obs.columns
+            if any(kw in c.lower() for kw in ["domain", "leiden", "cluster", "louvain"])
+        ]
         if domain_cols:
             return dict(zip(adata.obs_names, adata.obs[domain_cols[0]].astype(str)))
         return None
@@ -97,7 +107,9 @@ def extract_svg_list(system: str, task_id: str, rep: int) -> list[str] | None:
     csv_path = trial_dir / "svg_results.csv"
     if csv_path.exists():
         df = pd.read_csv(csv_path)
-        gene_col = [c for c in df.columns if c.lower() in ("gene", "genes", "gene_name")]
+        gene_col = [
+            c for c in df.columns if c.lower() in ("gene", "genes", "gene_name")
+        ]
         if gene_col:
             return df[gene_col[0]].tolist()[:100]
         # First column
@@ -107,7 +119,11 @@ def extract_svg_list(system: str, task_id: str, rep: int) -> list[str] | None:
     for f in sorted(trial_dir.glob("*.h5ad")):
         adata = ad.read_h5ad(f)
         if "morans_I" in adata.var.columns:
-            top = adata.var.sort_values("morans_I", ascending=False).head(100).index.tolist()
+            top = (
+                adata.var.sort_values("morans_I", ascending=False)
+                .head(100)
+                .index.tolist()
+            )
             return top
         if "highly_variable" in adata.var.columns:
             top = adata.var[adata.var["highly_variable"]].index.tolist()[:100]
@@ -159,6 +175,7 @@ def extract_lr_pairs(system: str, task_id: str, rep: int) -> list[str] | None:
 # Concordance metrics
 # ---------------------------------------------------------------------------
 
+
 def pairwise_ari(labels_dict_list: list[dict]) -> list[float]:
     """Compute pairwise ARI between all pairs of label dictionaries.
 
@@ -199,13 +216,16 @@ def bootstrap_ci(values, n_boot=10_000, seed=42):
     n = len(arr)
     if n == 0:
         return (np.nan, np.nan, np.nan)
-    boots = np.array([arr[rng.choice(n, n, replace=True)].mean() for _ in range(n_boot)])
+    boots = np.array(
+        [arr[rng.choice(n, n, replace=True)].mean() for _ in range(n_boot)]
+    )
     return (arr.mean(), np.percentile(boots, 2.5), np.percentile(boots, 97.5))
 
 
 # ---------------------------------------------------------------------------
 # Main analysis
 # ---------------------------------------------------------------------------
+
 
 def analyze():
     if not RAW_PATH.exists():
@@ -235,7 +255,7 @@ def analyze():
     summary_lines.append("END-TO-END BENCHMARK ANALYSIS")
     summary_lines.append("=" * 70)
 
-    for (system, task_id) in sorted(grouped.keys()):
+    for system, task_id in sorted(grouped.keys()):
         trials = grouped[(system, task_id)]
         n_total = len(trials)
         n_success = sum(1 for t in trials if t["success"])
@@ -249,7 +269,9 @@ def analyze():
         failures = [t.get("error", "unknown")[:60] for t in trials if not t["success"]]
 
         summary_lines.append(f"\n{system}/{task_id}:")
-        summary_lines.append(f"  Success: {n_success}/{n_total} ({success_rate*100:.0f}%)")
+        summary_lines.append(
+            f"  Success: {n_success}/{n_total} ({success_rate*100:.0f}%)"
+        )
         summary_lines.append(f"  Avg time (success): {avg_time:.1f}s")
         if failures:
             summary_lines.append(f"  Failures: {failures}")
@@ -262,16 +284,22 @@ def analyze():
             labels = []
             for t in trials:
                 if t["success"]:
-                    l = extract_spatial_domain_labels(system, task_id, t["rep"])
-                    if l is not None:
-                        labels.append(l)
+                    domain_labels = extract_spatial_domain_labels(
+                        system, task_id, t["rep"]
+                    )
+                    if domain_labels is not None:
+                        labels.append(domain_labels)
             if len(labels) >= 2:
                 concordance_pairs = pairwise_ari(labels)
                 mean, lo, hi = bootstrap_ci(concordance_pairs)
                 concordance = mean
-                summary_lines.append(f"  ARI concordance: {mean:.3f} [{lo:.3f}, {hi:.3f}] ({len(concordance_pairs)} pairs)")
+                summary_lines.append(
+                    f"  ARI concordance: {mean:.3f} [{lo:.3f}, {hi:.3f}] ({len(concordance_pairs)} pairs)"
+                )
             else:
-                summary_lines.append(f"  ARI concordance: insufficient data ({len(labels)} outputs)")
+                summary_lines.append(
+                    f"  ARI concordance: insufficient data ({len(labels)} outputs)"
+                )
 
         elif task_id == "svg_detection":
             gene_lists = []
@@ -284,9 +312,13 @@ def analyze():
                 concordance_pairs = pairwise_jaccard(gene_lists)
                 mean, lo, hi = bootstrap_ci(concordance_pairs)
                 concordance = mean
-                summary_lines.append(f"  Jaccard@100 concordance: {mean:.3f} [{lo:.3f}, {hi:.3f}] ({len(concordance_pairs)} pairs)")
+                summary_lines.append(
+                    f"  Jaccard@100 concordance: {mean:.3f} [{lo:.3f}, {hi:.3f}] ({len(concordance_pairs)} pairs)"
+                )
             else:
-                summary_lines.append(f"  Jaccard@100 concordance: insufficient data ({len(gene_lists)} outputs)")
+                summary_lines.append(
+                    f"  Jaccard@100 concordance: insufficient data ({len(gene_lists)} outputs)"
+                )
 
         elif task_id == "cell_communication":
             lr_lists = []
@@ -299,9 +331,13 @@ def analyze():
                 concordance_pairs = pairwise_jaccard(lr_lists, k=50)
                 mean, lo, hi = bootstrap_ci(concordance_pairs)
                 concordance = mean
-                summary_lines.append(f"  Jaccard@50 concordance: {mean:.3f} [{lo:.3f}, {hi:.3f}] ({len(concordance_pairs)} pairs)")
+                summary_lines.append(
+                    f"  Jaccard@50 concordance: {mean:.3f} [{lo:.3f}, {hi:.3f}] ({len(concordance_pairs)} pairs)"
+                )
             else:
-                summary_lines.append(f"  Jaccard@50 concordance: insufficient data ({len(lr_lists)} outputs)")
+                summary_lines.append(
+                    f"  Jaccard@50 concordance: insufficient data ({len(lr_lists)} outputs)"
+                )
 
         # Method consistency (for ChatSpatial, always the same; for others, check logs)
         methods = []
@@ -310,23 +346,29 @@ def analyze():
                 m = t.get("method", "")
                 if m:
                     methods.append(m)
-        method_consistency = 1.0 if len(set(methods)) <= 1 else len(set(methods)) / len(methods)
+        method_consistency = (
+            1.0 if len(set(methods)) <= 1 else len(set(methods)) / len(methods)
+        )
 
-        results.append({
-            "system": system,
-            "task_id": task_id,
-            "n_total": n_total,
-            "n_success": n_success,
-            "success_rate": success_rate,
-            "avg_time": avg_time,
-            "concordance": concordance,
-            "concordance_n_pairs": len(concordance_pairs),
-            "method_consistency": method_consistency,
-        })
+        results.append(
+            {
+                "system": system,
+                "task_id": task_id,
+                "n_total": n_total,
+                "n_success": n_success,
+                "success_rate": success_rate,
+                "avg_time": avg_time,
+                "concordance": concordance,
+                "concordance_n_pairs": len(concordance_pairs),
+                "method_consistency": method_consistency,
+            }
+        )
 
     # Write CSV
     if not results:
-        raise ValueError("No benchmark result rows were produced from the raw checkpoint.")
+        raise ValueError(
+            "No benchmark result rows were produced from the raw checkpoint."
+        )
 
     with open(RESULTS_CSV, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=results[0].keys(), lineterminator="\n")

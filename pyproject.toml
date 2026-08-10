@@ -243,6 +243,14 @@ hpc = [
     "slepc4py>=3.18.0,<4.0; sys_platform != 'win32'",
 ]
 
+# Dependencies used by the manuscript reproducibility scripts. Core scientific
+# packages such as NumPy, pandas, Scanpy, and scikit-learn are already required
+# by ChatSpatial itself, so this extra only declares the additional packages.
+reproducibility = [
+    "requests>=2.31.0,<3.0",
+    "statsmodels>=0.13.0,<1.0",
+]
+
 # Development dependencies
 dev = [
     "pytest>=8.0.0",

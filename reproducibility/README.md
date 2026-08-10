@@ -2,20 +2,29 @@
 
 Scripts, result data, and supplementary tables for reproducing the experiments in:
 
-> **ChatSpatial: Schema-Enforced Orchestration of Cross-Ecosystem Spatial Transcriptomics Workflows**
+> **ChatSpatial: Schema-Enforced Agentic Orchestration for Reproducible and Cross-Platform Spatial Transcriptomics**
 >
 > Chen Yang, Xianyang Zhang, Jun Chen
 
-This repository accompanies the main [ChatSpatial package](https://github.com/cafferychen777/ChatSpatial) and contains all analysis scripts used to generate the figures and results reported in the manuscript.
+This directory is the manuscript reproducibility workspace within the main
+[ChatSpatial repository](https://github.com/cafferychen777/ChatSpatial). It
+contains the experiment and analysis scripts, small aggregate result files, and
+supplementary tables needed to audit the reported numerical results.
+
+Large datasets, raw provider checkpoints, generated analysis directories, and
+manuscript source files are intentionally kept outside Git. The manuscript
+itself is maintained in Overleaf; this directory records executable methods and
+compact evidence rather than duplicating the paper workspace.
 
 ---
 
 ## Repository Structure
 
 ```
-ChatSpatial-Reproducibility/
+reproducibility/
 ├── README.md
 ├── .gitignore
+├── requirements-paper.txt             # Manuscript-era top-level requirements
 ├── scripts/                           # All experiment and analysis scripts
 │   ├── reproducibility_analysis.py    # Schema constraint coverage analysis
 │   ├── determinism_experiment.py      # Single-model determinism experiment
@@ -66,8 +75,8 @@ ChatSpatial-Reproducibility/
 ### Software
 
 - Python 3.11+
-- [ChatSpatial](https://github.com/cafferychen777/ChatSpatial) `v1.2.10`
-- Additional Python packages listed in `requirements.txt`, including `requests`, `numpy`, `scipy`, `scikit-learn`, `pandas`, `anndata`, `scanpy`, `python-dotenv`, and `statsmodels`
+- The current ChatSpatial checkout plus the `reproducibility` optional dependency group for development and inspection
+- [ChatSpatial](https://github.com/cafferychen777/ChatSpatial) `v1.2.10` for manuscript-era regeneration; the top-level package baseline is recorded in `requirements-paper.txt`
 - For R-based analyses: `rpy2`, R 4.1+, and the R packages `CellChat`, `RCTD`/`spacexr`, `spatialLIBD`
 
 ### API Keys
@@ -86,18 +95,24 @@ The preliminary GPT-5 Mini experiments use the standard OpenAI Chat Completions 
 ### Installation
 
 ```bash
-# Clone this repository
-git clone https://github.com/cafferychen777/ChatSpatial-Reproducibility.git
-cd ChatSpatial-Reproducibility
+# Clone the unified repository
+git clone https://github.com/cafferychen777/ChatSpatial.git
+cd ChatSpatial
 
-# Install ChatSpatial and reproducibility dependencies
-pip install -r requirements.txt
+# Install the current checkout and reproducibility dependencies
+python -m pip install -e ".[reproducibility]"
 
-# Optional advanced stack for R-based and compiled methods
-pip install "chatspatial[full]==1.2.10"
+# Run the commands below from the reproducibility workspace
+cd reproducibility
 ```
 
-The base install no longer pulls compiled optional packages. The `chatspatial[full]` extra remains an advanced optional stack with documented platform prerequisites, and the Docker image listed below provides the validated full-stack environment used for complete reproduction.
+For manuscript-era regeneration, create a separate environment and run
+`python -m pip install -r requirements-paper.txt` from this directory. Do not
+mix that `v1.2.10` baseline with an editable install of the current
+checkout. The `chatspatial[full]` extra remains an advanced optional stack with
+documented platform prerequisites, and the historical Docker image listed
+below provides the validated full-stack environment used for the paper. The
+requirements file records direct dependencies; it is not a transitive lockfile.
 
 ---
 
@@ -393,7 +408,13 @@ Bridges the ablation to the specific case-study workflow by repeating the OSCC C
 
 ## Running the Scripts
 
-> **Note on script paths:** Run scripts from the repository root (`python scripts/<name>.py`) so sibling imports resolve correctly. Scripts auto-detect a local ChatSpatial checkout and benchmark installs in common workspace layouts; set `CHATSPATIAL_CODE_DIR=/path/to/ChatSpatial/code` and `CHATSPATIAL_BENCHMARKS_DIR=/path/to/benchmarks` if auto-detection does not match your machine. The STAgent and SpatialAgent drivers also accept `STAGENT_ROOT` and `SPATIALAGENT_ROOT`.
+> **Note on script paths:** Run scripts from this `reproducibility/` directory
+> (`python scripts/<name>.py`) so sibling imports resolve consistently. The
+> merged repository root is detected automatically. Set
+> `CHATSPATIAL_CODE_DIR=/path/to/ChatSpatial` or
+> `CHATSPATIAL_BENCHMARKS_DIR=/path/to/benchmarks` only for nonstandard layouts.
+> The STAgent and SpatialAgent drivers also accept `STAGENT_ROOT` and
+> `SPATIALAGENT_ROOT`.
 
 ### Group 1: Static Analysis (no API keys needed)
 
@@ -551,6 +572,10 @@ Analysis scripts read from `data/` and write summary CSVs and text files. They d
 | S3 | `Supplementary_Table_3_Test_Scenarios.csv` | 31 predefined test scenarios covering data handling (5), core analysis (11), conversational workflows (5), scalability (7), and known limitations (3) |
 | S4 | `Supplementary_Table_4_AI_Agent_Comparison.csv` | Feature comparison of ChatSpatial, STAgent, and SpatialAgent across architecture, tool count, validation, and error handling |
 
+The S2 catalog is the frozen `v1.2.10` manuscript snapshot with 65 methods.
+The current `v1.3.2` package exposes 66 methods after the addition of the
+optional `rctd-py` backend; the historical table is intentionally not rewritten.
+
 ---
 
 ## Reproducibility Notes
@@ -564,9 +589,9 @@ Analysis scripts read from `data/` and write summary CSVs and text files. They d
 
 ---
 
-## Related Repositories
+## Related Resources
 
-- **ChatSpatial Package:** [github.com/cafferychen777/ChatSpatial](https://github.com/cafferychen777/ChatSpatial) — main package with MCP server, tool implementations, and documentation
+- **ChatSpatial repository:** [github.com/cafferychen777/ChatSpatial](https://github.com/cafferychen777/ChatSpatial) — package, MCP server, documentation, and this reproducibility workspace
 - **Documentation:** [docs.cafferyang.com](https://docs.cafferyang.com/) — comprehensive user guide and API reference
 - **Docker Image:** `ghcr.io/cafferychen777/chatspatial:v1.2.10` — validated full-stack environment with dependencies pre-resolved
 

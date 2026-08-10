@@ -24,6 +24,7 @@ import traceback
 
 from paths import find_competitor_dir
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", required=True)
@@ -44,6 +45,7 @@ def main():
     env_file = os.path.join(src_dir, ".env")
     if os.path.exists(env_file):
         from dotenv import load_dotenv
+
         load_dotenv(env_file)
 
     # Configure STAgent environment variables
@@ -66,8 +68,8 @@ def main():
 
     t0 = time.time()
     try:
-        from langchain_core.messages import HumanMessage
         from graph_unified import invoke_our_graph
+        from langchain_core.messages import HumanMessage
 
         messages = [HumanMessage(content=args.prompt)]
         out = invoke_our_graph(
@@ -92,6 +94,7 @@ def main():
                 texts.append(content)
                 # Extract Python code blocks
                 import re
+
                 for match in re.finditer(r"```python\n(.*?)```", content, re.DOTALL):
                     code_blocks.append(match.group(1))
             elif isinstance(content, list):
@@ -105,8 +108,12 @@ def main():
         # Check if output files were created
         output_files = []
         # Directories that STAgent always creates (not real output)
-        infra_names = {"conversation_histories", "research_reports",
-                       "driver_result.json", ".DS_Store"}
+        infra_names = {
+            "conversation_histories",
+            "research_reports",
+            "driver_result.json",
+            ".DS_Store",
+        }
         real_files = []
         for f in os.listdir(args.output_dir):
             output_files.append(f)
@@ -119,10 +126,15 @@ def main():
         # Determine success: must have real output files AND enough steps
         # to indicate actual analysis was performed
         full_text = result["messages_text"].lower()
-        has_api_error = any(kw in full_text for kw in [
-            "apiconnectionerror", "api connection error",
-            "model provider request failed", "rate limit",
-        ])
+        has_api_error = any(
+            kw in full_text
+            for kw in [
+                "apiconnectionerror",
+                "api connection error",
+                "model provider request failed",
+                "rate limit",
+            ]
+        )
         if has_api_error and not real_files:
             result["success"] = False
             result["error"] = "API error during execution, no output produced"
@@ -140,8 +152,11 @@ def main():
     with open(args.result_json, "w") as f:
         json.dump(result, f, indent=2, default=str)
 
-    print(f"STAgent driver done. success={result['success']}, "
-          f"wall_time={result['wall_time']:.1f}s", flush=True)
+    print(
+        f"STAgent driver done. success={result['success']}, "
+        f"wall_time={result['wall_time']:.1f}s",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

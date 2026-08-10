@@ -20,14 +20,12 @@ import csv
 import json
 import os
 import re
-import sys
 import time
 from collections import Counter
 from pathlib import Path
 
 import requests
-
-from paths import find_chatspatial_code_dir, load_env_file
+from paths import load_env_file
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -59,7 +57,6 @@ if OPENAI_KEY and OPENAI_API_URL:
 
 SCRIPT_DIR = Path(__file__).parent
 DATA_DIR = SCRIPT_DIR.parent / "data" / "ablation" / "invocation"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 RAW_PATH = DATA_DIR / "ablation_invocation_raw.jsonl"
 CSV_PATH = DATA_DIR / "ablation_invocation_results.csv"
 SUMMARY_PATH = DATA_DIR / "ablation_invocation_summary.txt"
@@ -286,40 +283,70 @@ TEST_PROMPTS = [
 # Tool name aliases for Condition C (generous mapping)
 TOOL_ALIASES: dict[str, list[str]] = {
     "identify_spatial_domains": [
-        "identify_spatial_domains", "spatial_domains", "spatial_clustering",
-        "cluster_spatial", "find_domains", "find_spatial_domains",
+        "identify_spatial_domains",
+        "spatial_domains",
+        "spatial_clustering",
+        "cluster_spatial",
+        "find_domains",
+        "find_spatial_domains",
     ],
     "deconvolve_data": [
-        "deconvolve_data", "deconvolution", "deconvolve",
-        "cell_type_deconvolution", "estimate_proportions",
+        "deconvolve_data",
+        "deconvolution",
+        "deconvolve",
+        "cell_type_deconvolution",
+        "estimate_proportions",
         "estimate_cell_type_proportions",
     ],
     "find_spatial_genes": [
-        "find_spatial_genes", "spatial_genes", "svg_detection", "find_svg",
-        "spatially_variable_genes", "identify_spatial_genes",
-        "spatial_variable_genes", "find_spatially_variable_genes",
+        "find_spatial_genes",
+        "spatial_genes",
+        "svg_detection",
+        "find_svg",
+        "spatially_variable_genes",
+        "identify_spatial_genes",
+        "spatial_variable_genes",
+        "find_spatially_variable_genes",
     ],
     "analyze_cell_communication": [
-        "analyze_cell_communication", "cell_communication",
-        "cellchat", "cell_chat", "ligand_receptor",
-        "analyze_communication", "cell_cell_communication",
+        "analyze_cell_communication",
+        "cell_communication",
+        "cellchat",
+        "cell_chat",
+        "ligand_receptor",
+        "analyze_communication",
+        "cell_cell_communication",
     ],
     "analyze_spatial_statistics": [
-        "analyze_spatial_statistics", "spatial_statistics",
-        "spatial_autocorrelation", "morans_i", "moran_i",
+        "analyze_spatial_statistics",
+        "spatial_statistics",
+        "spatial_autocorrelation",
+        "morans_i",
+        "moran_i",
         "compute_spatial_statistics",
     ],
     "visualize_data": [
-        "visualize_data", "visualize", "plot", "spatial_plot",
-        "create_plot", "visualization",
+        "visualize_data",
+        "visualize",
+        "plot",
+        "spatial_plot",
+        "create_plot",
+        "visualization",
     ],
     "analyze_trajectory_data": [
-        "analyze_trajectory_data", "trajectory", "trajectory_analysis",
-        "analyze_trajectory", "pseudotime",
+        "analyze_trajectory_data",
+        "trajectory",
+        "trajectory_analysis",
+        "analyze_trajectory",
+        "pseudotime",
     ],
     "analyze_cnv": [
-        "analyze_cnv", "cnv", "cnv_analysis", "infer_cnv",
-        "copy_number", "cnv_inference",
+        "analyze_cnv",
+        "cnv",
+        "cnv_analysis",
+        "infer_cnv",
+        "copy_number",
+        "cnv_inference",
     ],
 }
 
@@ -341,23 +368,18 @@ def resolve_tool_name(raw_name: str | None) -> str | None:
 # Pydantic Validation
 # ---------------------------------------------------------------------------
 
-# Add chatspatial to path for imports when a local source tree is available.
-_CODE_ROOT = find_chatspatial_code_dir(required=False)
-if _CODE_ROOT is not None and str(_CODE_ROOT) not in sys.path:
-    sys.path.insert(0, str(_CODE_ROOT))
-
 try:
     from chatspatial.models.data import (
-        CNVParameters,
         CellCommunicationParameters,
+        CNVParameters,
         DeconvolutionParameters,
-        RNAVelocityParameters,
         SpatialDomainParameters,
         SpatialStatisticsParameters,
         SpatialVariableGenesParameters,
         TrajectoryParameters,
         VisualizationParameters,
     )
+
     TOOL_PARAM_MODELS: dict[str, type] = {
         "identify_spatial_domains": SpatialDomainParameters,
         "deconvolve_data": DeconvolutionParameters,
@@ -393,18 +415,33 @@ def validate_with_pydantic(tool_name: str, params: dict) -> tuple[bool, str]:
 # API Callers (adapted from determinism_multimodel.py)
 # ---------------------------------------------------------------------------
 
+
 def call_gemini(system: str, prompt: str) -> str | None:
     for attempt in range(MAX_RETRIES):
         try:
             payload = {
                 "contents": [
-                    {"role": "user", "parts": [{"text": system + RESPONSE_INSTRUCTION + "\nUser: " + prompt}]}
+                    {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "text": system
+                                + RESPONSE_INSTRUCTION
+                                + "\nUser: "
+                                + prompt
+                            }
+                        ],
+                    }
                 ],
-                "generationConfig": {"temperature": TEMPERATURE, "maxOutputTokens": 512},
+                "generationConfig": {
+                    "temperature": TEMPERATURE,
+                    "maxOutputTokens": 512,
+                },
             }
             r = requests.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}",
-                json=payload, timeout=60,
+                json=payload,
+                timeout=60,
             )
             r.raise_for_status()
             return r.json()["candidates"][0]["content"]["parts"][0]["text"]
@@ -433,7 +470,8 @@ def call_anthropic(system: str, prompt: str) -> str | None:
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json",
                 },
-                json=payload, timeout=60,
+                json=payload,
+                timeout=60,
             )
             r.raise_for_status()
             return r.json()["content"][0]["text"]
@@ -469,7 +507,8 @@ def call_openai(system: str, prompt: str) -> str | None:
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json",
                 },
-                json=payload, timeout=120,
+                json=payload,
+                timeout=120,
             )
             r.raise_for_status()
             # Extract text from response (skip thinking blocks)
@@ -518,6 +557,7 @@ def parse_json(text: str) -> dict | None:
 # Checkpoint / Resume
 # ---------------------------------------------------------------------------
 
+
 def load_completed_trials(path: Path) -> set[str]:
     """Load trial IDs already completed from JSONL checkpoint."""
     completed = set()
@@ -542,11 +582,15 @@ def append_raw(path: Path, record: dict) -> None:
 # Consistency Metrics
 # ---------------------------------------------------------------------------
 
+
 def compute_consistency(values: list) -> float:
     """Fraction of values agreeing with the mode."""
     if not values:
         return 0.0
-    normed = [json.dumps(v, sort_keys=True) if isinstance(v, (list, dict)) else str(v) for v in values]
+    normed = [
+        json.dumps(v, sort_keys=True) if isinstance(v, (list, dict)) else str(v)
+        for v in values
+    ]
     return Counter(normed).most_common(1)[0][1] / len(normed)
 
 
@@ -554,8 +598,10 @@ def compute_consistency(values: list) -> float:
 # Main Experiment
 # ---------------------------------------------------------------------------
 
+
 def run_experiment():
-    print(f"Schema-Enforcement Ablation — Part 1: Invocation-Level")
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    print("Schema-Enforcement Ablation — Part 1: Invocation-Level")
     print(f"Models: {list(MODELS.keys())}")
     print(f"Conditions: {list(SCHEMA_VARIANTS.keys())}")
     print(f"Prompts: {len(TEST_PROMPTS)}, Reps: {N_TRIALS}, Temp: {TEMPERATURE}")
@@ -566,8 +612,6 @@ def run_experiment():
 
     completed = load_completed_trials(RAW_PATH)
     print(f"Resuming: {len(completed)} trials already completed\n")
-
-    all_results = []
 
     for condition, schema_text in SCHEMA_VARIANTS.items():
         for model_name, provider in MODELS.items():
@@ -601,7 +645,9 @@ def run_experiment():
                     pydantic_valid = False
                     pydantic_errors = ""
                     if canonical_tool and params is not None:
-                        pydantic_valid, pydantic_errors = validate_with_pydantic(canonical_tool, params)
+                        pydantic_valid, pydantic_errors = validate_with_pydantic(
+                            canonical_tool, params
+                        )
 
                     record = {
                         "trial_key": trial_key,
@@ -639,6 +685,7 @@ def run_experiment():
 
     # Group by (condition, model, prompt_id)
     from collections import defaultdict
+
     groups = defaultdict(list)
     for rec in all_records:
         key = (rec["condition"], rec["model"], rec["prompt_id"])
@@ -660,7 +707,9 @@ def run_experiment():
         tool_consistency = compute_consistency(tools) if tools else 0
 
         # Tool correctness
-        correct = sum(1 for r in valid if r["tool_correct"]) / len(valid) if valid else 0
+        correct = (
+            sum(1 for r in valid if r["tool_correct"]) / len(valid) if valid else 0
+        )
 
         # Pydantic validation rate
         pydantic_rate = sum(1 for r in recs if r["pydantic_valid"]) / n if n else 0
@@ -675,7 +724,11 @@ def run_experiment():
                     vals.append(params[p])
             if vals:
                 constrained_scores.append(compute_consistency(vals))
-        avg_constrained = sum(constrained_scores) / len(constrained_scores) if constrained_scores else 0
+        avg_constrained = (
+            sum(constrained_scores) / len(constrained_scores)
+            if constrained_scores
+            else 0
+        )
 
         # Free parameter consistency
         free_scores = []
@@ -689,23 +742,27 @@ def run_experiment():
                 free_scores.append(compute_consistency(vals))
         avg_free = sum(free_scores) / len(free_scores) if free_scores else 0
 
-        summary_rows.append({
-            "condition": condition,
-            "model": model,
-            "prompt_id": prompt_id,
-            "n_trials": n,
-            "parse_rate": round(parse_rate, 3),
-            "tool_consistency": round(tool_consistency, 3),
-            "tool_correctness": round(correct, 3),
-            "pydantic_valid_rate": round(pydantic_rate, 3),
-            "constrained_param_consistency": round(avg_constrained, 3),
-            "free_param_consistency": round(avg_free, 3),
-        })
+        summary_rows.append(
+            {
+                "condition": condition,
+                "model": model,
+                "prompt_id": prompt_id,
+                "n_trials": n,
+                "parse_rate": round(parse_rate, 3),
+                "tool_consistency": round(tool_consistency, 3),
+                "tool_correctness": round(correct, 3),
+                "pydantic_valid_rate": round(pydantic_rate, 3),
+                "constrained_param_consistency": round(avg_constrained, 3),
+                "free_param_consistency": round(avg_free, 3),
+            }
+        )
 
     # Write CSV
     if summary_rows:
         with open(CSV_PATH, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=summary_rows[0].keys(), lineterminator="\n")
+            writer = csv.DictWriter(
+                f, fieldnames=summary_rows[0].keys(), lineterminator="\n"
+            )
             writer.writeheader()
             writer.writerows(summary_rows)
         print(f"CSV saved: {CSV_PATH}")
@@ -725,9 +782,15 @@ def run_experiment():
             avg_parse = sum(r["parse_rate"] for r in cond_rows) / len(cond_rows)
             avg_tool = sum(r["tool_consistency"] for r in cond_rows) / len(cond_rows)
             avg_correct = sum(r["tool_correctness"] for r in cond_rows) / len(cond_rows)
-            avg_pydantic = sum(r["pydantic_valid_rate"] for r in cond_rows) / len(cond_rows)
-            avg_const = sum(r["constrained_param_consistency"] for r in cond_rows) / len(cond_rows)
-            avg_free = sum(r["free_param_consistency"] for r in cond_rows) / len(cond_rows)
+            avg_pydantic = sum(r["pydantic_valid_rate"] for r in cond_rows) / len(
+                cond_rows
+            )
+            avg_const = sum(
+                r["constrained_param_consistency"] for r in cond_rows
+            ) / len(cond_rows)
+            avg_free = sum(r["free_param_consistency"] for r in cond_rows) / len(
+                cond_rows
+            )
 
             f.write(f"\n{condition.upper()}\n")
             f.write(f"{'-'*50}\n")
@@ -744,7 +807,9 @@ def run_experiment():
                 if not model_rows:
                     continue
                 mp = sum(r["pydantic_valid_rate"] for r in model_rows) / len(model_rows)
-                mc = sum(r["constrained_param_consistency"] for r in model_rows) / len(model_rows)
+                mc = sum(r["constrained_param_consistency"] for r in model_rows) / len(
+                    model_rows
+                )
                 f.write(f"    {model}: pydantic={mp:.1%} constrained={mc:.1%}\n")
 
         # Cross-condition comparison (the key result)
@@ -753,15 +818,22 @@ def run_experiment():
         f.write(f"{'='*70}\n\n")
         f.write(f"{'Metric':<35} {'Full':>10} {'Bare':>10} {'Minimal':>10}\n")
         f.write(f"{'-'*65}\n")
-        for metric in ["parse_rate", "tool_consistency", "tool_correctness",
-                        "pydantic_valid_rate", "constrained_param_consistency"]:
+        for metric in [
+            "parse_rate",
+            "tool_consistency",
+            "tool_correctness",
+            "pydantic_valid_rate",
+            "constrained_param_consistency",
+        ]:
             vals = {}
             for cond in SCHEMA_VARIANTS:
                 rows = [r for r in summary_rows if r["condition"] == cond]
                 vals[cond] = sum(r[metric] for r in rows) / len(rows) if rows else 0
-            f.write(f"{metric:<35} {vals.get('full_schema',0):>9.1%} "
-                    f"{vals.get('bare_schema',0):>9.1%} "
-                    f"{vals.get('no_schema',0):>9.1%}\n")
+            f.write(
+                f"{metric:<35} {vals.get('full_schema',0):>9.1%} "
+                f"{vals.get('bare_schema',0):>9.1%} "
+                f"{vals.get('no_schema',0):>9.1%}\n"
+            )
 
     print(f"Summary saved: {SUMMARY_PATH}")
     print("\nDone!")

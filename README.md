@@ -37,6 +37,7 @@ explicitly configured HTTP deployments.
 1. **Install ChatSpatial** — [Installation Guide](docs/installation.md) for Python/uv setup, or [Docker Guide](docs/docker.md) for the GHCR image
 2. **Configure your MCP client** — [Configuration Guide](docs/advanced/configuration.md)
 3. **Run your first analysis** — [Quick Start](docs/quickstart.md)
+4. **Inspect or reproduce the manuscript results** — [Reproducibility workspace](reproducibility/README.md)
 
 **Docker quick start:**
 
@@ -93,6 +94,18 @@ Current coverage includes 66 methods across 15 analytical categories, exposed th
 | [Methods Reference](docs/advanced/methods-reference.md) | You need canonical tool names, method names, parameters, and defaults |
 | [Troubleshooting](docs/advanced/troubleshooting.md) | Setup, data loading, or analysis behavior is not working |
 | [Full Docs](https://docs.cafferyang.com/) | You want the complete documentation site |
+
+---
+
+## Reproducibility
+
+The manuscript experiment scripts, small aggregate result tables, and
+supplementary tables are versioned in [`reproducibility/`](reproducibility/README.md).
+Large datasets, raw provider checkpoints, generated analysis directories, and
+manuscript source files are intentionally kept outside Git. The reproducibility
+workspace documents both the manuscript-era package baseline and the
+current-checkout development workflow so historical evidence is not silently
+regenerated with a different ChatSpatial release.
 
 ---
 

@@ -19,8 +19,6 @@ import sys
 import time
 from pathlib import Path
 
-import numpy as np
-
 from paths import find_benchmarks_dir, find_chatspatial_code_dir, load_env_file
 
 # ---------------------------------------------------------------------------
@@ -36,8 +34,6 @@ BENCH_ROOT = find_benchmarks_dir(required=True)
 DATA_DIR = REPO_ROOT / "data" / "dlpfc_benchmark"
 SAMPLES_DIR = DATA_DIR / "samples"
 OUTPUT_DIR = DATA_DIR / "outputs"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 RAW_PATH = DATA_DIR / "dlpfc_benchmark_raw.jsonl"
 
@@ -76,6 +72,7 @@ if str(CODE_ROOT) not in sys.path:
 # Checkpoint / Resume
 # ---------------------------------------------------------------------------
 
+
 def load_completed():
     """Load set of completed (system, sample_id, rep) tuples."""
     completed = set()
@@ -99,35 +96,56 @@ def append_raw(record: dict):
 # ChatSpatial Execution
 # ---------------------------------------------------------------------------
 
+
 async def run_chatspatial(sample_id: str, output_dir: Path, data_path: Path) -> dict:
     """Run ChatSpatial: LLM selects tool+params via schema, then execute."""
     import anndata as ad
     import requests
+
     from chatspatial.models.data import SpatialDomainParameters
     from chatspatial.tools.spatial_domains import identify_spatial_domains
 
     sys.path.insert(0, str(SCRIPT_DIR))
-    from ablation_invocation import SCHEMA_FULL, RESPONSE_INSTRUCTION, parse_json, resolve_tool_name
+    from ablation_invocation import (
+        RESPONSE_INSTRUCTION,
+        SCHEMA_FULL,
+        parse_json,
+        resolve_tool_name,
+    )
 
     # Minimal context
     class BenchCtx:
         def __init__(self, datasets):
             self._datasets = datasets
+
         async def get_adata(self, data_id):
             return self._datasets[data_id]
+
         async def get_dataset_info(self, data_id):
             return {"adata": self._datasets[data_id], "name": data_id, "type": "visium"}
+
         async def set_adata(self, data_id, adata):
             self._datasets[data_id] = adata
+
         async def add_dataset(self, adata, prefix="data", name=None, metadata=None):
             new_id = f"{prefix}_{len(self._datasets)}"
             self._datasets[new_id] = adata
             return new_id
-        async def info(self, msg): pass
-        async def warning(self, msg): pass
-        async def error(self, msg): pass
-        def debug(self, msg): pass
-        def log_config(self, title, config): pass
+
+        async def info(self, msg):
+            pass
+
+        async def warning(self, msg):
+            pass
+
+        async def error(self, msg):
+            pass
+
+        def debug(self, msg):
+            pass
+
+        def log_config(self, title, config):
+            pass
 
     result = {
         "success": False,
@@ -156,7 +174,8 @@ async def run_chatspatial(sample_id: str, output_dir: Path, data_path: Path) -> 
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             },
-            json=payload, timeout=60,
+            json=payload,
+            timeout=60,
         )
         r.raise_for_status()
         llm_text = r.json()["content"][0]["text"]
@@ -213,6 +232,7 @@ async def run_chatspatial(sample_id: str, output_dir: Path, data_path: Path) -> 
         result["wall_time"] = time.time() - t0
         result["error"] = f"{type(e).__name__}: {str(e)[:500]}"
         import traceback as tb
+
         result["traceback"] = tb.format_exc()[-1000:]
 
     return result
@@ -221,6 +241,7 @@ async def run_chatspatial(sample_id: str, output_dir: Path, data_path: Path) -> 
 # ---------------------------------------------------------------------------
 # External System Execution (subprocess)
 # ---------------------------------------------------------------------------
+
 
 def run_external_system(
     system: str,
@@ -247,11 +268,16 @@ def run_external_system(
     cmd = [
         str(venv_python),
         str(driver_script),
-        "--data_path", str(data_path),
-        "--output_dir", str(output_dir),
-        "--prompt", prompt,
-        "--model", MODEL,
-        "--result_json", str(result_json),
+        "--data_path",
+        str(data_path),
+        "--output_dir",
+        str(output_dir),
+        "--prompt",
+        prompt,
+        "--model",
+        MODEL,
+        "--result_json",
+        str(result_json),
     ]
     if system == "spatialagent":
         cmd.extend(["--temperature", str(TEMPERATURE)])
@@ -284,7 +310,7 @@ def run_external_system(
             result = {
                 "success": False,
                 "error": f"Driver did not produce result JSON. "
-                         f"returncode={proc.returncode}",
+                f"returncode={proc.returncode}",
                 "wall_time": wall_time,
                 "stdout": proc.stdout[-2000:] if proc.stdout else "",
                 "stderr": proc.stderr[-2000:] if proc.stderr else "",
@@ -315,7 +341,11 @@ def run_external_system(
 # Main Experiment Loop
 # ---------------------------------------------------------------------------
 
+
 async def run_experiment():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
     print("=" * 70)
     print("DLPFC Ground-Truth Benchmark: ChatSpatial vs STAgent vs SpatialAgent")
     print("=" * 70)
@@ -377,8 +407,12 @@ async def run_experiment():
                         }
                     else:
                         result = run_external_system(
-                            system_name, venv, driver,
-                            sample_id, trial_dir, data_path,
+                            system_name,
+                            venv,
+                            driver,
+                            sample_id,
+                            trial_dir,
+                            data_path,
                         )
 
                 record = {
@@ -392,9 +426,15 @@ async def run_experiment():
                 }
 
                 # Truncate large fields
-                for key in ("messages_text", "stdout", "stderr",
-                            "stdout_tail", "stderr_tail", "traceback",
-                            "labels"):
+                for key in (
+                    "messages_text",
+                    "stdout",
+                    "stderr",
+                    "stdout_tail",
+                    "stderr_tail",
+                    "traceback",
+                    "labels",
+                ):
                     val = record.get(key)
                     if isinstance(val, str) and len(val) > 2000:
                         record[key] = val[:2000] + "..."
@@ -402,7 +442,11 @@ async def run_experiment():
                         record[key] = f"[{len(val)} items, truncated]"
 
                 append_raw(record)
-                status = "OK" if result.get("success") else f"FAIL: {result.get('error', '?')[:80]}"
+                status = (
+                    "OK"
+                    if result.get("success")
+                    else f"FAIL: {result.get('error', '?')[:80]}"
+                )
                 print(f"  -> {status} ({result.get('wall_time', 0):.1f}s)")
 
                 if done < total:

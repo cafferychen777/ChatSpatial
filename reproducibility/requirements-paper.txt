@@ -1,0 +1,12 @@
+# Top-level Python requirements for the manuscript-era results. This is not a
+# transitive lockfile; install it in a dedicated environment, separate from the
+# current checkout.
+chatspatial==1.2.10
+requests
+numpy
+scipy
+scikit-learn
+pandas
+anndata
+scanpy
+statsmodels

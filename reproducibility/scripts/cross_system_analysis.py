@@ -31,18 +31,26 @@ import numpy as np
 SCRIPT_DIR = Path(__file__).parent
 DATA_DIR = SCRIPT_DIR.parent / "data" / "cross_system"
 ANALYSIS_DIR = DATA_DIR / "analysis"
-ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
 
 CROSS_RAW = DATA_DIR / "cross_system_raw.jsonl"
-ABLATION_RAW = SCRIPT_DIR.parent / "data" / "ablation" / "invocation" / "ablation_invocation_raw.jsonl"
+ABLATION_RAW = (
+    SCRIPT_DIR.parent
+    / "data"
+    / "ablation"
+    / "invocation"
+    / "ablation_invocation_raw.jsonl"
+)
 
 METRICS_CSV = ANALYSIS_DIR / "cross_system_metrics.csv"
 AGGREGATE_CSV = ANALYSIS_DIR / "cross_system_aggregate.csv"
 SUMMARY_PATH = ANALYSIS_DIR / "cross_system_summary.txt"
 
 ALL_CONDITIONS = [
-    "full_schema", "bare_schema", "no_schema",
-    "stagent_context", "spatialagent_context",
+    "full_schema",
+    "bare_schema",
+    "no_schema",
+    "stagent_context",
+    "spatialagent_context",
 ]
 CONDITION_LABELS = {
     "full_schema": "ChatSpatial (full)",
@@ -53,21 +61,32 @@ CONDITION_LABELS = {
 }
 
 PROMPT_IDS = [
-    "spatial_domains", "deconvolution_rctd", "svg_detection", "cellchat",
-    "moran_i", "spatial_plot", "trajectory", "cnv",
+    "spatial_domains",
+    "deconvolution_rctd",
+    "svg_detection",
+    "cellchat",
+    "moran_i",
+    "spatial_plot",
+    "trajectory",
+    "cnv",
 ]
 
 
 def committed_outputs_available() -> bool:
-    return all(path.exists() and path.stat().st_size > 0 for path in (
-        METRICS_CSV,
-        AGGREGATE_CSV,
-        SUMMARY_PATH,
-    ))
+    return all(
+        path.exists() and path.stat().st_size > 0
+        for path in (
+            METRICS_CSV,
+            AGGREGATE_CSV,
+            SUMMARY_PATH,
+        )
+    )
+
 
 # ---------------------------------------------------------------------------
 # Bootstrap CI
 # ---------------------------------------------------------------------------
+
 
 def bootstrap_ci(
     values: list[float],
@@ -98,6 +117,7 @@ def bootstrap_ci(
 # Load data
 # ---------------------------------------------------------------------------
 
+
 def load_jsonl(path: Path) -> list[dict]:
     records = []
     if not path.exists():
@@ -116,21 +136,26 @@ def normalize_records(raw: list[dict]) -> list[dict]:
     """Normalize field names across ablation and cross-system data."""
     out = []
     for rec in raw:
-        out.append({
-            "condition": rec["condition"],
-            "model": rec["model"],
-            "prompt_id": rec["prompt_id"],
-            "rep": rec.get("rep", 0),
-            "parse_success": rec.get("parse_success", rec.get("parse_ok", False)),
-            "canonical_tool": rec.get("canonical_tool", rec.get("tool_name_resolved")),
-            "tool_correct": rec.get("tool_correct", False),
-        })
+        out.append(
+            {
+                "condition": rec["condition"],
+                "model": rec["model"],
+                "prompt_id": rec["prompt_id"],
+                "rep": rec.get("rep", 0),
+                "parse_success": rec.get("parse_success", rec.get("parse_ok", False)),
+                "canonical_tool": rec.get(
+                    "canonical_tool", rec.get("tool_name_resolved")
+                ),
+                "tool_correct": rec.get("tool_correct", False),
+            }
+        )
     return out
 
 
 # ---------------------------------------------------------------------------
 # Compute metrics
 # ---------------------------------------------------------------------------
+
 
 def compute_metrics(records: list[dict]) -> list[dict]:
     """Per (condition, model, prompt_id) metrics."""
@@ -159,16 +184,18 @@ def compute_metrics(records: list[dict]) -> list[dict]:
         # Tool diversity: number of unique tools selected
         unique_tools = len(set(tools)) if tools else 0
 
-        rows.append({
-            "condition": condition,
-            "model": model,
-            "prompt_id": prompt_id,
-            "n_trials": n,
-            "parse_rate": round(parse_rate, 4),
-            "tool_correct_rate": round(correct_rate, 4),
-            "tool_consistency": round(consistency, 4),
-            "tool_diversity": unique_tools,
-        })
+        rows.append(
+            {
+                "condition": condition,
+                "model": model,
+                "prompt_id": prompt_id,
+                "n_trials": n,
+                "parse_rate": round(parse_rate, 4),
+                "tool_correct_rate": round(correct_rate, 4),
+                "tool_consistency": round(consistency, 4),
+                "tool_diversity": unique_tools,
+            }
+        )
 
     return rows
 
@@ -193,22 +220,24 @@ def compute_aggregate(metric_rows: list[dict]) -> list[dict]:
         total_n = sum(r["n_trials"] for r in cond_rows)
         avg_diversity = np.mean([r["tool_diversity"] for r in cond_rows])
 
-        agg.append({
-            "condition": cond,
-            "label": CONDITION_LABELS.get(cond, cond),
-            "n_trials": total_n,
-            "n_cells": len(cond_rows),
-            "parse_rate_mean": round(parse_mean, 4),
-            "parse_rate_ci_lo": round(parse_lo, 4),
-            "parse_rate_ci_hi": round(parse_hi, 4),
-            "tool_correct_mean": round(corr_mean, 4),
-            "tool_correct_ci_lo": round(corr_lo, 4),
-            "tool_correct_ci_hi": round(corr_hi, 4),
-            "consistency_mean": round(cons_mean, 4),
-            "consistency_ci_lo": round(cons_lo, 4),
-            "consistency_ci_hi": round(cons_hi, 4),
-            "avg_tool_diversity": round(avg_diversity, 2),
-        })
+        agg.append(
+            {
+                "condition": cond,
+                "label": CONDITION_LABELS.get(cond, cond),
+                "n_trials": total_n,
+                "n_cells": len(cond_rows),
+                "parse_rate_mean": round(parse_mean, 4),
+                "parse_rate_ci_lo": round(parse_lo, 4),
+                "parse_rate_ci_hi": round(parse_hi, 4),
+                "tool_correct_mean": round(corr_mean, 4),
+                "tool_correct_ci_lo": round(corr_lo, 4),
+                "tool_correct_ci_hi": round(corr_hi, 4),
+                "consistency_mean": round(cons_mean, 4),
+                "consistency_ci_lo": round(cons_lo, 4),
+                "consistency_ci_hi": round(cons_hi, 4),
+                "avg_tool_diversity": round(avg_diversity, 2),
+            }
+        )
 
     return agg
 
@@ -217,7 +246,9 @@ def compute_aggregate(metric_rows: list[dict]) -> list[dict]:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
+    ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
     print("Loading data ...")
     missing_raw = [path for path in (ABLATION_RAW, CROSS_RAW) if not path.exists()]
     if missing_raw:
@@ -255,7 +286,9 @@ def main():
         raise ValueError("No metric rows were produced from the raw checkpoints.")
 
     with open(METRICS_CSV, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=metric_rows[0].keys(), lineterminator="\n")
+        writer = csv.DictWriter(
+            f, fieldnames=metric_rows[0].keys(), lineterminator="\n"
+        )
         writer.writeheader()
         writer.writerows(metric_rows)
     print(f"  Saved: {METRICS_CSV}")
@@ -302,7 +335,8 @@ def main():
         lines.append("-" * 50)
         for pid in PROMPT_IDS:
             prompt_rows = [
-                r for r in metric_rows
+                r
+                for r in metric_rows
                 if r["condition"] == cond and r["prompt_id"] == pid
             ]
             if not prompt_rows:
@@ -311,8 +345,12 @@ def main():
             # Show which tools were actually selected
             tools_selected = []
             for rec in all_records:
-                if (rec["condition"] == cond and rec["prompt_id"] == pid
-                        and rec["parse_success"] and rec["canonical_tool"]):
+                if (
+                    rec["condition"] == cond
+                    and rec["prompt_id"] == pid
+                    and rec["parse_success"]
+                    and rec["canonical_tool"]
+                ):
                     tools_selected.append(rec["canonical_tool"])
             top_tools = Counter(tools_selected).most_common(3)
             top_str = ", ".join(f"{t}({c})" for t, c in top_tools)
@@ -326,7 +364,9 @@ def main():
 
     cs_full = next((r for r in agg_rows if r["condition"] == "full_schema"), None)
     stagent = next((r for r in agg_rows if r["condition"] == "stagent_context"), None)
-    spatial = next((r for r in agg_rows if r["condition"] == "spatialagent_context"), None)
+    spatial = next(
+        (r for r in agg_rows if r["condition"] == "spatialagent_context"), None
+    )
 
     if cs_full and stagent:
         lines.append(

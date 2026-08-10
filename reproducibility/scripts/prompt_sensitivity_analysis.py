@@ -22,20 +22,29 @@ import numpy as np
 SCRIPT_DIR = Path(__file__).parent
 SENSITIVITY_DIR = SCRIPT_DIR.parent / "data" / "sensitivity"
 ANALYSIS_DIR = SENSITIVITY_DIR / "analysis"
-ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
 
 RAW_PATH = SENSITIVITY_DIR / "prompt_sensitivity_raw.jsonl"
-ABLATION_RAW_PATH = SCRIPT_DIR.parent / "data" / "ablation" / "invocation" / "ablation_invocation_raw.jsonl"
+ABLATION_RAW_PATH = (
+    SCRIPT_DIR.parent
+    / "data"
+    / "ablation"
+    / "invocation"
+    / "ablation_invocation_raw.jsonl"
+)
 
 OUTPUT_CSV = ANALYSIS_DIR / "sensitivity_cross_paraphrase.csv"
 SUMMARY_PATH = ANALYSIS_DIR / "sensitivity_summary.txt"
 
 
 def committed_outputs_available() -> bool:
-    return all(path.exists() and path.stat().st_size > 0 for path in (
-        OUTPUT_CSV,
-        SUMMARY_PATH,
-    ))
+    return all(
+        path.exists() and path.stat().st_size > 0
+        for path in (
+            OUTPUT_CSV,
+            SUMMARY_PATH,
+        )
+    )
+
 
 # ---------------------------------------------------------------------------
 # Prompt group metadata (mirrors prompt_sensitivity.py)
@@ -70,6 +79,7 @@ MODELS = ["gemini-2.5-flash", "claude-haiku-4-5-20251001", "gpt-5.4"]
 # Load raw data
 # ---------------------------------------------------------------------------
 
+
 def load_jsonl(path: Path) -> list[dict]:
     records = []
     with open(path) as f:
@@ -85,22 +95,29 @@ def load_jsonl(path: Path) -> list[dict]:
 # Bootstrap percentile CI
 # ---------------------------------------------------------------------------
 
-def bootstrap_ci(values: np.ndarray, n_boot: int = 10_000, seed: int = 42) -> tuple[float, float, float]:
+
+def bootstrap_ci(
+    values: np.ndarray, n_boot: int = 10_000, seed: int = 42
+) -> tuple[float, float, float]:
     """Return (mean, ci_lo, ci_hi) for 95% percentile bootstrap."""
     rng = np.random.default_rng(seed)
     n = len(values)
     if n == 0:
         return (np.nan, np.nan, np.nan)
-    boot_means = np.array([
-        values[rng.choice(n, size=n, replace=True)].mean()
-        for _ in range(n_boot)
-    ])
-    return (values.mean(), np.percentile(boot_means, 2.5), np.percentile(boot_means, 97.5))
+    boot_means = np.array(
+        [values[rng.choice(n, size=n, replace=True)].mean() for _ in range(n_boot)]
+    )
+    return (
+        values.mean(),
+        np.percentile(boot_means, 2.5),
+        np.percentile(boot_means, 97.5),
+    )
 
 
 # ---------------------------------------------------------------------------
 # Cross-paraphrase concordance
 # ---------------------------------------------------------------------------
+
 
 def compute_cross_paraphrase_metrics(records: list[dict]) -> list[dict]:
     """Compute per (group, model) cross-paraphrase metrics."""
@@ -139,12 +156,15 @@ def compute_cross_paraphrase_metrics(records: list[dict]) -> list[dict]:
                 if vals:
                     # Mode value for this paraphrase
                     from collections import Counter
+
                     mode_val = Counter(str(v) for v in vals).most_common(1)[0][0]
                     para_modes.append(mode_val)
             if para_modes:
                 # Agreement: fraction matching the overall mode
                 overall_mode = Counter(para_modes).most_common(1)[0][0]
-                concordance = sum(1 for m in para_modes if m == overall_mode) / len(para_modes)
+                concordance = sum(1 for m in para_modes if m == overall_mode) / len(
+                    para_modes
+                )
                 constrained_concordances.append(concordance)
 
         constrained_concordance = (
@@ -157,31 +177,51 @@ def compute_cross_paraphrase_metrics(records: list[dict]) -> list[dict]:
         para_indices = sorted(para_map.keys())
         for pi, pj in combinations(para_indices, 2):
             # Match reps
-            tools_i = [t["tool_name_resolved"] for t in sorted(para_map[pi], key=lambda x: x["rep"])]
-            tools_j = [t["tool_name_resolved"] for t in sorted(para_map[pj], key=lambda x: x["rep"])]
+            tools_i = [
+                t["tool_name_resolved"]
+                for t in sorted(para_map[pi], key=lambda x: x["rep"])
+            ]
+            tools_j = [
+                t["tool_name_resolved"]
+                for t in sorted(para_map[pj], key=lambda x: x["rep"])
+            ]
             min_len = min(len(tools_i), len(tools_j))
             if min_len > 0:
-                agree = sum(1 for a, b in zip(tools_i[:min_len], tools_j[:min_len]) if a == b)
+                agree = sum(
+                    1 for a, b in zip(tools_i[:min_len], tools_j[:min_len]) if a == b
+                )
                 pairwise_agreements.append(agree / min_len)
 
-        pairwise_tool_agreement = np.mean(pairwise_agreements) if pairwise_agreements else np.nan
+        pairwise_tool_agreement = (
+            np.mean(pairwise_agreements) if pairwise_agreements else np.nan
+        )
 
         # 5. Bootstrap CI on tool_correct_rate
         correct_arr = np.array([1.0 if t["tool_correct"] else 0.0 for t in all_trials])
         tc_mean, tc_lo, tc_hi = bootstrap_ci(correct_arr)
 
-        rows.append({
-            "group_id": gid,
-            "model": model,
-            "n_paraphrases": n_paraphrases,
-            "n_trials": n_total,
-            "tool_correct_rate": round(tool_correct_rate, 4),
-            "tool_correct_ci_lo": round(tc_lo, 4),
-            "tool_correct_ci_hi": round(tc_hi, 4),
-            "pydantic_valid_rate": round(pydantic_rate, 4),
-            "constrained_param_concordance": round(constrained_concordance, 4) if not np.isnan(constrained_concordance) else "",
-            "pairwise_tool_agreement": round(pairwise_tool_agreement, 4) if not np.isnan(pairwise_tool_agreement) else "",
-        })
+        rows.append(
+            {
+                "group_id": gid,
+                "model": model,
+                "n_paraphrases": n_paraphrases,
+                "n_trials": n_total,
+                "tool_correct_rate": round(tool_correct_rate, 4),
+                "tool_correct_ci_lo": round(tc_lo, 4),
+                "tool_correct_ci_hi": round(tc_hi, 4),
+                "pydantic_valid_rate": round(pydantic_rate, 4),
+                "constrained_param_concordance": (
+                    round(constrained_concordance, 4)
+                    if not np.isnan(constrained_concordance)
+                    else ""
+                ),
+                "pairwise_tool_agreement": (
+                    round(pairwise_tool_agreement, 4)
+                    if not np.isnan(pairwise_tool_agreement)
+                    else ""
+                ),
+            }
+        )
 
     return rows
 
@@ -189,6 +229,7 @@ def compute_cross_paraphrase_metrics(records: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Ablation comparison
 # ---------------------------------------------------------------------------
+
 
 def load_ablation_within_paraphrase(path: Path) -> dict:
     """Load ablation full_schema results for comparison.
@@ -226,7 +267,10 @@ def load_ablation_within_paraphrase(path: Path) -> dict:
         for param_name in meta["constrained_params"]:
             vals = []
             for t in trials:
-                if not (t.get("tool_correct") and (t.get("parse_ok") or t.get("parse_success"))):
+                if not (
+                    t.get("tool_correct")
+                    and (t.get("parse_ok") or t.get("parse_success"))
+                ):
                     continue
                 params = t.get("parameters", t.get("params", {}))
                 if isinstance(params, str):
@@ -238,6 +282,7 @@ def load_ablation_within_paraphrase(path: Path) -> dict:
                     vals.append(params.get(param_name))
             if vals:
                 from collections import Counter
+
                 mode_count = Counter(str(v) for v in vals).most_common(1)[0][1]
                 consistencies.append(mode_count / len(vals))
         if consistencies:
@@ -250,7 +295,9 @@ def load_ablation_within_paraphrase(path: Path) -> dict:
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
+    ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
     print("Loading prompt sensitivity data ...")
     if not RAW_PATH.exists():
         if committed_outputs_available():
@@ -258,7 +305,9 @@ def main():
             print("Using committed aggregate outputs:")
             print(f"  {OUTPUT_CSV}")
             print(f"  {SUMMARY_PATH}")
-            print("To recompute raw-level metrics, run scripts/prompt_sensitivity.py first.")
+            print(
+                "To recompute raw-level metrics, run scripts/prompt_sensitivity.py first."
+            )
             return
         raise FileNotFoundError(
             f"{RAW_PATH} is required to recompute prompt sensitivity metrics. "
@@ -275,9 +324,15 @@ def main():
 
     # Write CSV
     fieldnames = [
-        "group_id", "model", "n_paraphrases", "n_trials",
-        "tool_correct_rate", "tool_correct_ci_lo", "tool_correct_ci_hi",
-        "pydantic_valid_rate", "constrained_param_concordance",
+        "group_id",
+        "model",
+        "n_paraphrases",
+        "n_trials",
+        "tool_correct_rate",
+        "tool_correct_ci_lo",
+        "tool_correct_ci_hi",
+        "pydantic_valid_rate",
+        "constrained_param_concordance",
         "pairwise_tool_agreement",
     ]
     with open(OUTPUT_CSV, "w", newline="") as f:
@@ -300,14 +355,20 @@ def main():
     all_correct = sum(1 for r in records if r["tool_correct"])
     all_pydantic = sum(1 for r in records if r["pydantic_valid"])
     lines.append(f"Total trials: {all_trials}")
-    lines.append(f"Overall tool selection accuracy: {all_correct / all_trials * 100:.1f}%")
-    lines.append(f"Overall Pydantic validation rate: {all_pydantic / all_trials * 100:.1f}%")
+    lines.append(
+        f"Overall tool selection accuracy: {all_correct / all_trials * 100:.1f}%"
+    )
+    lines.append(
+        f"Overall Pydantic validation rate: {all_pydantic / all_trials * 100:.1f}%"
+    )
     lines.append("")
 
     # Per group x model table
     lines.append("CROSS-PARAPHRASE METRICS (per group x model)")
     lines.append("-" * 70)
-    lines.append(f"{'Group':<20} {'Model':<30} {'Tool%':>6} {'Pyd%':>6} {'ParaConcord':>12} {'AblBaseline':>12}")
+    lines.append(
+        f"{'Group':<20} {'Model':<30} {'Tool%':>6} {'Pyd%':>6} {'ParaConcord':>12} {'AblBaseline':>12}"
+    )
     lines.append("-" * 70)
     for row in rows:
         gid = row["group_id"]
@@ -328,14 +389,22 @@ def main():
     lines.append("-" * 40)
     tool_rates = [r["tool_correct_rate"] for r in rows]
     pyd_rates = [r["pydantic_valid_rate"] for r in rows]
-    conc_vals = [float(r["constrained_param_concordance"]) for r in rows if r["constrained_param_concordance"] != ""]
+    conc_vals = [
+        float(r["constrained_param_concordance"])
+        for r in rows
+        if r["constrained_param_concordance"] != ""
+    ]
     lines.append(f"  Mean tool selection accuracy: {np.mean(tool_rates)*100:.1f}%")
     lines.append(f"  Mean Pydantic validation rate: {np.mean(pyd_rates)*100:.1f}%")
     if conc_vals:
-        lines.append(f"  Mean cross-paraphrase param concordance: {np.mean(conc_vals)*100:.1f}%")
+        lines.append(
+            f"  Mean cross-paraphrase param concordance: {np.mean(conc_vals)*100:.1f}%"
+        )
     if ablation_consistency:
         abl_vals = list(ablation_consistency.values())
-        lines.append(f"  Mean ablation within-paraphrase consistency: {np.mean(abl_vals)*100:.1f}%")
+        lines.append(
+            f"  Mean ablation within-paraphrase consistency: {np.mean(abl_vals)*100:.1f}%"
+        )
     lines.append("")
 
     # Key finding

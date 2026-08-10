@@ -18,32 +18,30 @@ import csv
 import json
 import os
 import time
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 
 import requests
 
 # Reuse infrastructure from ablation experiment
 from ablation_invocation import (
-    CALLERS as _BASE_CALLERS,
+    ANTHROPIC_KEY,
     DELAY,
+    GEMINI_KEY,
+    MAX_RETRIES,
     MODELS,
     N_TRIALS,
+    OPENAI_API_URL,
+    OPENAI_MODEL,
     RESPONSE_INSTRUCTION,
+    RETRY_BACKOFF,
     TEMPERATURE,
     TEST_PROMPTS,
     append_raw,
     compute_consistency,
     load_completed_trials,
     parse_json,
-    GEMINI_KEY,
-    ANTHROPIC_KEY,
-    OPENAI_API_URL,
-    OPENAI_MODEL,
-    MAX_RETRIES,
-    RETRY_BACKOFF,
 )
-
 
 # ---------------------------------------------------------------------------
 # Override API callers with higher max output tokens
@@ -60,13 +58,27 @@ def _call_gemini_extended(system: str, prompt: str) -> str | None:
         try:
             payload = {
                 "contents": [
-                    {"role": "user", "parts": [{"text": system + RESPONSE_INSTRUCTION + "\nUser: " + prompt}]}
+                    {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "text": system
+                                + RESPONSE_INSTRUCTION
+                                + "\nUser: "
+                                + prompt
+                            }
+                        ],
+                    }
                 ],
-                "generationConfig": {"temperature": TEMPERATURE, "maxOutputTokens": 8192},
+                "generationConfig": {
+                    "temperature": TEMPERATURE,
+                    "maxOutputTokens": 8192,
+                },
             }
             r = requests.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}",
-                json=payload, timeout=90,
+                json=payload,
+                timeout=90,
             )
             r.raise_for_status()
             return r.json()["candidates"][0]["content"]["parts"][0]["text"]
@@ -96,7 +108,8 @@ def _call_anthropic_extended(system: str, prompt: str) -> str | None:
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json",
                 },
-                json=payload, timeout=90,
+                json=payload,
+                timeout=90,
             )
             r.raise_for_status()
             return r.json()["content"][0]["text"]
@@ -133,7 +146,8 @@ def _call_openai_extended(system: str, prompt: str) -> str | None:
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json",
                 },
-                json=payload, timeout=120,
+                json=payload,
+                timeout=120,
             )
             r.raise_for_status()
             content_blocks = r.json()["content"]
@@ -162,11 +176,16 @@ CALLERS = {
 N_REPS = N_TRIALS  # 10, same as ablation
 SCRIPT_DIR = Path(__file__).parent
 DATA_DIR = SCRIPT_DIR.parent / "data" / "cross_system"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 RAW_PATH = DATA_DIR / "cross_system_raw.jsonl"
 CSV_PATH = DATA_DIR / "cross_system_results.csv"
 SUMMARY_PATH = DATA_DIR / "cross_system_summary.txt"
-ABLATION_RAW = SCRIPT_DIR.parent / "data" / "ablation" / "invocation" / "ablation_invocation_raw.jsonl"
+ABLATION_RAW = (
+    SCRIPT_DIR.parent
+    / "data"
+    / "ablation"
+    / "invocation"
+    / "ablation_invocation_raw.jsonl"
+)
 
 # ---------------------------------------------------------------------------
 # STAgent System Context
@@ -815,19 +834,25 @@ STAGENT_EXPECTED: dict[str, list[str]] = {
 SPATIALAGENT_EXPECTED: dict[str, list[str]] = {
     # Spatial clustering tools
     "spatial_domains": [
-        "run_utag_clustering", "spagcn_clustering", "graphst_clustering",
+        "run_utag_clustering",
+        "spagcn_clustering",
+        "graphst_clustering",
     ],
     # Deconvolution tools (prompt asks RCTD but SpatialAgent has DestVI etc.)
     "deconvolution_rctd": [
-        "destvi_deconvolution", "cell2location_mapping",
+        "destvi_deconvolution",
+        "cell2location_mapping",
         "stereoscope_deconvolution",
     ],
     # SVG detection via Squidpy
     "svg_detection": ["squidpy_spatial_autocorr"],
     # Cell communication tools (prompt asks CellChat; SpatialAgent has LIANA, CellPhoneDB)
     "cellchat": [
-        "liana_inference", "liana_spatial", "cellphonedb_analysis",
-        "cellphonedb_degs_analysis", "squidpy_ligrec",
+        "liana_inference",
+        "liana_spatial",
+        "cellphonedb_analysis",
+        "cellphonedb_degs_analysis",
+        "squidpy_ligrec",
     ],
     # Moran's I via Squidpy
     "moran_i": ["squidpy_spatial_autocorr"],
@@ -835,8 +860,10 @@ SPATIALAGENT_EXPECTED: dict[str, list[str]] = {
     "spatial_plot": ["execute_python"],
     # Trajectory tools
     "trajectory": [
-        "scvelo_velocity", "cellrank_terminal_states",
-        "paga_trajectory", "scvelo_velocity_embedding",
+        "scvelo_velocity",
+        "cellrank_terminal_states",
+        "paga_trajectory",
+        "scvelo_velocity_embedding",
         "cellrank_fate_probabilities",
     ],
     # No CNV tool -> code execution
@@ -848,9 +875,13 @@ SPATIALAGENT_EXPECTED: dict[str, list[str]] = {
 # ---------------------------------------------------------------------------
 
 STAGENT_TOOL_NAMES = {
-    "python_repl_tool", "google_scholar_search", "squidpy_rag_agent",
-    "visualize_umap", "visualize_cell_type_composition",
-    "visualize_spatial_cell_type_map", "visualize_cell_cell_interaction",
+    "python_repl_tool",
+    "google_scholar_search",
+    "squidpy_rag_agent",
+    "visualize_umap",
+    "visualize_cell_type_composition",
+    "visualize_spatial_cell_type_map",
+    "visualize_cell_cell_interaction",
     "report_tool",
 }
 
@@ -881,54 +912,91 @@ _STAGENT_ALIASES: dict[str, str] = {
 
 SPATIALAGENT_TOOL_NAMES = {
     # Database (9)
-    "search_panglao", "search_czi_datasets", "search_cellmarker2",
-    "extract_czi_markers", "download_czi_reference",
-    "query_tissue_expression", "query_celltype_genesets",
-    "validate_genes_expression", "query_disease_genes",
+    "search_panglao",
+    "search_czi_datasets",
+    "search_cellmarker2",
+    "extract_czi_markers",
+    "download_czi_reference",
+    "query_tissue_expression",
+    "query_celltype_genesets",
+    "validate_genes_expression",
+    "query_disease_genes",
     # Literature (7)
-    "query_pubmed", "query_arxiv", "search_semantic_scholar",
-    "extract_url_content", "extract_pdf_content",
-    "fetch_supplementary_from_doi", "web_search",
+    "query_pubmed",
+    "query_arxiv",
+    "search_semantic_scholar",
+    "extract_url_content",
+    "extract_pdf_content",
+    "fetch_supplementary_from_doi",
+    "web_search",
     # Preprocessing & Integration (7)
-    "preprocess_spatial_data", "harmony_transfer_labels",
-    "scanpy_ingest", "scanpy_bbknn",
-    "totalvi_integration", "multivi_integration", "mofa_integration",
+    "preprocess_spatial_data",
+    "harmony_transfer_labels",
+    "scanpy_ingest",
+    "scanpy_bbknn",
+    "totalvi_integration",
+    "multivi_integration",
+    "mofa_integration",
     # Spatial Clustering (4)
-    "run_utag_clustering", "spagcn_clustering", "graphst_clustering",
+    "run_utag_clustering",
+    "spagcn_clustering",
+    "graphst_clustering",
     "scanpy_score_genes",
     # Deconvolution (4)
-    "destvi_deconvolution", "cell2location_mapping",
-    "stereoscope_deconvolution", "gimvi_imputation",
+    "destvi_deconvolution",
+    "cell2location_mapping",
+    "stereoscope_deconvolution",
+    "gimvi_imputation",
     # Tangram (5)
-    "tangram_preprocess", "tangram_map_cells",
-    "tangram_project_annotations", "tangram_project_genes",
+    "tangram_preprocess",
+    "tangram_map_cells",
+    "tangram_project_annotations",
+    "tangram_project_genes",
     "tangram_evaluate",
     # Squidpy (8)
-    "squidpy_spatial_neighbors", "squidpy_nhood_enrichment",
-    "squidpy_co_occurrence", "squidpy_spatial_autocorr",
-    "squidpy_ripley", "squidpy_centrality",
-    "squidpy_interaction_matrix", "squidpy_ligrec",
+    "squidpy_spatial_neighbors",
+    "squidpy_nhood_enrichment",
+    "squidpy_co_occurrence",
+    "squidpy_spatial_autocorr",
+    "squidpy_ripley",
+    "squidpy_centrality",
+    "squidpy_interaction_matrix",
+    "squidpy_ligrec",
     # CellPhoneDB (5)
-    "cellphonedb_prepare", "cellphonedb_analysis",
-    "cellphonedb_degs_analysis", "cellphonedb_filter",
+    "cellphonedb_prepare",
+    "cellphonedb_analysis",
+    "cellphonedb_degs_analysis",
+    "cellphonedb_filter",
     "cellphonedb_plot",
     # LIANA (5)
-    "liana_tensor", "liana_inference", "liana_spatial",
-    "liana_misty", "liana_plot",
+    "liana_tensor",
+    "liana_inference",
+    "liana_spatial",
+    "liana_misty",
+    "liana_plot",
     # Trajectory (5)
-    "scvelo_velocity", "scvelo_velocity_embedding",
-    "cellrank_terminal_states", "cellrank_fate_probabilities",
+    "scvelo_velocity",
+    "scvelo_velocity_embedding",
+    "cellrank_terminal_states",
+    "cellrank_fate_probabilities",
     "paga_trajectory",
     # Analytics (5)
-    "aggregate_gene_voting", "infer_dynamics",
-    "summarize_conditions", "summarize_celltypes",
+    "aggregate_gene_voting",
+    "infer_dynamics",
+    "summarize_conditions",
+    "summarize_celltypes",
     "summarize_tissue_regions",
     # Interpretation (3)
-    "annotate_cell_types", "annotate_tissue_niches", "interpret_figure",
+    "annotate_cell_types",
+    "annotate_tissue_niches",
+    "interpret_figure",
     # Coding (2)
-    "execute_python", "execute_bash",
+    "execute_python",
+    "execute_bash",
     # Utility (3)
-    "inspect_tool_code", "report_subagent", "verification_subagent",
+    "inspect_tool_code",
+    "report_subagent",
+    "verification_subagent",
 }
 
 _SPATIALAGENT_ALIASES: dict[str, str] = {
@@ -1016,7 +1084,9 @@ EXPECTED_TOOLS = {
 # Main Experiment
 # ---------------------------------------------------------------------------
 
+
 def run_experiment():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     print("Cross-System Invocation Comparison")
     print(f"Models: {list(MODELS.keys())}")
     print(f"New conditions: {list(CONDITIONS.keys())}")
@@ -1066,9 +1136,7 @@ def run_experiment():
                     canonical_tool = resolver(raw_tool)
                     params = parsed.get("parameters", {}) if parsed else {}
                     tool_correct = (
-                        canonical_tool in expected_tools
-                        if canonical_tool
-                        else False
+                        canonical_tool in expected_tools if canonical_tool else False
                     )
 
                     # Also check if tool is valid (in the system's catalog)
@@ -1117,6 +1185,7 @@ def run_experiment():
 # Summary
 # ---------------------------------------------------------------------------
 
+
 def load_jsonl(path: Path) -> list[dict]:
     records = []
     if not path.exists():
@@ -1141,25 +1210,29 @@ def generate_summary():
     # Combine (ablation uses slightly different field names)
     all_records = []
     for rec in abl_records:
-        all_records.append({
-            "condition": rec["condition"],
-            "model": rec["model"],
-            "prompt_id": rec["prompt_id"],
-            "rep": rec["rep"],
-            "parse_success": rec.get("parse_success", False),
-            "canonical_tool": rec.get("canonical_tool"),
-            "tool_correct": rec.get("tool_correct", False),
-        })
+        all_records.append(
+            {
+                "condition": rec["condition"],
+                "model": rec["model"],
+                "prompt_id": rec["prompt_id"],
+                "rep": rec["rep"],
+                "parse_success": rec.get("parse_success", False),
+                "canonical_tool": rec.get("canonical_tool"),
+                "tool_correct": rec.get("tool_correct", False),
+            }
+        )
     for rec in new_records:
-        all_records.append({
-            "condition": rec["condition"],
-            "model": rec["model"],
-            "prompt_id": rec["prompt_id"],
-            "rep": rec["rep"],
-            "parse_success": rec.get("parse_success", False),
-            "canonical_tool": rec.get("canonical_tool"),
-            "tool_correct": rec.get("tool_correct", False),
-        })
+        all_records.append(
+            {
+                "condition": rec["condition"],
+                "model": rec["model"],
+                "prompt_id": rec["prompt_id"],
+                "rep": rec["rep"],
+                "parse_success": rec.get("parse_success", False),
+                "canonical_tool": rec.get("canonical_tool"),
+                "tool_correct": rec.get("tool_correct", False),
+            }
+        )
 
     # Group by (condition, model, prompt_id)
     groups = defaultdict(list)
@@ -1175,18 +1248,24 @@ def generate_summary():
         correct_rate = sum(1 for r in recs if r["tool_correct"]) / n if n else 0
 
         # Tool consistency: mode agreement across reps
-        tools = [r["canonical_tool"] for r in recs if r["parse_success"] and r["canonical_tool"]]
+        tools = [
+            r["canonical_tool"]
+            for r in recs
+            if r["parse_success"] and r["canonical_tool"]
+        ]
         tool_consistency = compute_consistency(tools) if tools else 0
 
-        rows.append({
-            "condition": condition,
-            "model": model,
-            "prompt_id": prompt_id,
-            "n_trials": n,
-            "parse_rate": round(parse_rate, 3),
-            "tool_correct_rate": round(correct_rate, 3),
-            "tool_consistency": round(tool_consistency, 3),
-        })
+        rows.append(
+            {
+                "condition": condition,
+                "model": model,
+                "prompt_id": prompt_id,
+                "n_trials": n,
+                "parse_rate": round(parse_rate, 3),
+                "tool_correct_rate": round(correct_rate, 3),
+                "tool_consistency": round(tool_consistency, 3),
+            }
+        )
 
     # Write CSV
     if rows:
@@ -1198,8 +1277,11 @@ def generate_summary():
 
     # Write summary
     all_conditions = [
-        "full_schema", "bare_schema", "no_schema",
-        "stagent_context", "spatialagent_context",
+        "full_schema",
+        "bare_schema",
+        "no_schema",
+        "stagent_context",
+        "spatialagent_context",
     ]
     condition_labels = {
         "full_schema": "ChatSpatial (full)",
@@ -1240,16 +1322,15 @@ def generate_summary():
         label = condition_labels.get(cond, cond)
         for model in MODELS:
             model_rows = [
-                r for r in rows
-                if r["condition"] == cond and r["model"] == model
+                r for r in rows if r["condition"] == cond and r["model"] == model
             ]
             if not model_rows:
                 continue
-            avg_correct = (
-                sum(r["tool_correct_rate"] for r in model_rows) / len(model_rows)
+            avg_correct = sum(r["tool_correct_rate"] for r in model_rows) / len(
+                model_rows
             )
-            avg_consist = (
-                sum(r["tool_consistency"] for r in model_rows) / len(model_rows)
+            avg_consist = sum(r["tool_consistency"] for r in model_rows) / len(
+                model_rows
             )
             lines.append(
                 f"  {label:<23} {model:<30} "
@@ -1265,13 +1346,12 @@ def generate_summary():
         for test in TEST_PROMPTS:
             pid = test["id"]
             prompt_rows = [
-                r for r in rows
-                if r["condition"] == cond and r["prompt_id"] == pid
+                r for r in rows if r["condition"] == cond and r["prompt_id"] == pid
             ]
             if not prompt_rows:
                 continue
-            avg_correct = (
-                sum(r["tool_correct_rate"] for r in prompt_rows) / len(prompt_rows)
+            avg_correct = sum(r["tool_correct_rate"] for r in prompt_rows) / len(
+                prompt_rows
             )
             lines.append(f"    {pid:<20} correct={avg_correct*100:.1f}%")
 

@@ -13,13 +13,10 @@ Trial matrix: 3 tasks x 3 systems x 5 reps = 45 runs.
 import asyncio
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
-
-import numpy as np
 
 from paths import find_benchmarks_dir, find_chatspatial_code_dir, load_env_file
 
@@ -35,14 +32,20 @@ BENCH_ROOT = find_benchmarks_dir(required=True)
 
 DATA_DIR = REPO_ROOT / "data" / "e2e_benchmark"
 OUTPUT_DIR = DATA_DIR / "outputs"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 RAW_PATH = DATA_DIR / "e2e_benchmark_raw.jsonl"
 
 # Benchmark dataset
-DATASET_PATH = CODE_ROOT / "data" / "processed_datasets" / "visium" / "human_lymph_node.h5ad"
-DATASET_PATH_CCC = CODE_ROOT / "data" / "processed_datasets" / "visium" / "human_lymph_node_cellphonedb.h5ad"
+DATASET_PATH = (
+    CODE_ROOT / "data" / "processed_datasets" / "visium" / "human_lymph_node.h5ad"
+)
+DATASET_PATH_CCC = (
+    CODE_ROOT
+    / "data"
+    / "processed_datasets"
+    / "visium"
+    / "human_lymph_node_cellphonedb.h5ad"
+)
 
 # System venvs
 STAGENT_VENV = BENCH_ROOT / "STAgent" / ".venv" / "bin" / "python"
@@ -137,6 +140,7 @@ if str(CODE_ROOT) not in sys.path:
 # Checkpoint / Resume
 # ---------------------------------------------------------------------------
 
+
 def load_completed():
     """Load set of completed (system, task, rep) tuples."""
     completed = set()
@@ -161,6 +165,7 @@ def append_raw(record: dict):
 # ChatSpatial Execution (direct, same process)
 # ---------------------------------------------------------------------------
 
+
 async def run_chatspatial(task: dict, output_dir: Path, data_path: Path) -> dict:
     """
     Run ChatSpatial's full pipeline: LLM selects tool+params via schema,
@@ -171,47 +176,73 @@ async def run_chatspatial(task: dict, output_dir: Path, data_path: Path) -> dict
     """
     import anndata as ad
     import requests
+
     from chatspatial.models.data import (
-        SpatialDomainParameters,
-        SpatialVariableGenesParameters,
-        SpatialStatisticsParameters,
         CellCommunicationParameters,
+        SpatialDomainParameters,
+        SpatialStatisticsParameters,
+        SpatialVariableGenesParameters,
     )
+    from chatspatial.tools.cell_communication import analyze_cell_communication
     from chatspatial.tools.spatial_domains import identify_spatial_domains
     from chatspatial.tools.spatial_genes import identify_spatial_genes
     from chatspatial.tools.spatial_statistics import analyze_spatial_statistics
-    from chatspatial.tools.cell_communication import analyze_cell_communication
 
     # Import schema and parsing from ablation scripts
     sys.path.insert(0, str(SCRIPT_DIR))
-    from ablation_invocation import SCHEMA_FULL, RESPONSE_INSTRUCTION, parse_json, resolve_tool_name
+    from ablation_invocation import (
+        RESPONSE_INSTRUCTION,
+        SCHEMA_FULL,
+        parse_json,
+        resolve_tool_name,
+    )
 
     tool_map = {
         "identify_spatial_domains": (SpatialDomainParameters, identify_spatial_domains),
         "find_spatial_genes": (SpatialVariableGenesParameters, identify_spatial_genes),
-        "analyze_spatial_statistics": (SpatialStatisticsParameters, analyze_spatial_statistics),
-        "analyze_cell_communication": (CellCommunicationParameters, analyze_cell_communication),
+        "analyze_spatial_statistics": (
+            SpatialStatisticsParameters,
+            analyze_spatial_statistics,
+        ),
+        "analyze_cell_communication": (
+            CellCommunicationParameters,
+            analyze_cell_communication,
+        ),
     }
 
     # Minimal context (same as AblationCtx from ablation_e2e.py)
     class BenchCtx:
         def __init__(self, datasets):
             self._datasets = datasets
+
         async def get_adata(self, data_id):
             return self._datasets[data_id]
+
         async def get_dataset_info(self, data_id):
             return {"adata": self._datasets[data_id], "name": data_id, "type": "visium"}
+
         async def set_adata(self, data_id, adata):
             self._datasets[data_id] = adata
+
         async def add_dataset(self, adata, prefix="data", name=None, metadata=None):
             new_id = f"{prefix}_{len(self._datasets)}"
             self._datasets[new_id] = adata
             return new_id
-        async def info(self, msg): pass
-        async def warning(self, msg): pass
-        async def error(self, msg): pass
-        def debug(self, msg): pass
-        def log_config(self, title, config): pass
+
+        async def info(self, msg):
+            pass
+
+        async def warning(self, msg):
+            pass
+
+        async def error(self, msg):
+            pass
+
+        def debug(self, msg):
+            pass
+
+        def log_config(self, title, config):
+            pass
 
     result = {
         "success": False,
@@ -245,7 +276,8 @@ async def run_chatspatial(task: dict, output_dir: Path, data_path: Path) -> dict
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             },
-            json=payload, timeout=60,
+            json=payload,
+            timeout=60,
         )
         r.raise_for_status()
         llm_text = r.json()["content"][0]["text"]
@@ -297,6 +329,7 @@ async def run_chatspatial(task: dict, output_dir: Path, data_path: Path) -> dict
 
         elif tool_name == "find_spatial_genes":
             import pandas as pd
+
             genes = tool_result.spatial_genes[:100]
             out_path = output_dir / "svg_results.csv"
             pd.DataFrame({"gene": genes}).to_csv(out_path, index=False)
@@ -307,7 +340,10 @@ async def run_chatspatial(task: dict, output_dir: Path, data_path: Path) -> dict
         elif tool_name == "analyze_spatial_statistics":
             # Moran's I / spatial autocorrelation produces gene-level stats
             import pandas as pd
-            genes = tool_result.top_genes[:100] if hasattr(tool_result, "top_genes") else []
+
+            genes = (
+                tool_result.top_genes[:100] if hasattr(tool_result, "top_genes") else []
+            )
             out_path = output_dir / "svg_results.csv"
             pd.DataFrame({"gene": genes}).to_csv(out_path, index=False)
             result["output_files"].append(str(out_path))
@@ -315,6 +351,7 @@ async def run_chatspatial(task: dict, output_dir: Path, data_path: Path) -> dict
 
         elif tool_name == "analyze_cell_communication":
             import pandas as pd
+
             lr_pairs = tool_result.top_lr_pairs[:50]
             out_path = output_dir / "ccc_results.csv"
             rows = []
@@ -334,6 +371,7 @@ async def run_chatspatial(task: dict, output_dir: Path, data_path: Path) -> dict
         result["wall_time"] = time.time() - t0
         result["error"] = f"{type(e).__name__}: {str(e)[:500]}"
         import traceback as tb
+
         result["traceback"] = tb.format_exc()[-1000:]
 
     return result
@@ -342,6 +380,7 @@ async def run_chatspatial(task: dict, output_dir: Path, data_path: Path) -> dict
 # ---------------------------------------------------------------------------
 # STAgent / SpatialAgent Execution (subprocess into separate venvs)
 # ---------------------------------------------------------------------------
+
 
 def run_external_system(
     system: str,
@@ -363,11 +402,16 @@ def run_external_system(
     cmd = [
         str(venv_python),
         str(driver_script),
-        "--data_path", str(data_path),
-        "--output_dir", str(output_dir),
-        "--prompt", prompt,
-        "--model", MODEL,
-        "--result_json", str(result_json),
+        "--data_path",
+        str(data_path),
+        "--output_dir",
+        str(output_dir),
+        "--prompt",
+        prompt,
+        "--model",
+        MODEL,
+        "--result_json",
+        str(result_json),
     ]
     # SpatialAgent driver accepts --temperature
     if system == "spatialagent":
@@ -404,7 +448,7 @@ def run_external_system(
             result = {
                 "success": False,
                 "error": f"Driver did not produce result JSON. "
-                         f"returncode={proc.returncode}",
+                f"returncode={proc.returncode}",
                 "wall_time": wall_time,
                 "stdout": proc.stdout[-2000:] if proc.stdout else "",
                 "stderr": proc.stderr[-2000:] if proc.stderr else "",
@@ -436,7 +480,11 @@ def run_external_system(
 # Main Experiment Loop
 # ---------------------------------------------------------------------------
 
+
 async def run_experiment():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
     print("=" * 70)
     print("End-to-End Benchmark: ChatSpatial vs STAgent vs SpatialAgent")
     print("=" * 70)
@@ -483,7 +531,11 @@ async def run_experiment():
                 trial_dir = OUTPUT_DIR / system_name / task["id"] / f"rep_{rep}"
                 trial_dir.mkdir(parents=True, exist_ok=True)
 
-                dp = DATASET_PATH_CCC if task["id"] == "cell_communication" else DATASET_PATH
+                dp = (
+                    DATASET_PATH_CCC
+                    if task["id"] == "cell_communication"
+                    else DATASET_PATH
+                )
 
                 if system_name == "chatspatial":
                     result = await run_chatspatial(task, trial_dir, dp)
@@ -496,7 +548,12 @@ async def run_experiment():
                         }
                     else:
                         result = run_external_system(
-                            system_name, venv, driver, task, trial_dir, dp,
+                            system_name,
+                            venv,
+                            driver,
+                            task,
+                            trial_dir,
+                            dp,
                         )
 
                 # Build record
@@ -511,14 +568,28 @@ async def run_experiment():
                 }
 
                 # Remove large fields before JSONL
-                for key in ("messages_text", "stdout", "stderr",
-                            "stdout_tail", "stderr_tail", "traceback",
-                            "labels"):
-                    if key in record and isinstance(record.get(key), str) and len(record[key]) > 2000:
+                for key in (
+                    "messages_text",
+                    "stdout",
+                    "stderr",
+                    "stdout_tail",
+                    "stderr_tail",
+                    "traceback",
+                    "labels",
+                ):
+                    if (
+                        key in record
+                        and isinstance(record.get(key), str)
+                        and len(record[key]) > 2000
+                    ):
                         record[key] = record[key][:2000] + "..."
 
                 append_raw(record)
-                status = "OK" if result.get("success") else f"FAIL: {result.get('error', '?')[:80]}"
+                status = (
+                    "OK"
+                    if result.get("success")
+                    else f"FAIL: {result.get('error', '?')[:80]}"
+                )
                 print(f"  -> {status} ({result.get('wall_time', 0):.1f}s)")
 
                 # Brief delay between API calls

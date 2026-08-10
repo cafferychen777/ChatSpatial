@@ -21,7 +21,9 @@ import requests
 # Configuration
 API_KEY = os.environ.get("GEMINI_API_KEY")
 MODEL = "gemini-2.0-flash"
-API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
+API_URL = (
+    f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"
+)
 N_TRIALS = 20
 TEMPERATURE = 1.0
 DELAY_BETWEEN_CALLS = 1.5  # seconds, to respect rate limits
@@ -224,7 +226,15 @@ def call_gemini(prompt: str, system_message: str) -> dict | None:
         "contents": [
             {
                 "role": "user",
-                "parts": [{"text": system_message + "\n\n" + RESPONSE_FORMAT_INSTRUCTION + "\n\nUser request: " + prompt}],
+                "parts": [
+                    {
+                        "text": system_message
+                        + "\n\n"
+                        + RESPONSE_FORMAT_INSTRUCTION
+                        + "\n\nUser request: "
+                        + prompt
+                    }
+                ],
             }
         ],
         "generationConfig": {
@@ -289,7 +299,11 @@ def compute_consistency(responses: list[dict | None], key_params: list[str]) -> 
     for r in valid:
         params = r.get("parameters", {})
         # Look for method, analysis_type, or plot_type
-        method = params.get("method") or params.get("analysis_type") or params.get("plot_type")
+        method = (
+            params.get("method")
+            or params.get("analysis_type")
+            or params.get("plot_type")
+        )
         if method:
             method_values.append(str(method))
 
@@ -322,7 +336,9 @@ def compute_consistency(responses: list[dict | None], key_params: list[str]) -> 
     )
 
     # Overall determinism score: weighted average
-    overall = 0.4 * tool_consistency + 0.3 * method_consistency + 0.3 * param_consistency
+    overall = (
+        0.4 * tool_consistency + 0.3 * method_consistency + 0.3 * param_consistency
+    )
 
     return {
         "n_valid": n_valid,
@@ -365,25 +381,36 @@ def run_experiment():
             if result:
                 tool = result.get("tool_name", "?")
                 params = result.get("parameters", {})
-                method = params.get("method") or params.get("analysis_type") or params.get("plot_type", "")
+                method = (
+                    params.get("method")
+                    or params.get("analysis_type")
+                    or params.get("plot_type", "")
+                )
                 print(f" tool={tool}, method={method}")
             else:
                 print(" FAILED")
 
             # Write individual trial to CSV
-            csv_rows.append({
-                "prompt_id": prompt_id,
-                "trial": trial + 1,
-                "tool_selected": result.get("tool_name", "ERROR") if result else "ERROR",
-                "method_selected": (
-                    str(result.get("parameters", {}).get("method")
-                        or result.get("parameters", {}).get("analysis_type")
-                        or result.get("parameters", {}).get("plot_type", ""))
-                    if result else "ERROR"
-                ),
-                "full_response": json.dumps(result) if result else "null",
-                "expected_tool": expected_tool,
-            })
+            csv_rows.append(
+                {
+                    "prompt_id": prompt_id,
+                    "trial": trial + 1,
+                    "tool_selected": (
+                        result.get("tool_name", "ERROR") if result else "ERROR"
+                    ),
+                    "method_selected": (
+                        str(
+                            result.get("parameters", {}).get("method")
+                            or result.get("parameters", {}).get("analysis_type")
+                            or result.get("parameters", {}).get("plot_type", "")
+                        )
+                        if result
+                        else "ERROR"
+                    ),
+                    "full_response": json.dumps(result) if result else "null",
+                    "expected_tool": expected_tool,
+                }
+            )
 
             time.sleep(DELAY_BETWEEN_CALLS)
 
@@ -393,20 +420,30 @@ def run_experiment():
         metrics["expected_tool"] = expected_tool
         all_results.append(metrics)
 
-        print(f"  Results: tool={metrics['tool_consistency']:.1%}, "
-              f"method={metrics['method_consistency']:.1%}, "
-              f"params={metrics['param_consistency']:.1%}, "
-              f"overall={metrics['overall_score']:.1%}")
+        print(
+            f"  Results: tool={metrics['tool_consistency']:.1%}, "
+            f"method={metrics['method_consistency']:.1%}, "
+            f"params={metrics['param_consistency']:.1%}, "
+            f"overall={metrics['overall_score']:.1%}"
+        )
         print(f"  Tool distribution: {metrics['tool_distribution']}")
         print(f"  Method distribution: {metrics['method_distribution']}")
 
     # Save CSV
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with open(CSV_PATH, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=[
-            "prompt_id", "trial", "tool_selected", "method_selected",
-            "full_response", "expected_tool",
-        ], lineterminator="\n")
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "prompt_id",
+                "trial",
+                "tool_selected",
+                "method_selected",
+                "full_response",
+                "expected_tool",
+            ],
+            lineterminator="\n",
+        )
         writer.writeheader()
         writer.writerows(csv_rows)
     print(f"\nDetailed results saved to: {CSV_PATH}")
@@ -423,7 +460,9 @@ def run_experiment():
     summary_lines.append("")
 
     summary_lines.append("-" * 70)
-    summary_lines.append(f"{'Prompt ID':<30} {'Tool%':>8} {'Method%':>8} {'Param%':>8} {'Overall':>8}")
+    summary_lines.append(
+        f"{'Prompt ID':<30} {'Tool%':>8} {'Method%':>8} {'Param%':>8} {'Overall':>8}"
+    )
     summary_lines.append("-" * 70)
 
     tool_scores = []
@@ -488,15 +527,27 @@ def run_experiment():
 
     total_valid = sum(r["n_valid"] for r in all_results)
     correct_rate = correct_tool_count / total_valid if total_valid > 0 else 0
-    summary_lines.append(f"Correct tool selection rate (vs expected): {correct_rate:.1%}")
-    summary_lines.append(f"Total valid API responses: {total_valid}/{N_TRIALS * len(TEST_PROMPTS)}")
+    summary_lines.append(
+        f"Correct tool selection rate (vs expected): {correct_rate:.1%}"
+    )
+    summary_lines.append(
+        f"Total valid API responses: {total_valid}/{N_TRIALS * len(TEST_PROMPTS)}"
+    )
 
     summary_lines.append("")
     summary_lines.append("Interpretation:")
-    summary_lines.append("Schema-constrained parameters (Literal types with fixed enumerations)")
-    summary_lines.append("dramatically reduce LLM output variability. Even at temperature=1.0,")
-    summary_lines.append("the LLM consistently selects from the valid enum options, demonstrating")
-    summary_lines.append("that MCP tool schemas act as effective guardrails for reproducible")
+    summary_lines.append(
+        "Schema-constrained parameters (Literal types with fixed enumerations)"
+    )
+    summary_lines.append(
+        "dramatically reduce LLM output variability. Even at temperature=1.0,"
+    )
+    summary_lines.append(
+        "the LLM consistently selects from the valid enum options, demonstrating"
+    )
+    summary_lines.append(
+        "that MCP tool schemas act as effective guardrails for reproducible"
+    )
     summary_lines.append("scientific analysis workflows.")
 
     summary_text = "\n".join(summary_lines)

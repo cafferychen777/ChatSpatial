@@ -6,8 +6,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPRODUCIBILITY_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = REPRODUCIBILITY_ROOT.parent
 
 
 def _env_path(name: str) -> list[Path]:
@@ -37,11 +37,10 @@ def find_chatspatial_code_dir(required: bool = False) -> Path | None:
     candidates = _unique(
         _env_path("CHATSPATIAL_CODE_DIR")
         + [
-            REPO_ROOT / "code",
-            REPO_ROOT.parent / "ChatSpatial" / "code",
-            REPO_ROOT.parent / "code",
-            Path.home() / "Research" / "ChatSpatial" / "code",
-            REPO_ROOT.parent / "ChatSpatial",
+            PROJECT_ROOT,
+            REPRODUCIBILITY_ROOT / "code",
+            PROJECT_ROOT.parent / "ChatSpatial" / "code",
+            PROJECT_ROOT.parent / "ChatSpatial",
         ]
     )
     for candidate in candidates:
@@ -63,10 +62,9 @@ def find_benchmarks_dir(required: bool = False) -> Path | None:
     candidates = _unique(
         _env_path("CHATSPATIAL_BENCHMARKS_DIR")
         + [
-            REPO_ROOT / "benchmarks",
-            REPO_ROOT.parent / "ChatSpatial" / "benchmarks",
-            REPO_ROOT.parent / "benchmarks",
-            Path.home() / "Research" / "ChatSpatial" / "benchmarks",
+            PROJECT_ROOT / "benchmarks",
+            PROJECT_ROOT.parent / "benchmarks",
+            REPRODUCIBILITY_ROOT / "benchmarks",
         ]
     )
     for candidate in candidates:
@@ -94,10 +92,9 @@ def find_competitor_dir(
         candidates.append(benchmarks_dir / dirname)
     candidates.extend(
         [
-            REPO_ROOT.parent / "ChatSpatial" / ".competitor_analysis" / dirname,
-            REPO_ROOT.parent / "ChatSpatial" / "benchmarks" / dirname,
-            REPO_ROOT.parent / "benchmarks" / dirname,
-            Path.home() / "Research" / "ChatSpatial" / "benchmarks" / dirname,
+            PROJECT_ROOT.parent / ".competitor_analysis" / dirname,
+            PROJECT_ROOT.parent / "benchmarks" / dirname,
+            PROJECT_ROOT / "benchmarks" / dirname,
         ]
     )
     for candidate in _unique(candidates):
@@ -115,10 +112,9 @@ def find_env_file() -> Path | None:
     candidates = _unique(
         _env_path("CHATSPATIAL_ENV_FILE")
         + [
-            REPO_ROOT / ".env",
-            REPO_ROOT.parent / "ChatSpatial" / ".env",
-            REPO_ROOT.parent / ".env",
-            Path.home() / "Research" / "ChatSpatial" / ".env",
+            PROJECT_ROOT / ".env",
+            PROJECT_ROOT.parent / ".env",
+            REPRODUCIBILITY_ROOT / ".env",
         ]
     )
     for candidate in candidates:

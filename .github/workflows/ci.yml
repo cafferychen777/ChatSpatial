@@ -22,9 +22,9 @@ jobs:
 
       - name: Check formatting
         run: |
-          black --check chatspatial/
-          isort --check-only chatspatial/
-          ruff check chatspatial/
+          black --check chatspatial/ reproducibility/scripts/
+          isort --check-only chatspatial/ reproducibility/scripts/
+          ruff check chatspatial/ reproducibility/scripts/
 
   test:
     name: Python ${{ matrix.python-version }}
@@ -44,7 +44,7 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
       - name: Install
-        run: uv pip install -e ".[dev]" --system
+        run: uv pip install -e ".[dev,reproducibility]" --system
 
       - name: Verify dependency graph
         run: python -m pip check
@@ -61,6 +61,16 @@ jobs:
       - name: Test full default suite
         if: matrix.python-version == '3.12'
         run: python -m pytest
+
+      - name: Verify reproducibility scripts import cleanly
+        if: matrix.python-version == '3.12'
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONPATH: reproducibility/scripts
+        run: |
+          for script in reproducibility/scripts/*.py; do
+            python -c "import runpy; runpy.run_path('${script}', run_name='__smoke__')"
+          done
 
       - name: Test MCP protocol eras
         run: python -m pytest tests/integration/test_mcp_protocol_v2.py

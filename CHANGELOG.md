@@ -7,11 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Integrated the manuscript reproducibility scripts, compact aggregate results,
+  and supplementary tables under `reproducibility/`, preserving the former
+  repository history while keeping raw datasets and generated outputs outside
+  Git.
+
 ### Changed
 
 - Reworked releases to promote one CI-built, audited artifact set through
   separately permissioned GitHub draft, PyPI trusted-publishing, and GitHub
   publication jobs, with pinned build backends and reproducible archive metadata.
+- Unified reproducibility dependencies, path discovery, formatting, linting,
+  import smoke checks, and manuscript-era environment documentation with the
+  main repository.
+
+### Fixed
+
+- Aligned citation metadata with the current manuscript title and removed
+  import-time filesystem writes from the reproducibility scripts.
 
 ## [v1.3.2] - 2026-08-09 - Registry Metadata Fix
 

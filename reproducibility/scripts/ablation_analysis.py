@@ -34,7 +34,6 @@ SCRIPT_DIR = Path(__file__).parent
 E2E_DIR = SCRIPT_DIR.parent / "data" / "ablation" / "e2e"
 INV_DIR = SCRIPT_DIR.parent / "data" / "ablation" / "invocation"
 OUT_DIR = SCRIPT_DIR.parent / "data" / "ablation" / "analysis"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 E2E_RAW = E2E_DIR / "ablation_e2e_raw.jsonl"
 E2E_RESULTS = E2E_DIR / "ablation_e2e_results.csv"
@@ -50,15 +49,20 @@ TOP_K_SVG = 100  # Jaccard on top-K genes
 
 
 def committed_outputs_available() -> bool:
-    return all(path.exists() and path.stat().st_size > 0 for path in (
-        METRICS_CSV,
-        TESTS_CSV,
-        SUMMARY_PATH,
-    ))
+    return all(
+        path.exists() and path.stat().st_size > 0
+        for path in (
+            METRICS_CSV,
+            TESTS_CSV,
+            SUMMARY_PATH,
+        )
+    )
+
 
 # ---------------------------------------------------------------------------
 # Bootstrap CI
 # ---------------------------------------------------------------------------
+
 
 def bootstrap_ci(
     values: list[float],
@@ -73,7 +77,10 @@ def bootstrap_ci(
     if len(arr) == 1:
         return (arr[0], arr[0], arr[0])
     rng = np.random.default_rng(seed)
-    boot_means = [np.mean(rng.choice(arr, size=len(arr), replace=True)) for _ in range(n_bootstrap)]
+    boot_means = [
+        np.mean(rng.choice(arr, size=len(arr), replace=True))
+        for _ in range(n_bootstrap)
+    ]
     alpha = (1 - ci) / 2
     return (
         float(np.mean(arr)),
@@ -86,14 +93,17 @@ def bootstrap_ci(
 # Concordance Metrics
 # ---------------------------------------------------------------------------
 
+
 def pairwise_ari_nmi(label_lists: list[list]) -> dict:
     """Compute pairwise ARI and NMI for lists of cluster labels."""
     aris, nmis = [], []
     for i, j in combinations(range(len(label_lists)), 2):
         aris.append(adjusted_rand_score(label_lists[i], label_lists[j]))
-        nmis.append(normalized_mutual_info_score(
-            label_lists[i], label_lists[j], average_method="arithmetic"
-        ))
+        nmis.append(
+            normalized_mutual_info_score(
+                label_lists[i], label_lists[j], average_method="arithmetic"
+            )
+        )
     return {"ari_values": aris, "nmi_values": nmis}
 
 
@@ -125,6 +135,7 @@ def pairwise_pearson(prop_matrices: list[np.ndarray]) -> list[float]:
 # ---------------------------------------------------------------------------
 # Load E2E Outputs
 # ---------------------------------------------------------------------------
+
 
 def load_e2e_outputs() -> dict:
     """Load E2E experiment raw records grouped by (condition, model, task)."""
@@ -162,6 +173,7 @@ def load_artifacts(records: list[dict], task_id: str):
 # ---------------------------------------------------------------------------
 # Compute Per-Cell Concordance
 # ---------------------------------------------------------------------------
+
 
 def compute_concordance(artifacts: list[dict], task_id: str) -> dict:
     """Compute concordance metrics for a list of artifacts from the same cell."""
@@ -222,6 +234,7 @@ def compute_concordance(artifacts: list[dict], task_id: str) -> dict:
 # Statistical Tests
 # ---------------------------------------------------------------------------
 
+
 def run_statistical_tests(concordance_by_condition: dict) -> list[dict]:
     """Kruskal-Wallis across 3 conditions + pairwise Mann-Whitney U."""
     test_results = []
@@ -247,14 +260,16 @@ def run_statistical_tests(concordance_by_condition: dict) -> list[dict]:
         else:
             kw_stat, kw_p = np.nan, np.nan
 
-        test_results.append({
-            "metric": metric_key.replace("_values", ""),
-            "test": "kruskal_wallis",
-            "groups": list(data_by_cond.keys()),
-            "statistic": round(kw_stat, 4) if not np.isnan(kw_stat) else "NA",
-            "p_value": round(kw_p, 6) if not np.isnan(kw_p) else "NA",
-            "significant": kw_p < 0.05 if not np.isnan(kw_p) else "NA",
-        })
+        test_results.append(
+            {
+                "metric": metric_key.replace("_values", ""),
+                "test": "kruskal_wallis",
+                "groups": list(data_by_cond.keys()),
+                "statistic": round(kw_stat, 4) if not np.isnan(kw_stat) else "NA",
+                "p_value": round(kw_p, 6) if not np.isnan(kw_p) else "NA",
+                "significant": kw_p < 0.05 if not np.isnan(kw_p) else "NA",
+            }
+        )
 
         # Pairwise Mann-Whitney U with Bonferroni correction
         cond_list = list(data_by_cond.keys())
@@ -271,15 +286,19 @@ def run_statistical_tests(concordance_by_condition: dict) -> list[dict]:
                 u_stat, u_p = np.nan, np.nan
 
             bonferroni_alpha = 0.05 / n_tests if n_tests > 0 else 0.05
-            test_results.append({
-                "metric": metric_key.replace("_values", ""),
-                "test": f"mann_whitney_{c1}_vs_{c2}",
-                "groups": [c1, c2],
-                "statistic": round(u_stat, 4) if not np.isnan(u_stat) else "NA",
-                "p_value": round(u_p, 6) if not np.isnan(u_p) else "NA",
-                "significant": u_p < bonferroni_alpha if not np.isnan(u_p) else "NA",
-                "bonferroni_alpha": round(bonferroni_alpha, 4),
-            })
+            test_results.append(
+                {
+                    "metric": metric_key.replace("_values", ""),
+                    "test": f"mann_whitney_{c1}_vs_{c2}",
+                    "groups": [c1, c2],
+                    "statistic": round(u_stat, 4) if not np.isnan(u_stat) else "NA",
+                    "p_value": round(u_p, 6) if not np.isnan(u_p) else "NA",
+                    "significant": (
+                        u_p < bonferroni_alpha if not np.isnan(u_p) else "NA"
+                    ),
+                    "bonferroni_alpha": round(bonferroni_alpha, 4),
+                }
+            )
 
     return test_results
 
@@ -288,7 +307,9 @@ def run_statistical_tests(concordance_by_condition: dict) -> list[dict]:
 # Main Analysis
 # ---------------------------------------------------------------------------
 
+
 def main():
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
     print("Schema-Enforcement Ablation — Part 3: Analysis")
     print(f"{'='*60}\n")
 
@@ -299,7 +320,9 @@ def main():
             print(f"  {METRICS_CSV}")
             print(f"  {TESTS_CSV}")
             print(f"  {SUMMARY_PATH}")
-            print("To recompute raw-level concordance, run scripts/ablation_e2e.py first.")
+            print(
+                "To recompute raw-level concordance, run scripts/ablation_e2e.py first."
+            )
             return
         raise FileNotFoundError(
             f"{E2E_RAW} is required to recompute ablation concordance. "
@@ -316,14 +339,18 @@ def main():
                 if cond not in inv_data:
                     inv_data[cond] = []
                 inv_data[cond].append(row)
-        print(f"Loaded invocation results: {sum(len(v) for v in inv_data.values())} rows")
+        print(
+            f"Loaded invocation results: {sum(len(v) for v in inv_data.values())} rows"
+        )
     else:
         print("No invocation results found.")
 
     # ---- Load E2E results ----
     groups = load_e2e_outputs()
-    print(f"Loaded E2E results: {sum(len(v) for v in groups.values())} records "
-          f"across {len(groups)} cells\n")
+    print(
+        f"Loaded E2E results: {sum(len(v) for v in groups.values())} records "
+        f"across {len(groups)} cells\n"
+    )
 
     # ---- Compute concordance per (condition, task) aggregated across models ----
     concordance_results = []  # For CSV
@@ -364,12 +391,21 @@ def main():
                 concordance_results.append(agg)
 
                 # Store raw values for statistical tests
-                for k in ["ari_values", "nmi_values", "jaccard_values", "pearson_values"]:
+                for k in [
+                    "ari_values",
+                    "nmi_values",
+                    "jaccard_values",
+                    "pearson_values",
+                ]:
                     if k in agg:
                         concordance_by_cond_task[(task_id, cond)][k] = agg[k]
 
             exec_total = sum(
-                sum(1 for r in groups.get((cond, m, task_id), []) if r.get("exec_success"))
+                sum(
+                    1
+                    for r in groups.get((cond, m, task_id), [])
+                    if r.get("exec_success")
+                )
                 for m in ["gemini-2.5-flash", "claude-haiku-4-5-20251001", "gpt-5.4"]
             )
             total = sum(
@@ -377,7 +413,9 @@ def main():
                 for m in ["gemini-2.5-flash", "claude-haiku-4-5-20251001", "gpt-5.4"]
             )
             exec_rate = exec_total / total if total else 0
-            print(f"  {cond}: {exec_total}/{total} exec ({exec_rate:.0%}), {len(all_artifacts)} artifacts")
+            print(
+                f"  {cond}: {exec_total}/{total} exec ({exec_rate:.0%}), {len(all_artifacts)} artifacts"
+            )
 
     # ---- Write concordance CSV ----
     if concordance_results:
@@ -423,10 +461,20 @@ def main():
                 t["task"] = task_id
             all_tests.extend(tests)
             for t in tests:
-                print(f"  [{task_id}] {t['test']}: stat={t['statistic']} p={t['p_value']} sig={t['significant']}")
+                print(
+                    f"  [{task_id}] {t['test']}: stat={t['statistic']} p={t['p_value']} sig={t['significant']}"
+                )
 
     if all_tests:
-        test_fields = ["task", "metric", "test", "groups", "statistic", "p_value", "significant"]
+        test_fields = [
+            "task",
+            "metric",
+            "test",
+            "groups",
+            "statistic",
+            "p_value",
+            "significant",
+        ]
         extra = set()
         for t in all_tests:
             extra.update(t.keys())
@@ -443,7 +491,10 @@ def main():
             )
             writer.writeheader()
             for t in all_tests:
-                row = {k: (json.dumps(v) if isinstance(v, list) else v) for k, v in t.items()}
+                row = {
+                    k: (json.dumps(v) if isinstance(v, list) else v)
+                    for k, v in t.items()
+                }
                 writer.writerows([row])
         print(f"\nTests CSV: {TESTS_CSV}")
 
@@ -458,8 +509,13 @@ def main():
             f.write(f"{'-'*50}\n")
             f.write(f"{'Metric':<35} {'Full':>10} {'Bare':>10} {'Minimal':>10}\n")
             f.write(f"{'-'*65}\n")
-            for metric in ["parse_rate", "tool_consistency", "tool_correctness",
-                           "pydantic_valid_rate", "constrained_param_consistency"]:
+            for metric in [
+                "parse_rate",
+                "tool_consistency",
+                "tool_correctness",
+                "pydantic_valid_rate",
+                "constrained_param_consistency",
+            ]:
                 vals = {}
                 for cond in CONDITIONS:
                     rows = inv_data.get(cond, [])
@@ -467,9 +523,11 @@ def main():
                         vals[cond] = sum(float(r[metric]) for r in rows) / len(rows)
                     else:
                         vals[cond] = 0
-                f.write(f"{metric:<35} {vals.get('full_schema',0):>9.1%} "
-                        f"{vals.get('bare_schema',0):>9.1%} "
-                        f"{vals.get('no_schema',0):>9.1%}\n")
+                f.write(
+                    f"{metric:<35} {vals.get('full_schema',0):>9.1%} "
+                    f"{vals.get('bare_schema',0):>9.1%} "
+                    f"{vals.get('no_schema',0):>9.1%}\n"
+                )
             f.write("\n")
 
         # E2E summary
@@ -481,33 +539,53 @@ def main():
             f.write(f"  {'~'*40}\n")
             for cond in CONDITIONS:
                 agg = next(
-                    (r for r in concordance_results
-                     if r.get("condition") == cond and r.get("model") == "all_models"
-                     and r.get("task") == task_id),
+                    (
+                        r
+                        for r in concordance_results
+                        if r.get("condition") == cond
+                        and r.get("model") == "all_models"
+                        and r.get("task") == task_id
+                    ),
                     None,
                 )
                 if agg is None:
                     f.write(f"  {cond}: no data\n")
                     continue
 
-                f.write(f"  {cond} (n_runs={agg.get('n_runs', 0)}, n_pairs={agg.get('n_pairs', 0)}):\n")
+                f.write(
+                    f"  {cond} (n_runs={agg.get('n_runs', 0)}, n_pairs={agg.get('n_pairs', 0)}):\n"
+                )
                 if task_id == "spatial_domains":
-                    f.write(f"    ARI: {agg.get('ari_mean','NA')} [{agg.get('ari_ci_lo','NA')}, {agg.get('ari_ci_hi','NA')}]\n")
-                    f.write(f"    NMI: {agg.get('nmi_mean','NA')} [{agg.get('nmi_ci_lo','NA')}, {agg.get('nmi_ci_hi','NA')}]\n")
+                    f.write(
+                        f"    ARI: {agg.get('ari_mean','NA')} [{agg.get('ari_ci_lo','NA')}, {agg.get('ari_ci_hi','NA')}]\n"
+                    )
+                    f.write(
+                        f"    NMI: {agg.get('nmi_mean','NA')} [{agg.get('nmi_ci_lo','NA')}, {agg.get('nmi_ci_hi','NA')}]\n"
+                    )
                 elif task_id == "svg_detection":
-                    f.write(f"    Jaccard@{TOP_K_SVG}: {agg.get('jaccard_mean','NA')} [{agg.get('jaccard_ci_lo','NA')}, {agg.get('jaccard_ci_hi','NA')}]\n")
+                    f.write(
+                        f"    Jaccard@{TOP_K_SVG}: {agg.get('jaccard_mean','NA')} [{agg.get('jaccard_ci_lo','NA')}, {agg.get('jaccard_ci_hi','NA')}]\n"
+                    )
                 elif task_id == "deconvolution":
-                    f.write(f"    Pearson r: {agg.get('pearson_mean','NA')} [{agg.get('pearson_ci_lo','NA')}, {agg.get('pearson_ci_hi','NA')}]\n")
+                    f.write(
+                        f"    Pearson r: {agg.get('pearson_mean','NA')} [{agg.get('pearson_ci_lo','NA')}, {agg.get('pearson_ci_hi','NA')}]\n"
+                    )
 
         # Key finding
         f.write(f"\n\n{'='*70}\n")
         f.write("KEY FINDING\n")
         f.write(f"{'='*70}\n\n")
         f.write("If Full Schema >> Bare Schema >> Minimal, this demonstrates:\n")
-        f.write("  1. Schema constraints (types + enums) improve invocation consistency\n")
+        f.write(
+            "  1. Schema constraints (types + enums) improve invocation consistency\n"
+        )
         f.write("  2. Method guidance (descriptions) provide additional improvement\n")
-        f.write("  3. The combination produces the most reproducible end-to-end outputs\n")
-        f.write("\nThis establishes a causal chain from schema design to output concordance.\n")
+        f.write(
+            "  3. The combination produces the most reproducible end-to-end outputs\n"
+        )
+        f.write(
+            "\nThis establishes a causal chain from schema design to output concordance.\n"
+        )
 
     print(f"\nSummary: {SUMMARY_PATH}")
     print("\nDone!")

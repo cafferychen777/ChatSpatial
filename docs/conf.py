@@ -75,80 +75,64 @@ html_theme_options = {
     # Branding
     "light_logo": "logo.png",
     "dark_logo": "logo.png",
-
     # Sidebar
     "sidebar_hide_name": False,
-
     # Navigation
     "navigation_with_keys": True,
-
     # Source links
     "source_repository": "https://github.com/cafferychen777/ChatSpatial",
     "source_branch": "main",
     "source_directory": "code/docs/",
-
     # Light mode colors - Clean scientific palette
     "light_css_variables": {
         # Primary colors - Deep blue for trust and professionalism
         "color-brand-primary": "#1565C0",
         "color-brand-content": "#1976D2",
-
         # Background and surfaces
         "color-background-primary": "#ffffff",
         "color-background-secondary": "#f8fafc",
         "color-background-hover": "#f1f5f9",
         "color-background-border": "#e2e8f0",
-
         # Sidebar
         "color-sidebar-background": "#f8fafc",
         "color-sidebar-background-border": "#e2e8f0",
         "color-sidebar-brand-text": "#1e293b",
         "color-sidebar-link-text": "#475569",
         "color-sidebar-link-text--top-level": "#1e293b",
-
         # Admonitions
         "color-admonition-background": "#f0f9ff",
-
         # Code
         "color-code-background": "#f8fafc",
         "color-inline-code-background": "#f1f5f9",
-
         # Links
         "color-link": "#1565C0",
         "color-link--hover": "#1976D2",
     },
-
     # Dark mode colors - Comfortable night viewing
     "dark_css_variables": {
         # Primary colors
         "color-brand-primary": "#60a5fa",
         "color-brand-content": "#93c5fd",
-
         # Background and surfaces
         "color-background-primary": "#0f172a",
         "color-background-secondary": "#1e293b",
         "color-background-hover": "#334155",
         "color-background-border": "#334155",
-
         # Sidebar
         "color-sidebar-background": "#1e293b",
         "color-sidebar-background-border": "#334155",
         "color-sidebar-brand-text": "#f1f5f9",
         "color-sidebar-link-text": "#94a3b8",
         "color-sidebar-link-text--top-level": "#f1f5f9",
-
         # Admonitions
         "color-admonition-background": "#1e293b",
-
         # Code
         "color-code-background": "#1e293b",
         "color-inline-code-background": "#334155",
-
         # Links
         "color-link": "#60a5fa",
         "color-link--hover": "#93c5fd",
     },
-
     # Footer icons
     "footer_icons": [
         {

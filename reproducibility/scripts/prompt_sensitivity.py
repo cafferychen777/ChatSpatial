@@ -14,7 +14,6 @@ this experiment varies the user input. Together they bound two axes of variation
 import csv
 import json
 import time
-from collections import Counter
 from pathlib import Path
 
 # Reuse infrastructure from ablation experiment
@@ -22,7 +21,6 @@ from ablation_invocation import (
     CALLERS,
     DELAY,
     MODELS,
-    RESPONSE_INSTRUCTION,
     SCHEMA_FULL,
     append_raw,
     compute_consistency,
@@ -39,7 +37,6 @@ from ablation_invocation import (
 N_REPS = 5
 SCRIPT_DIR = Path(__file__).parent
 DATA_DIR = SCRIPT_DIR.parent / "data" / "sensitivity"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 RAW_PATH = DATA_DIR / "prompt_sensitivity_raw.jsonl"
 CSV_PATH = DATA_DIR / "prompt_sensitivity_results.csv"
 SUMMARY_PATH = DATA_DIR / "prompt_sensitivity_summary.txt"
@@ -120,7 +117,9 @@ PROMPT_GROUPS = [
 # Main Experiment
 # ---------------------------------------------------------------------------
 
+
 def run_experiment():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     print("Prompt Sensitivity Experiment")
     print(f"Models: {list(MODELS.keys())}")
     print(f"Groups: {[g['id'] for g in PROMPT_GROUPS]}")
@@ -152,7 +151,11 @@ def run_experiment():
                         continue
 
                     total += 1
-                    print(f"  [{total}] {group_id} p{para_idx} {model_name} rep{rep} ... ", end="", flush=True)
+                    print(
+                        f"  [{total}] {group_id} p{para_idx} {model_name} rep{rep} ... ",
+                        end="",
+                        flush=True,
+                    )
 
                     raw_text = caller(system_prompt, paraphrase)
 
@@ -231,6 +234,7 @@ def run_experiment():
 # Summary Generation
 # ---------------------------------------------------------------------------
 
+
 def generate_summary():
     """Aggregate raw JSONL into per-(group, paraphrase_idx, model) CSV rows."""
     # Load all raw records
@@ -244,6 +248,7 @@ def generate_summary():
 
     # Group by (group_id, paraphrase_idx, model)
     from collections import defaultdict
+
     cells = defaultdict(list)
     for rec in records:
         key = (rec["group_id"], rec["paraphrase_idx"], rec["model"])
@@ -253,36 +258,52 @@ def generate_summary():
     for (group_id, para_idx, model), trials in sorted(cells.items()):
         n = len(trials)
         parse_rate = sum(1 for t in trials if t["parse_ok"]) / n if n > 0 else 0
-        tool_correct_rate = sum(1 for t in trials if t["tool_correct"]) / n if n > 0 else 0
-        pydantic_rate = sum(1 for t in trials if t["pydantic_valid"]) / n if n > 0 else 0
+        tool_correct_rate = (
+            sum(1 for t in trials if t["tool_correct"]) / n if n > 0 else 0
+        )
+        pydantic_rate = (
+            sum(1 for t in trials if t["pydantic_valid"]) / n if n > 0 else 0
+        )
 
         # Constrained param values (for consistency computation)
         group = next(g for g in PROMPT_GROUPS if g["id"] == group_id)
         constrained_vals = {}
         for param_name in group["constrained_params"]:
-            vals = [t["params"].get(param_name) for t in trials if t["tool_correct"] and t["parse_ok"]]
+            vals = [
+                t["params"].get(param_name)
+                for t in trials
+                if t["tool_correct"] and t["parse_ok"]
+            ]
             constrained_vals[param_name] = compute_consistency(vals) if vals else 0.0
 
         constrained_consistency = (
             sum(constrained_vals.values()) / len(constrained_vals)
-            if constrained_vals else 0.0
+            if constrained_vals
+            else 0.0
         )
 
-        rows.append({
-            "group_id": group_id,
-            "paraphrase_idx": para_idx,
-            "model": model,
-            "n_trials": n,
-            "parse_rate": round(parse_rate, 4),
-            "tool_correct_rate": round(tool_correct_rate, 4),
-            "pydantic_valid_rate": round(pydantic_rate, 4),
-            "constrained_param_consistency": round(constrained_consistency, 4),
-        })
+        rows.append(
+            {
+                "group_id": group_id,
+                "paraphrase_idx": para_idx,
+                "model": model,
+                "n_trials": n,
+                "parse_rate": round(parse_rate, 4),
+                "tool_correct_rate": round(tool_correct_rate, 4),
+                "pydantic_valid_rate": round(pydantic_rate, 4),
+                "constrained_param_consistency": round(constrained_consistency, 4),
+            }
+        )
 
     # Write CSV
     fieldnames = [
-        "group_id", "paraphrase_idx", "model", "n_trials",
-        "parse_rate", "tool_correct_rate", "pydantic_valid_rate",
+        "group_id",
+        "paraphrase_idx",
+        "model",
+        "n_trials",
+        "parse_rate",
+        "tool_correct_rate",
+        "pydantic_valid_rate",
         "constrained_param_consistency",
     ]
     with open(CSV_PATH, "w", newline="") as f:
@@ -306,7 +327,9 @@ def generate_summary():
     lines.append(f"Total trials: {total_trials}")
     lines.append(f"Parse rate: {total_parse / total_trials * 100:.1f}%")
     lines.append(f"Tool selection accuracy: {total_correct / total_trials * 100:.1f}%")
-    lines.append(f"Pydantic validation rate: {total_pydantic / total_trials * 100:.1f}%")
+    lines.append(
+        f"Pydantic validation rate: {total_pydantic / total_trials * 100:.1f}%"
+    )
     lines.append("")
 
     # Per-model summary
@@ -319,8 +342,10 @@ def generate_summary():
             continue
         correct = sum(1 for t in model_trials if t["tool_correct"])
         pydantic = sum(1 for t in model_trials if t["pydantic_valid"])
-        lines.append(f"  {model}: tool_correct={correct}/{n} ({correct/n*100:.1f}%), "
-                      f"pydantic={pydantic}/{n} ({pydantic/n*100:.1f}%)")
+        lines.append(
+            f"  {model}: tool_correct={correct}/{n} ({correct/n*100:.1f}%), "
+            f"pydantic={pydantic}/{n} ({pydantic/n*100:.1f}%)"
+        )
     lines.append("")
 
     # Per-group summary
@@ -334,8 +359,10 @@ def generate_summary():
             continue
         correct = sum(1 for t in group_trials if t["tool_correct"])
         pydantic = sum(1 for t in group_trials if t["pydantic_valid"])
-        lines.append(f"  {gid}: tool_correct={correct}/{n} ({correct/n*100:.1f}%), "
-                      f"pydantic={pydantic}/{n} ({pydantic/n*100:.1f}%)")
+        lines.append(
+            f"  {gid}: tool_correct={correct}/{n} ({correct/n*100:.1f}%), "
+            f"pydantic={pydantic}/{n} ({pydantic/n*100:.1f}%)"
+        )
     lines.append("")
 
     # Cross-paraphrase consistency per group per model
@@ -344,7 +371,9 @@ def generate_summary():
     for group in PROMPT_GROUPS:
         gid = group["id"]
         for model in MODELS:
-            group_model = [r for r in records if r["group_id"] == gid and r["model"] == model]
+            group_model = [
+                r for r in records if r["group_id"] == gid and r["model"] == model
+            ]
             n = len(group_model)
             correct = sum(1 for t in group_model if t["tool_correct"])
             lines.append(f"  {gid} x {model}: {correct}/{n}")

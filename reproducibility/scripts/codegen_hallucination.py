@@ -13,11 +13,9 @@ We check for: package hallucinations, function hallucinations, syntax errors.
 
 import ast
 import csv
-import json
 import os
 import re
 import time
-from collections import defaultdict
 from pathlib import Path
 
 import requests
@@ -55,42 +53,118 @@ RAW_DIR = DATA_DIR / "codegen_raw"
 # Real Python packages for spatial transcriptomics
 VALID_PACKAGES = {
     # Core
-    "scanpy", "anndata", "squidpy", "numpy", "pandas", "scipy",
-    "matplotlib", "seaborn", "sklearn", "scikit-learn",
+    "scanpy",
+    "anndata",
+    "squidpy",
+    "numpy",
+    "pandas",
+    "scipy",
+    "matplotlib",
+    "seaborn",
+    "sklearn",
+    "scikit-learn",
     # Spatial analysis
-    "SpaGCN", "spagcn", "cell2location", "scvi", "scvelo", "cellrank",
-    "tangram", "destvi", "stereoscope", "spotlight",
-    "spatialde", "sparkx", "SPARK",
-    "stagate", "STAGATE", "STAGATE_pyG",
-    "graphst", "GraphST",
+    "SpaGCN",
+    "spagcn",
+    "cell2location",
+    "scvi",
+    "scvelo",
+    "cellrank",
+    "tangram",
+    "destvi",
+    "stereoscope",
+    "spotlight",
+    "spatialde",
+    "sparkx",
+    "SPARK",
+    "stagate",
+    "STAGATE",
+    "STAGATE_pyG",
+    "graphst",
+    "GraphST",
     # Communication
-    "liana", "liana_py", "cellphonedb", "squidpy",
+    "liana",
+    "liana_py",
+    "cellphonedb",
+    "squidpy",
     # CNV
-    "infercnvpy", "infercnv",
+    "infercnvpy",
+    "infercnv",
     # Integration
-    "harmonypy", "harmony", "bbknn", "scanorama",
+    "harmonypy",
+    "harmony",
+    "bbknn",
+    "scanorama",
     # Deconvolution
-    "rctd", "card", "spacexr",
+    "rctd",
+    "card",
+    "spacexr",
     # Python standard library
-    "os", "sys", "pathlib", "json", "warnings", "logging",
-    "collections", "itertools", "functools",
-    "subprocess", "shutil", "tempfile", "datetime", "random",
-    "copy", "typing", "re", "math", "csv", "io", "time",
-    "abc", "glob", "textwrap", "pickle", "hashlib", "enum",
-    "dataclasses", "argparse", "configparser", "struct",
-    "multiprocessing", "threading", "contextlib", "operator",
-    "h5py", "tables", "zarr",
-    "networkx", "igraph",
-    "statsmodels", "pysal", "esda", "libpysal", "splot",
-    "rpy2", "anndata2ri",
-    "torch", "tensorflow", "jax",
-    "tqdm", "rich", "click",
-    "plotly", "bokeh", "altair",
-    "gseapy", "goatools",
-    "muon", "mudata",
+    "os",
+    "sys",
+    "pathlib",
+    "json",
+    "warnings",
+    "logging",
+    "collections",
+    "itertools",
+    "functools",
+    "subprocess",
+    "shutil",
+    "tempfile",
+    "datetime",
+    "random",
+    "copy",
+    "typing",
+    "re",
+    "math",
+    "csv",
+    "io",
+    "time",
+    "abc",
+    "glob",
+    "textwrap",
+    "pickle",
+    "hashlib",
+    "enum",
+    "dataclasses",
+    "argparse",
+    "configparser",
+    "struct",
+    "multiprocessing",
+    "threading",
+    "contextlib",
+    "operator",
+    "h5py",
+    "tables",
+    "zarr",
+    "networkx",
+    "igraph",
+    "statsmodels",
+    "pysal",
+    "esda",
+    "libpysal",
+    "splot",
+    "rpy2",
+    "anndata2ri",
+    "torch",
+    "tensorflow",
+    "jax",
+    "tqdm",
+    "rich",
+    "click",
+    "plotly",
+    "bokeh",
+    "altair",
+    "gseapy",
+    "goatools",
+    "muon",
+    "mudata",
     "palantir",
-    "pynndescent", "umap",
-    "leidenalg", "louvain",
+    "pynndescent",
+    "umap",
+    "leidenalg",
+    "louvain",
     "numba",
 }
 
@@ -98,24 +172,44 @@ VALID_PACKAGES = {
 # We check if generated code calls functions that exist
 VALID_FUNCTION_PATTERNS = {
     # scanpy
-    r"sc\.read[_a-z]*", r"sc\.pp\.\w+", r"sc\.tl\.\w+", r"sc\.pl\.\w+",
-    r"sc\.external\.\w+", r"sc\.get\.\w+",
-    r"scanpy\.read[_a-z]*", r"scanpy\.pp\.\w+", r"scanpy\.tl\.\w+",
+    r"sc\.read[_a-z]*",
+    r"sc\.pp\.\w+",
+    r"sc\.tl\.\w+",
+    r"sc\.pl\.\w+",
+    r"sc\.external\.\w+",
+    r"sc\.get\.\w+",
+    r"scanpy\.read[_a-z]*",
+    r"scanpy\.pp\.\w+",
+    r"scanpy\.tl\.\w+",
     # squidpy
-    r"sq\.gr\.\w+", r"sq\.pl\.\w+", r"sq\.im\.\w+",
-    r"squidpy\.gr\.\w+", r"squidpy\.pl\.\w+",
+    r"sq\.gr\.\w+",
+    r"sq\.pl\.\w+",
+    r"sq\.im\.\w+",
+    r"squidpy\.gr\.\w+",
+    r"squidpy\.pl\.\w+",
     # anndata
-    r"ad\.read[_a-z]*", r"anndata\.read[_a-z]*", r"AnnData\(",
+    r"ad\.read[_a-z]*",
+    r"anndata\.read[_a-z]*",
+    r"AnnData\(",
     # scvelo
-    r"scv\.pp\.\w+", r"scv\.tl\.\w+", r"scv\.pl\.\w+",
+    r"scv\.pp\.\w+",
+    r"scv\.tl\.\w+",
+    r"scv\.pl\.\w+",
     # cellrank
     r"cr\.\w+",
     # numpy/pandas/scipy
-    r"np\.\w+", r"pd\.\w+", r"scipy\.\w+",
+    r"np\.\w+",
+    r"pd\.\w+",
+    r"scipy\.\w+",
     # matplotlib
-    r"plt\.\w+", r"fig\.\w+", r"ax\.\w+",
+    r"plt\.\w+",
+    r"fig\.\w+",
+    r"ax\.\w+",
     # general
-    r"print\(", r"len\(", r"range\(", r"type\(",
+    r"print\(",
+    r"len\(",
+    r"range\(",
+    r"type\(",
 }
 
 # Known HALLUCINATED patterns - functions that DON'T exist
@@ -128,12 +222,21 @@ HALLUCINATION_PATTERNS = [
     (r"sc\.tl\.deconvolve?\(", "sc.tl.deconvolve() does not exist"),
     (r"sc\.tl\.rctd\(", "sc.tl.rctd() does not exist"),
     (r"sc\.tl\.cell2location\(", "sc.tl.cell2location() does not exist"),
-    (r"sc\.tl\.spatial_variable_genes?\(", "sc.tl.spatial_variable_genes() does not exist"),
-    (r"sc\.tl\.moran[_s]*\(", "sc.tl.moran() does not exist (use sq.gr.spatial_autocorr)"),
+    (
+        r"sc\.tl\.spatial_variable_genes?\(",
+        "sc.tl.spatial_variable_genes() does not exist",
+    ),
+    (
+        r"sc\.tl\.moran[_s]*\(",
+        "sc.tl.moran() does not exist (use sq.gr.spatial_autocorr)",
+    ),
     (r"sc\.tl\.cellchat\(", "sc.tl.cellchat() does not exist"),
     (r"sc\.tl\.infercnv\(", "sc.tl.infercnv() does not exist"),
     (r"sc\.tl\.trajectory\(", "sc.tl.trajectory() does not exist"),
-    (r"sc\.tl\.spatial_autocorr\(", "sc.tl.spatial_autocorr() does not exist (use squidpy)"),
+    (
+        r"sc\.tl\.spatial_autocorr\(",
+        "sc.tl.spatial_autocorr() does not exist (use squidpy)",
+    ),
     (r"sc\.tl\.cellrank\(", "sc.tl.cellrank() does not exist"),
     (r"sc\.tl\.spatial_genes?\(", "sc.tl.spatial_genes() does not exist"),
     (r"sc\.pp\.spatial\(", "sc.pp.spatial() does not exist"),
@@ -143,8 +246,14 @@ HALLUCINATION_PATTERNS = [
     # Package-level hallucinations
     (r"from\s+scanpy\.spatial\s+import", "scanpy.spatial module does not exist"),
     (r"from\s+scanpy\.tools\.spatial", "scanpy.tools.spatial does not exist"),
-    (r"import\s+spatial_transcriptomics", "spatial_transcriptomics package does not exist"),
-    (r"from\s+stlearn\b", "stlearn package exists but is deprecated; LLMs often hallucinate its API"),
+    (
+        r"import\s+spatial_transcriptomics",
+        "spatial_transcriptomics package does not exist",
+    ),
+    (
+        r"from\s+stlearn\b",
+        "stlearn package exists but is deprecated; LLMs often hallucinate its API",
+    ),
     # CellChat in Python hallucination (it's R-only)
     (r"from\s+cellchat\s+import", "cellchat is R-only, no Python package"),
     (r"import\s+cellchat\b", "cellchat is R-only, no Python package"),
@@ -206,6 +315,7 @@ TEST_PROMPTS = [
 # API Callers
 # ============================================================
 
+
 def call_gemini(prompt: str) -> str | None:
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -215,7 +325,8 @@ def call_gemini(prompt: str) -> str | None:
     try:
         r = requests.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}",
-            json=payload, timeout=60
+            json=payload,
+            timeout=60,
         )
         r.raise_for_status()
         return r.json()["candidates"][0]["content"]["parts"][0]["text"]
@@ -240,7 +351,8 @@ def call_anthropic(prompt: str) -> str | None:
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             },
-            json=payload, timeout=60
+            json=payload,
+            timeout=60,
         )
         r.raise_for_status()
         return r.json()["content"][0]["text"]
@@ -262,8 +374,12 @@ def call_openai(prompt: str) -> str | None:
     try:
         r = requests.post(
             "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"},
-            json=payload, timeout=60
+            headers={
+                "Authorization": f"Bearer {OPENAI_KEY}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=60,
         )
         r.raise_for_status()
         return r.json()["choices"][0]["message"]["content"]
@@ -282,6 +398,7 @@ CALLERS = {
 # ============================================================
 # Code Analysis
 # ============================================================
+
 
 def extract_code(text: str) -> str:
     """Extract Python code from markdown-wrapped response."""
@@ -363,10 +480,13 @@ def analyze_code(code: str) -> dict:
 # Main Experiment
 # ============================================================
 
+
 def run_experiment():
-    print(f"Running code generation hallucination experiment")
+    print("Running code generation hallucination experiment")
     print(f"Models: {list(MODELS.keys())}")
-    print(f"Prompts: {len(TEST_PROMPTS)}, Trials: {N_TRIALS}, Temperature: {TEMPERATURE}")
+    print(
+        f"Prompts: {len(TEST_PROMPTS)}, Trials: {N_TRIALS}, Temperature: {TEMPERATURE}"
+    )
     print()
 
     # Create raw output directory
@@ -407,15 +527,23 @@ def run_experiment():
             # Aggregate metrics for this model+prompt combination
             n_valid = sum(1 for a in trial_analyses if a["has_code"])
             n_syntax_ok = sum(1 for a in trial_analyses if a["syntax_valid"])
-            n_pkg_hallucination = sum(1 for a in trial_analyses if a["hallucinated_packages"])
-            n_func_hallucination = sum(1 for a in trial_analyses if a["hallucinated_functions"])
+            n_pkg_hallucination = sum(
+                1 for a in trial_analyses if a["hallucinated_packages"]
+            )
+            n_func_hallucination = sum(
+                1 for a in trial_analyses if a["hallucinated_functions"]
+            )
             n_any_hallucination = sum(
-                1 for a in trial_analyses
+                1
+                for a in trial_analyses
                 if a["hallucinated_packages"] or a["hallucinated_functions"]
             )
             n_correct = sum(
-                1 for a in trial_analyses
-                if a["syntax_valid"] and not a["hallucinated_packages"] and not a["hallucinated_functions"]
+                1
+                for a in trial_analyses
+                if a["syntax_valid"]
+                and not a["hallucinated_packages"]
+                and not a["hallucinated_functions"]
             )
 
             # Collect all unique hallucinations
@@ -433,11 +561,17 @@ def run_experiment():
                 "syntax_valid": n_syntax_ok,
                 "syntax_error_rate": round(1 - n_syntax_ok / max(n_valid, 1), 3),
                 "pkg_hallucination_count": n_pkg_hallucination,
-                "pkg_hallucination_rate": round(n_pkg_hallucination / max(n_valid, 1), 3),
+                "pkg_hallucination_rate": round(
+                    n_pkg_hallucination / max(n_valid, 1), 3
+                ),
                 "func_hallucination_count": n_func_hallucination,
-                "func_hallucination_rate": round(n_func_hallucination / max(n_valid, 1), 3),
+                "func_hallucination_rate": round(
+                    n_func_hallucination / max(n_valid, 1), 3
+                ),
                 "any_hallucination_count": n_any_hallucination,
-                "any_hallucination_rate": round(n_any_hallucination / max(n_valid, 1), 3),
+                "any_hallucination_rate": round(
+                    n_any_hallucination / max(n_valid, 1), 3
+                ),
                 "fully_correct_rate": round(n_correct / max(n_valid, 1), 3),
                 "unique_pkg_hallucinations": "; ".join(sorted(all_pkg_hall)),
                 "unique_func_hallucinations": "; ".join(sorted(all_func_hall)),
@@ -446,7 +580,9 @@ def run_experiment():
 
             hall_pct = n_any_hallucination / max(n_valid, 1)
             syn_pct = 1 - n_syntax_ok / max(n_valid, 1)
-            print(f" halluc={hall_pct:.0%} syntax_err={syn_pct:.0%} correct={n_correct}/{n_valid}")
+            print(
+                f" halluc={hall_pct:.0%} syntax_err={syn_pct:.0%} correct={n_correct}/{n_valid}"
+            )
 
     # ============================================================
     # Save Results
@@ -454,7 +590,9 @@ def run_experiment():
 
     # CSV
     with open(CSV_PATH, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=all_results[0].keys(), lineterminator="\n")
+        writer = csv.DictWriter(
+            f, fieldnames=all_results[0].keys(), lineterminator="\n"
+        )
         writer.writeheader()
         writer.writerows(all_results)
     print(f"\nCSV saved: {CSV_PATH}")
@@ -500,23 +638,35 @@ def run_experiment():
                 f.write(f"  Hallucinated functions: {', '.join(sorted(all_func))}\n")
 
         # Cross-model averages
-        f.write(f"\n\nCross-Model Averages\n")
+        f.write("\n\nCross-Model Averages\n")
         f.write(f"{'='*40}\n")
         total = len(all_results)
-        f.write(f"  Syntax error rate:       {sum(r['syntax_error_rate'] for r in all_results)/total:.1%}\n")
-        f.write(f"  Package halluc. rate:    {sum(r['pkg_hallucination_rate'] for r in all_results)/total:.1%}\n")
-        f.write(f"  Function halluc. rate:   {sum(r['func_hallucination_rate'] for r in all_results)/total:.1%}\n")
-        f.write(f"  Any hallucination rate:  {sum(r['any_hallucination_rate'] for r in all_results)/total:.1%}\n")
-        f.write(f"  Fully correct rate:      {sum(r['fully_correct_rate'] for r in all_results)/total:.1%}\n")
+        f.write(
+            f"  Syntax error rate:       {sum(r['syntax_error_rate'] for r in all_results)/total:.1%}\n"
+        )
+        f.write(
+            f"  Package halluc. rate:    {sum(r['pkg_hallucination_rate'] for r in all_results)/total:.1%}\n"
+        )
+        f.write(
+            f"  Function halluc. rate:   {sum(r['func_hallucination_rate'] for r in all_results)/total:.1%}\n"
+        )
+        f.write(
+            f"  Any hallucination rate:  {sum(r['any_hallucination_rate'] for r in all_results)/total:.1%}\n"
+        )
+        f.write(
+            f"  Fully correct rate:      {sum(r['fully_correct_rate'] for r in all_results)/total:.1%}\n"
+        )
 
         # Comparison with ChatSpatial
         avg_hall = sum(r["any_hallucination_rate"] for r in all_results) / total
         avg_correct = sum(r["fully_correct_rate"] for r in all_results) / total
-        f.write(f"\n\nKey Finding for Paper\n")
+        f.write("\n\nKey Finding for Paper\n")
         f.write(f"{'='*40}\n")
         f.write(f"Code generation approach: {avg_hall:.1%} hallucination rate,\n")
-        f.write(f"  {avg_correct:.1%} fully correct rate across {len(MODELS)} models.\n")
-        f.write(f"ChatSpatial schema-enforced: 0% hallucination rate by construction.\n")
+        f.write(
+            f"  {avg_correct:.1%} fully correct rate across {len(MODELS)} models.\n"
+        )
+        f.write("ChatSpatial schema-enforced: 0% hallucination rate by construction.\n")
         f.write(f"This represents a {avg_hall:.1%} → 0% reduction in hallucination.\n")
 
     print(f"Summary saved: {SUMMARY_PATH}")

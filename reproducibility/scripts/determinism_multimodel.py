@@ -185,16 +185,25 @@ TEST_PROMPTS = [
 # API Callers
 # ============================================================
 
+
 def call_gemini(prompt: str) -> dict | None:
     payload = {
-        "contents": [{"role": "user", "parts": [{"text": TOOL_SCHEMAS + RESPONSE_INSTRUCTION + "\nUser: " + prompt}]}],
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {"text": TOOL_SCHEMAS + RESPONSE_INSTRUCTION + "\nUser: " + prompt}
+                ],
+            }
+        ],
         "generationConfig": {"temperature": TEMPERATURE, "maxOutputTokens": 512},
     }
     try:
         r = requests.post(
             f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_KEY}",
             # Gemini 2.5 Flash
-            json=payload, timeout=30
+            json=payload,
+            timeout=30,
         )
         r.raise_for_status()
         text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
@@ -220,7 +229,8 @@ def call_anthropic(prompt: str) -> dict | None:
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             },
-            json=payload, timeout=30
+            json=payload,
+            timeout=30,
         )
         r.raise_for_status()
         text = r.json()["content"][0]["text"]
@@ -243,8 +253,12 @@ def call_openai(prompt: str) -> dict | None:
     try:
         r = requests.post(
             "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"},
-            json=payload, timeout=30
+            headers={
+                "Authorization": f"Bearer {OPENAI_KEY}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=30,
         )
         r.raise_for_status()
         text = r.json()["choices"][0]["message"]["content"]
@@ -264,7 +278,7 @@ def parse_json(text: str) -> dict | None:
         return json.loads(text)
     except json.JSONDecodeError:
         # Try to find JSON in the text
-        match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text)
+        match = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text)
         if match:
             try:
                 return json.loads(match.group())
@@ -284,6 +298,7 @@ CALLERS = {
 # Analysis
 # ============================================================
 
+
 def compute_consistency(responses: list[dict | None], key_path: str) -> float:
     """Compute % of valid responses that agree on a value."""
     values = []
@@ -296,7 +311,9 @@ def compute_consistency(responses: list[dict | None], key_path: str) -> float:
             v = r.get("parameters", {}).get(key_path)
         if v is not None:
             # Normalize: convert to string for comparison
-            values.append(json.dumps(v, sort_keys=True) if isinstance(v, (list, dict)) else str(v))
+            values.append(
+                json.dumps(v, sort_keys=True) if isinstance(v, (list, dict)) else str(v)
+            )
 
     if not values:
         return 0.0
@@ -306,7 +323,9 @@ def compute_consistency(responses: list[dict | None], key_path: str) -> float:
 
 
 def run_experiment():
-    print(f"Running determinism experiment with {len(MODELS)} models, {N_TRIALS} trials each")
+    print(
+        f"Running determinism experiment with {len(MODELS)} models, {N_TRIALS} trials each"
+    )
     print(f"Models: {list(MODELS.keys())}")
     print(f"Temperature: {TEMPERATURE}")
     print()
@@ -341,7 +360,11 @@ def run_experiment():
             constrained_scores = []
             for p in test["constrained_params"]:
                 constrained_scores.append(compute_consistency(responses, p))
-            avg_constrained = sum(constrained_scores) / len(constrained_scores) if constrained_scores else 0
+            avg_constrained = (
+                sum(constrained_scores) / len(constrained_scores)
+                if constrained_scores
+                else 0
+            )
 
             # Free parameter consistency
             free_scores = []
@@ -365,12 +388,16 @@ def run_experiment():
             }
             all_results.append(result)
 
-            print(f" tool={tool_consistency:.0%} constrained={avg_constrained:.0%} free={avg_free:.0%}")
+            print(
+                f" tool={tool_consistency:.0%} constrained={avg_constrained:.0%} free={avg_free:.0%}"
+            )
 
     # Write CSV
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with open(CSV_PATH, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=all_results[0].keys(), lineterminator="\n")
+        writer = csv.DictWriter(
+            f, fieldnames=all_results[0].keys(), lineterminator="\n"
+        )
         writer.writeheader()
         writer.writerows(all_results)
     print(f"\nCSV saved: {CSV_PATH}")
@@ -385,10 +412,18 @@ def run_experiment():
 
         for model_name in MODELS:
             model_results = [r for r in all_results if r["model"] == model_name]
-            avg_tool = sum(r["tool_consistency"] for r in model_results) / len(model_results)
-            avg_constrained = sum(r["constrained_param_consistency"] for r in model_results) / len(model_results)
-            avg_free = sum(r["free_param_consistency"] for r in model_results) / len(model_results)
-            avg_overall = sum(r["overall_determinism"] for r in model_results) / len(model_results)
+            avg_tool = sum(r["tool_consistency"] for r in model_results) / len(
+                model_results
+            )
+            avg_constrained = sum(
+                r["constrained_param_consistency"] for r in model_results
+            ) / len(model_results)
+            avg_free = sum(r["free_param_consistency"] for r in model_results) / len(
+                model_results
+            )
+            avg_overall = sum(r["overall_determinism"] for r in model_results) / len(
+                model_results
+            )
             avg_parse = sum(r["parse_rate"] for r in model_results) / len(model_results)
 
             f.write(f"\n{model_name}\n")
@@ -400,22 +435,32 @@ def run_experiment():
             f.write(f"  Overall determinism score:      {avg_overall:.1%}\n")
 
         # Cross-model averages
-        f.write(f"\n\nCross-Model Averages\n")
+        f.write("\n\nCross-Model Averages\n")
         f.write(f"{'='*40}\n")
         all_tool = sum(r["tool_consistency"] for r in all_results) / len(all_results)
-        all_constrained = sum(r["constrained_param_consistency"] for r in all_results) / len(all_results)
-        all_free = sum(r["free_param_consistency"] for r in all_results) / len(all_results)
-        all_overall = sum(r["overall_determinism"] for r in all_results) / len(all_results)
+        all_constrained = sum(
+            r["constrained_param_consistency"] for r in all_results
+        ) / len(all_results)
+        all_free = sum(r["free_param_consistency"] for r in all_results) / len(
+            all_results
+        )
+        all_overall = sum(r["overall_determinism"] for r in all_results) / len(
+            all_results
+        )
         f.write(f"  Tool selection:     {all_tool:.1%}\n")
         f.write(f"  Constrained params: {all_constrained:.1%}\n")
         f.write(f"  Free-text params:   {all_free:.1%}\n")
         f.write(f"  Overall:            {all_overall:.1%}\n")
 
         # Key finding for paper
-        f.write(f"\n\nKey Finding for Paper\n")
+        f.write("\n\nKey Finding for Paper\n")
         f.write(f"{'='*40}\n")
-        f.write(f"Schema-constrained parameters showed {all_constrained:.1%} consistency\n")
-        f.write(f"across {len(MODELS)} models at temperature={TEMPERATURE} (worst case),\n")
+        f.write(
+            f"Schema-constrained parameters showed {all_constrained:.1%} consistency\n"
+        )
+        f.write(
+            f"across {len(MODELS)} models at temperature={TEMPERATURE} (worst case),\n"
+        )
         f.write(f"compared to {all_free:.1%} for free-text parameters.\n")
         f.write(f"Tool selection was {all_tool:.1%} consistent.\n")
 

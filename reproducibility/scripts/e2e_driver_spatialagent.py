@@ -24,6 +24,7 @@ import traceback
 
 from paths import find_competitor_dir
 
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", required=True)
@@ -38,7 +39,9 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
 
     # Add SpatialAgent to path. Override with SPATIALAGENT_ROOT when needed.
-    sa_root = str(find_competitor_dir("SpatialAgent", "SPATIALAGENT_ROOT", required=True))
+    sa_root = str(
+        find_competitor_dir("SpatialAgent", "SPATIALAGENT_ROOT", required=True)
+    )
     if sa_root not in sys.path:
         sys.path.insert(0, sa_root)
 
@@ -109,8 +112,11 @@ def main():
     with open(args.result_json, "w") as f:
         json.dump(result, f, indent=2, default=str)
 
-    print(f"SpatialAgent driver done. success={result['success']}, "
-          f"wall_time={result['wall_time']:.1f}s", flush=True)
+    print(
+        f"SpatialAgent driver done. success={result['success']}, "
+        f"wall_time={result['wall_time']:.1f}s",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

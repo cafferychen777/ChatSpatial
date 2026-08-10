@@ -20,17 +20,29 @@ import asyncio
 import csv
 import json
 import os
-import sys
 import time
 from collections import defaultdict
 from itertools import combinations
 from pathlib import Path
 
+import anndata as ad
 import numpy as np
+import pandas as pd
 import requests
+from ablation_e2e import AblationCtx, remap_params
+from ablation_invocation import (
+    RESPONSE_INSTRUCTION,
+    SCHEMA_VARIANTS,
+    call_gemini,
+    call_openai,
+    parse_json,
+    resolve_tool_name,
+)
+from paths import find_chatspatial_code_dir, load_env_file
 from scipy.stats import pearsonr
 
-from paths import find_chatspatial_code_dir, load_env_file
+from chatspatial.models.data import DeconvolutionParameters
+from chatspatial.tools.deconvolution import deconvolve_spatial_data
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -40,21 +52,32 @@ SCRIPT_DIR = Path(__file__).parent
 CODE_ROOT = find_chatspatial_code_dir(required=True)
 DATA_DIR = SCRIPT_DIR.parent / "data" / "casestudy_reproducibility"
 PROP_DIR = DATA_DIR / "proportions"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-PROP_DIR.mkdir(parents=True, exist_ok=True)
 
 RAW_PATH = DATA_DIR / "casestudy_repro_raw.jsonl"
 METRICS_CSV = DATA_DIR / "casestudy_repro_metrics.csv"
 SUMMARY_PATH = DATA_DIR / "casestudy_repro_summary.txt"
 
 SAMPLES = {
-    "oscc_s1": CODE_ROOT / "data" / "geo_data" / "analyzed_projects"
-    / "GSE208253" / "processed_h5ad" / "s1_processed.h5ad",
-    "oscc_s9": CODE_ROOT / "data" / "geo_data" / "analyzed_projects"
-    / "GSE208253" / "processed_h5ad" / "s9_processed.h5ad",
+    "oscc_s1": CODE_ROOT
+    / "data"
+    / "geo_data"
+    / "analyzed_projects"
+    / "GSE208253"
+    / "processed_h5ad"
+    / "s1_processed.h5ad",
+    "oscc_s9": CODE_ROOT
+    / "data"
+    / "geo_data"
+    / "analyzed_projects"
+    / "GSE208253"
+    / "processed_h5ad"
+    / "s9_processed.h5ad",
 }
 PURAM_REF_PATH = (
-    CODE_ROOT / "data" / "reference_datasets" / "puram_hnscc"
+    CODE_ROOT
+    / "data"
+    / "reference_datasets"
+    / "puram_hnscc"
     / "puram_hnscc_reference.h5ad"
 )
 
@@ -82,34 +105,6 @@ CASESTUDY_PROMPT = (
     "Deconvolve cell types in this OSCC sample using CARD with "
     "the HNSCC single-cell reference from Puram et al. "
     "(reference_data_id='puram_ref', cell_type_key='cell_type')."
-)
-
-# ---------------------------------------------------------------------------
-# Ensure chatspatial importable
-# ---------------------------------------------------------------------------
-
-if str(CODE_ROOT) not in sys.path:
-    sys.path.insert(0, str(CODE_ROOT))
-
-import anndata as ad
-import pandas as pd
-
-from chatspatial.models.data import DeconvolutionParameters
-from chatspatial.tools.deconvolution import deconvolve_spatial_data
-
-# Import from ablation scripts
-from ablation_invocation import (
-    SCHEMA_VARIANTS,
-    RESPONSE_INSTRUCTION,
-    resolve_tool_name,
-    parse_json,
-    call_gemini,
-    call_openai,
-)
-from ablation_e2e import (
-    AblationCtx,
-    remap_params,
-    PARAM_ALIASES,
 )
 
 # ---------------------------------------------------------------------------
@@ -188,6 +183,7 @@ if OPENAI_KEY and OPENAI_API_URL:
 # Checkpoint / Resume
 # ---------------------------------------------------------------------------
 
+
 def load_completed(path: Path) -> set[str]:
     completed = set()
     if path.exists():
@@ -209,6 +205,7 @@ def append_raw(path: Path, record: dict):
 # ---------------------------------------------------------------------------
 # Tool execution (reuses ablation pattern)
 # ---------------------------------------------------------------------------
+
 
 async def execute_deconv(
     params_dict: dict,
@@ -257,6 +254,7 @@ async def execute_deconv(
 # Concordance metrics
 # ---------------------------------------------------------------------------
 
+
 def pairwise_pearson(prop_matrices: list[np.ndarray]) -> list[float]:
     """Pairwise Pearson r of flattened proportion matrices."""
     correlations = []
@@ -300,7 +298,11 @@ def bootstrap_ci(
 # Main experiment
 # ---------------------------------------------------------------------------
 
+
 async def run_experiment():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    PROP_DIR.mkdir(parents=True, exist_ok=True)
+
     print("=" * 70)
     print("Case-Study Reproducibility Bridge Experiment")
     print("=" * 70)
@@ -396,7 +398,9 @@ async def run_experiment():
                     # Step 3: Execute
                     if tier1_valid or tier2_valid:
                         exec_success, exec_error, artifacts = await execute_deconv(
-                            use_params, adata_original, ref_original,
+                            use_params,
+                            adata_original,
+                            ref_original,
                             data_id=sample_id,
                         )
 
@@ -443,6 +447,7 @@ async def run_experiment():
 # Analysis
 # ---------------------------------------------------------------------------
 
+
 def run_analysis():
     """Compute concordance metrics from completed trials."""
     if not RAW_PATH.exists():
@@ -478,12 +483,15 @@ def run_analysis():
         n_valid = sum(1 for r in cell_records if r["tier1_valid"] or r["tier2_valid"])
 
         summary_lines.append(f"--- {sample_id} | {condition} ---")
-        summary_lines.append(f"  Trials: {n_total}  Parse: {n_parse}  Valid: {n_valid}  Exec: {n_success}")
+        summary_lines.append(
+            f"  Trials: {n_total}  Parse: {n_parse}  Valid: {n_valid}  Exec: {n_success}"
+        )
 
         # Method distribution
         methods = [r["method_selected"] for r in cell_records if r["method_selected"]]
         if methods:
             from collections import Counter
+
             method_counts = Counter(methods)
             summary_lines.append(f"  Methods: {dict(method_counts)}")
 
@@ -542,9 +550,7 @@ def run_analysis():
                     f"r={m_mean:.4f} [{m_lo:.4f}–{m_hi:.4f}]"
                 )
             else:
-                summary_lines.append(
-                    f"    {model_name}: {m_success}/{m_total} success"
-                )
+                summary_lines.append(f"    {model_name}: {m_success}/{m_total} success")
 
         # Error analysis for failures
         failures = [r for r in cell_records if not r["exec_success"]]
@@ -558,29 +564,35 @@ def run_analysis():
                 elif not (r["tier1_valid"] or r["tier2_valid"]):
                     error_types["pydantic_validation_failure"] += 1
                 else:
-                    err_short = r["exec_error"].split(":")[0] if r["exec_error"] else "unknown"
+                    err_short = (
+                        r["exec_error"].split(":")[0] if r["exec_error"] else "unknown"
+                    )
                     error_types[f"exec:{err_short}"] += 1
             summary_lines.append(f"  Failures: {dict(error_types)}")
 
         # Record metrics
-        metrics_rows.append({
-            "sample": sample_id,
-            "condition": condition,
-            "n_total": n_total,
-            "n_success": n_success,
-            "success_rate": n_success / n_total if n_total else 0,
-            "pearson_mean": mean_r,
-            "pearson_ci_lo": ci_lo,
-            "pearson_ci_hi": ci_hi,
-            "n_pairs": len(pearson_values),
-        })
+        metrics_rows.append(
+            {
+                "sample": sample_id,
+                "condition": condition,
+                "n_total": n_total,
+                "n_success": n_success,
+                "success_rate": n_success / n_total if n_total else 0,
+                "pearson_mean": mean_r,
+                "pearson_ci_lo": ci_lo,
+                "pearson_ci_hi": ci_hi,
+                "n_pairs": len(pearson_values),
+            }
+        )
 
         summary_lines.append("")
 
     # Write metrics CSV
     if metrics_rows:
         with open(METRICS_CSV, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=metrics_rows[0].keys(), lineterminator="\n")
+            writer = csv.DictWriter(
+                f, fieldnames=metrics_rows[0].keys(), lineterminator="\n"
+            )
             writer.writeheader()
             writer.writerows(metrics_rows)
         print(f"Metrics written to {METRICS_CSV}")

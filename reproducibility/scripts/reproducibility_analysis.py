@@ -11,17 +11,8 @@ Output:
 
 import csv
 import inspect
-import json
-import sys
 from pathlib import Path
 from typing import Any, Literal, Optional, Union, get_args, get_origin, get_type_hints
-
-from paths import find_chatspatial_code_dir
-
-# Prefer a local source checkout when available; otherwise use installed package.
-_CODE_ROOT = find_chatspatial_code_dir(required=False)
-if _CODE_ROOT is not None and str(_CODE_ROOT) not in sys.path:
-    sys.path.insert(0, str(_CODE_ROOT))
 
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
@@ -166,7 +157,9 @@ def analyze_model(model_cls: type[BaseModel]) -> dict[str, Any]:
             continue
 
         annotation = hints.get(name, Any)
-        has_default = field_info.default is not None or field_info.default_factory is not None
+        has_default = (
+            field_info.default is not None or field_info.default_factory is not None
+        )
 
         category = classify_parameter(name, annotation, field_info, has_default)
         if category == "skip":
@@ -251,7 +244,7 @@ TOOL_MODELS = {
         "model": None,
         "direct_params": {
             "total": 3,
-            "enum": 1,       # data_type: Literal[6 platform types]
+            "enum": 1,  # data_type: Literal[6 platform types]
             "numeric": 0,
             "defaulted": 1,  # name (Optional)
             "free_text": 1,  # data_path
@@ -277,7 +270,7 @@ TOOL_MODELS = {
         "model": None,
         "direct_params": {
             "total": 3,
-            "enum": 1,       # method: Literal["paste", "stalign"]
+            "enum": 1,  # method: Literal["paste", "stalign"]
             "numeric": 0,
             "defaulted": 0,
             "free_text": 2,  # source_id, target_id
@@ -348,12 +341,16 @@ def run_validation_consistency_test():
         except ValidationError:
             invalid_results.append("rejected")
 
-    assert all(r == "accepted" for r in valid_results), "Valid params should always be accepted"
-    assert all(r == "rejected" for r in invalid_results), "Invalid params should always be rejected"
+    assert all(
+        r == "accepted" for r in valid_results
+    ), "Valid params should always be accepted"
+    assert all(
+        r == "rejected" for r in invalid_results
+    ), "Invalid params should always be rejected"
 
     print(f"  Valid parameters:   {n_trials}/{n_trials} accepted (100% consistent)")
     print(f"  Invalid parameters: {n_trials}/{n_trials} rejected (100% consistent)")
-    print(f"  Hallucinated method 'sc.tl.deconvolve' rejected every time.")
+    print("  Hallucinated method 'sc.tl.deconvolve' rejected every time.")
     print()
 
     # Additional tests for other tools
@@ -402,8 +399,10 @@ def run_validation_consistency_test():
         consistent = v_ok == n_trials and i_rej == n_trials
         all_consistent = all_consistent and consistent
         status = "PASS" if consistent else "FAIL"
-        print(f"  [{status}] {name}: valid={v_ok}/{n_trials} accepted, "
-              f"invalid={i_rej}/{n_trials} rejected")
+        print(
+            f"  [{status}] {name}: valid={v_ok}/{n_trials} accepted, "
+            f"invalid={i_rej}/{n_trials} rejected"
+        )
 
     print()
     print(f"  All validation tests consistent: {all_consistent}")
@@ -514,11 +513,21 @@ def run_constraint_surface_analysis():
     print("=" * 70)
     print(f"  Total MCP tools:                    {total_tools}")
     print(f"  Total parameters across all tools:  {total_params}")
-    print(f"  Enum/Literal constrained:           {total_enum} ({total_enum/total_params*100:.1f}%)")
-    print(f"  Numeric constrained:                {total_numeric} ({total_numeric/total_params*100:.1f}%)")
-    print(f"  Default-valued:                     {total_default} ({total_default/total_params*100:.1f}%)")
-    print(f"  Free-text (LLM-dependent):          {total_free} ({total_free/total_params*100:.1f}%)")
-    print(f"  Overall constrained ratio:          {overall_det:.3f} ({overall_det*100:.1f}%)")
+    print(
+        f"  Enum/Literal constrained:           {total_enum} ({total_enum/total_params*100:.1f}%)"
+    )
+    print(
+        f"  Numeric constrained:                {total_numeric} ({total_numeric/total_params*100:.1f}%)"
+    )
+    print(
+        f"  Default-valued:                     {total_default} ({total_default/total_params*100:.1f}%)"
+    )
+    print(
+        f"  Free-text (LLM-dependent):          {total_free} ({total_free/total_params*100:.1f}%)"
+    )
+    print(
+        f"  Overall constrained ratio:          {overall_det:.3f} ({overall_det*100:.1f}%)"
+    )
     print(f"  Mean per-tool determinism score:     {avg_det:.3f}")
     print()
 
@@ -547,7 +556,7 @@ def show_deconvolution_example():
                 allowed_methods = get_args(arg)
                 break
 
-    print(f"  DeconvolutionParameters.method is Literal type")
+    print("  DeconvolutionParameters.method is Literal type")
     print(f"  Allowed values: {list(allowed_methods)}")
     print(f"  Total allowed methods: {len(allowed_methods)}")
     print()
@@ -565,9 +574,7 @@ def show_deconvolution_example():
     print("  Hallucinated method names (all rejected by schema):")
     for method_name in hallucinated:
         try:
-            DeconvolutionParameters(
-                method=method_name, cell_type_key="cell_type"
-            )
+            DeconvolutionParameters(method=method_name, cell_type_key="cell_type")
             print(f"    '{method_name}': ACCEPTED (unexpected!)")
         except ValidationError:
             print(f"    '{method_name}': REJECTED")
@@ -615,9 +622,6 @@ def print_paper_summary(results: list[dict]):
     overall_det = total_constrained / total_params if total_params > 0 else 0.0
     avg_det = sum(r["determinism_score"] for r in results) / total_tools
 
-    # Find tools with 100% determinism
-    perfect_tools = [r for r in results if r["free_text_params"] == 0]
-
     print("=" * 70)
     print("PAPER SUMMARY")
     print("=" * 70)
@@ -655,7 +659,9 @@ if __name__ == "__main__":
     show_deconvolution_example()
 
     # Save CSV
-    output_path = Path(__file__).resolve().parent.parent / "data" / "reproducibility_analysis.csv"
+    output_path = (
+        Path(__file__).resolve().parent.parent / "data" / "reproducibility_analysis.csv"
+    )
     save_results(results, output_path)
     print()
 
