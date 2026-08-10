@@ -1,0 +1,51 @@
+Cross-System Invocation Comparison — Summary
+======================================================================
+
+Condition                   Parse%  ToolCorr%   Consist%      N
+----------------------------------------------------------------------
+ChatSpatial (full)           98.3%      98.3%     100.0%    240
+ChatSpatial (bare)           93.8%      93.8%     100.0%    240
+ChatSpatial (none)           97.1%      97.1%     100.0%    240
+STAgent                     100.0%      87.5%      87.8%    240
+SpatialAgent                 92.8%      90.7%      94.5%    242
+
+Per-model breakdown:
+----------------------------------------------------------------------
+  ChatSpatial (full)      gemini-2.5-flash               correct=95.0% consist=100.0%
+  ChatSpatial (full)      claude-haiku-4-5-20251001      correct=100.0% consist=100.0%
+  ChatSpatial (full)      gpt-5.4                        correct=100.0% consist=100.0%
+  ChatSpatial (bare)      gemini-2.5-flash               correct=81.2% consist=100.0%
+  ChatSpatial (bare)      claude-haiku-4-5-20251001      correct=100.0% consist=100.0%
+  ChatSpatial (bare)      gpt-5.4                        correct=100.0% consist=100.0%
+  ChatSpatial (none)      gemini-2.5-flash               correct=91.2% consist=100.0%
+  ChatSpatial (none)      claude-haiku-4-5-20251001      correct=100.0% consist=100.0%
+  ChatSpatial (none)      gpt-5.4                        correct=100.0% consist=100.0%
+  STAgent                 gemini-2.5-flash               correct=85.0% consist=87.5%
+  STAgent                 claude-haiku-4-5-20251001      correct=81.2% consist=89.6%
+  STAgent                 gpt-5.4                        correct=96.2% consist=86.2%
+  SpatialAgent            gemini-2.5-flash               correct=96.2% consist=98.4%
+  SpatialAgent            claude-haiku-4-5-20251001      correct=83.8% consist=91.2%
+  SpatialAgent            gpt-5.4                        correct=92.1% consist=93.8%
+
+Per-prompt breakdown (new conditions only):
+----------------------------------------------------------------------
+
+  STAgent:
+    spatial_domains      correct=96.7%
+    deconvolution_rctd   correct=96.7%
+    svg_detection        correct=100.0%
+    cellchat             correct=90.0%
+    moran_i              correct=100.0%
+    spatial_plot         correct=100.0%
+    trajectory           correct=56.7%
+    cnv                  correct=60.0%
+
+  SpatialAgent:
+    spatial_domains      correct=100.0%
+    deconvolution_rctd   correct=80.0%
+    svg_detection        correct=100.0%
+    cellchat             correct=100.0%
+    moran_i              correct=83.3%
+    spatial_plot         correct=100.0%
+    trajectory           correct=100.0%
+    cnv                  correct=62.2%

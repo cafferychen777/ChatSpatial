@@ -1,0 +1,10 @@
+system,task_id,n_total,n_success,success_rate,avg_time,concordance,concordance_n_pairs,method_consistency
+chatspatial,cell_communication,5,5,1.0,29.923517894744872,1.0,10,1.0
+chatspatial,spatial_domains,5,5,1.0,8.570952987670898,1.0,10,1.0
+chatspatial,svg_detection,5,5,1.0,86.52608819007874,0.6081632653061224,10,0.4
+spatialagent,cell_communication,5,5,1.0,127.54967522621155,0.324,10,1.0
+spatialagent,spatial_domains,5,4,0.8,86.09263896942139,0.4490990811278038,6,1.0
+spatialagent,svg_detection,5,3,0.6,108.55109326044719,0.43981238087202223,3,1.0
+stagent,cell_communication,5,5,1.0,56.15514168739319,nan,0,1.0
+stagent,spatial_domains,5,5,1.0,79.93772602081299,1.0,10,1.0
+stagent,svg_detection,5,1,0.2,145.19954991340637,nan,0,1.0

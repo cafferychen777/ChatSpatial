@@ -1,0 +1,161 @@
+prompt_id,trial,tool_selected,method_selected,full_response,expected_tool
+spatial_domains,1,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,2,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,3,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,4,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,5,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,6,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,7,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,8,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,9,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,10,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,11,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,12,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,13,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,14,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,15,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,16,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,17,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,18,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,19,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+spatial_domains,20,identify_spatial_domains,graphst,"{""tool_name"": ""identify_spatial_domains"", ""parameters"": {""method"": ""graphst""}}",identify_spatial_domains
+deconvolution,1,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,2,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,3,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,4,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,5,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,6,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,7,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,8,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,9,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,10,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,11,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,12,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,13,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,14,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,15,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,16,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,17,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,18,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,19,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+deconvolution,20,deconvolve_data,,"{""tool_name"": ""deconvolve_data"", ""parameters"": {""reference_data_id"": ""sc_ref_001"", ""cell_type_key"": ""cell_type""}}",deconvolve_data
+svg_detection,1,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,2,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,3,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,4,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,5,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,6,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,7,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,8,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,9,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,10,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,11,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,12,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,13,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,14,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,15,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,16,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,17,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,18,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,19,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+svg_detection,20,find_spatial_genes,flashs,"{""tool_name"": ""find_spatial_genes"", ""parameters"": {""method"": ""flashs""}}",find_spatial_genes
+cell_communication_cellchat,1,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,2,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,3,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,4,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,5,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,6,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,7,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,8,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,9,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,10,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,11,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,12,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,13,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,14,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,15,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,16,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,17,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,18,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,19,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+cell_communication_cellchat,20,analyze_cell_communication,cellchat_r,"{""tool_name"": ""analyze_cell_communication"", ""parameters"": {""method"": ""cellchat_r"", ""species"": ""human"", ""cell_type_key"": ""cell_type""}}",analyze_cell_communication
+moran_i,1,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,2,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,3,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,4,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,5,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,6,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,7,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,8,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,9,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,10,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,11,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,12,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,13,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran""}}",analyze_spatial_statistics
+moran_i,14,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,15,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,16,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,17,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,18,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+moran_i,19,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran""}}",analyze_spatial_statistics
+moran_i,20,analyze_spatial_statistics,moran,"{""tool_name"": ""analyze_spatial_statistics"", ""parameters"": {""analysis_type"": ""moran"", ""n_top_genes"": 20}}",analyze_spatial_statistics
+spatial_visualization,1,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,2,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,3,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,4,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,5,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,6,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,7,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,8,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,9,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,10,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,11,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,12,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,13,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,14,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,15,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,16,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,17,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,18,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,19,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+spatial_visualization,20,visualize_data,feature,"{""tool_name"": ""visualize_data"", ""parameters"": {""plot_type"": ""feature"", ""feature"": ""cell_type"", ""basis"": ""spatial""}}",visualize_data
+trajectory_cellrank,1,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,2,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,3,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,4,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,5,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,6,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,7,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,8,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,9,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,10,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,11,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,12,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,13,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,14,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,15,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,16,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,17,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,18,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,19,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+trajectory_cellrank,20,analyze_trajectory_data,cellrank,"{""tool_name"": ""analyze_trajectory_data"", ""parameters"": {""method"": ""cellrank""}}",analyze_trajectory_data
+cnv_analysis,1,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,2,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,3,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,4,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,5,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,6,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,7,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,8,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,9,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,10,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,11,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,12,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,13,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,14,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,15,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,16,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,17,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,18,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,19,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv
+cnv_analysis,20,analyze_cnv,,"{""tool_name"": ""analyze_cnv"", ""parameters"": {""reference_key"": ""cell_type"", ""reference_categories"": [""T cells"", ""B cells""]}}",analyze_cnv

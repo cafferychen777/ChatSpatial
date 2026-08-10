@@ -1,0 +1,41 @@
+Cross-System Invocation Comparison — Analysis Summary
+===========================================================================
+
+Condition                     N   Parse%  Correct%         95% CI   Consist%  Diversity
+-------------------------------------------------------------------------------------
+ChatSpatial (full)          240    98.3%     98.3%  [95.4, 100.0]     100.0%       1.0
+ChatSpatial (bare)          240    93.8%     93.8%   [85.8, 99.6]     100.0%       1.0
+ChatSpatial (none)          240    97.1%     97.1%  [92.5, 100.0]     100.0%       1.0
+STAgent                     240   100.0%     87.5%   [77.9, 95.4]      87.8%       1.5
+SpatialAgent                240    92.5%     90.4%   [83.3, 96.7]      94.5%       1.3
+
+
+STAgent — Per-prompt tool selection accuracy:
+--------------------------------------------------
+  spatial_domains       96.7%  top: squidpy_rag_agent(21), python_repl_tool(8), google_scholar_search(1)
+  deconvolution_rctd    96.7%  top: python_repl_tool(29), squidpy_rag_agent(1)
+  svg_detection        100.0%  top: squidpy_rag_agent(28), python_repl_tool(2)
+  cellchat              90.0%  top: visualize_cell_cell_interaction(17), python_repl_tool(10)
+  moran_i              100.0%  top: squidpy_rag_agent(19), python_repl_tool(11)
+  spatial_plot         100.0%  top: visualize_spatial_cell_type_map(30)
+  trajectory            56.7%  top: python_repl_tool(17), squidpy_rag_agent(7), google_scholar_search(3)
+  cnv                   60.0%  top: python_repl_tool(18), google_scholar_search(7)
+
+SpatialAgent — Per-prompt tool selection accuracy:
+--------------------------------------------------
+  spatial_domains      100.0%  top: spagcn_clustering(22), graphst_clustering(8)
+  deconvolution_rctd    80.0%  top: cell2location_mapping(24), execute_python(1)
+  svg_detection        100.0%  top: squidpy_spatial_autocorr(30)
+  cellchat             100.0%  top: liana_inference(23), cellphonedb_analysis(6), liana_spatial(1)
+  moran_i               83.3%  top: squidpy_spatial_autocorr(25), execute_python(2)
+  spatial_plot         100.0%  top: execute_python(30)
+  trajectory           100.0%  top: cellrank_terminal_states(30)
+  cnv                   60.0%  top: execute_python(18), web_search(1)
+
+
+KEY FINDINGS
+===========================================================================
+1. ChatSpatial full schema: 98.3% tool accuracy vs STAgent: 87.5%
+2. ChatSpatial full schema: 98.3% tool accuracy vs SpatialAgent: 90.4%
+3. STAgent consistency: 87.8% (trivially high — most tasks route to python_repl_tool)
+4. SpatialAgent diversity: 1.3 tools/cell (72 tools makes selection harder)

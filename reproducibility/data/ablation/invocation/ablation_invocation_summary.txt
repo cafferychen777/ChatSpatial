@@ -1,0 +1,55 @@
+Schema-Enforcement Ablation — Part 1: Invocation-Level Summary
+======================================================================
+Trials per cell: 10 | Temperature: 1.0
+Models: ['gemini-2.5-flash', 'claude-haiku-4-5-20251001', 'gpt-5.4']
+Conditions: ['full_schema', 'bare_schema', 'no_schema']
+
+
+FULL_SCHEMA
+--------------------------------------------------
+  Parse rate:                    98.3%
+  Tool selection consistency:     100.0%
+  Tool correctness:              100.0%
+  Pydantic validation rate:      98.3%
+  Constrained param consistency: 82.9%
+  Free-text param consistency:   54.2%
+    gemini-2.5-flash: pydantic=95.0% constrained=75.0%
+    claude-haiku-4-5-20251001: pydantic=100.0% constrained=100.0%
+    gpt-5.4: pydantic=100.0% constrained=73.8%
+
+BARE_SCHEMA
+--------------------------------------------------
+  Parse rate:                    93.8%
+  Tool selection consistency:     100.0%
+  Tool correctness:              100.0%
+  Pydantic validation rate:      93.8%
+  Constrained param consistency: 75.0%
+  Free-text param consistency:   54.2%
+    gemini-2.5-flash: pydantic=81.2% constrained=75.0%
+    claude-haiku-4-5-20251001: pydantic=100.0% constrained=100.0%
+    gpt-5.4: pydantic=100.0% constrained=50.0%
+
+NO_SCHEMA
+--------------------------------------------------
+  Parse rate:                    97.1%
+  Tool selection consistency:     100.0%
+  Tool correctness:              100.0%
+  Pydantic validation rate:      20.4%
+  Constrained param consistency: 69.4%
+  Free-text param consistency:   25.0%
+    gemini-2.5-flash: pydantic=21.2% constrained=62.5%
+    claude-haiku-4-5-20251001: pydantic=23.8% constrained=83.3%
+    gpt-5.4: pydantic=16.2% constrained=62.5%
+
+
+======================================================================
+KEY ABLATION RESULTS
+======================================================================
+
+Metric                                    Full       Bare    Minimal
+-----------------------------------------------------------------
+parse_rate                              98.3%     93.8%     97.1%
+tool_consistency                       100.0%    100.0%    100.0%
+tool_correctness                       100.0%    100.0%    100.0%
+pydantic_valid_rate                     98.3%     93.8%     20.4%
+constrained_param_consistency           82.9%     75.0%     69.4%

@@ -1,0 +1,39 @@
+Prompt Sensitivity Experiment -- Summary
+============================================================
+
+Total trials: 375
+Parse rate: 95.7%
+Tool selection accuracy: 95.7%
+Pydantic validation rate: 95.7%
+
+PER-MODEL SUMMARY
+----------------------------------------
+  gemini-2.5-flash: tool_correct=109/125 (87.2%), pydantic=109/125 (87.2%)
+  claude-haiku-4-5-20251001: tool_correct=125/125 (100.0%), pydantic=125/125 (100.0%)
+  gpt-5.4: tool_correct=125/125 (100.0%), pydantic=125/125 (100.0%)
+
+PER-GROUP SUMMARY
+----------------------------------------
+  spatial_domains: tool_correct=69/75 (92.0%), pydantic=69/75 (92.0%)
+  deconvolution: tool_correct=75/75 (100.0%), pydantic=75/75 (100.0%)
+  svg_detection: tool_correct=74/75 (98.7%), pydantic=74/75 (98.7%)
+  cell_communication: tool_correct=75/75 (100.0%), pydantic=75/75 (100.0%)
+  moran_i: tool_correct=66/75 (88.0%), pydantic=66/75 (88.0%)
+
+CROSS-PARAPHRASE TOOL SELECTION (per model x group)
+------------------------------------------------------------
+  spatial_domains x gemini-2.5-flash: 19/25
+  spatial_domains x claude-haiku-4-5-20251001: 25/25
+  spatial_domains x gpt-5.4: 25/25
+  deconvolution x gemini-2.5-flash: 25/25
+  deconvolution x claude-haiku-4-5-20251001: 25/25
+  deconvolution x gpt-5.4: 25/25
+  svg_detection x gemini-2.5-flash: 24/25
+  svg_detection x claude-haiku-4-5-20251001: 25/25
+  svg_detection x gpt-5.4: 25/25
+  cell_communication x gemini-2.5-flash: 25/25
+  cell_communication x claude-haiku-4-5-20251001: 25/25
+  cell_communication x gpt-5.4: 25/25
+  moran_i x gemini-2.5-flash: 16/25
+  moran_i x claude-haiku-4-5-20251001: 25/25
+  moran_i x gpt-5.4: 25/25

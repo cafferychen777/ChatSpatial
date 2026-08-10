@@ -1,0 +1,11 @@
+Cell Type,Direction,n (patients),Wilcoxon signed-rank q (BH-FDR),Median log2FC,Median log2FC 95% CI lower,Median log2FC 95% CI upper,Sign test (positive / negative),Sign test p,Mean |r| (all samples),n (all),Mean |r| (significant samples),n (significant),Consensus (% samples enriched)
+Cancer,TC,11,0.0033,-0.37,-0.75,-0.12,0/11,0.001,0.698,11,0.698,11,58%
+Endothelial,LE,11,0.0033,9.05,2.39,12.45,11/0,0.001,0.041,11,0.052,8,67%
+Macrophage,LE,11,0.0033,1.39,1.14,3.75,11/0,0.001,0.221,11,0.221,11,92%
+Fibroblast,LE,11,0.0049,3.28,2.48,7.27,10/1,0.0117,0.568,11,0.568,11,83%
+CAF (Myofibroblast),LE,11,0.0273,2.36,1.92,6.27,10/1,0.0117,0.353,11,0.353,11,83%
+Myocyte,LE,11,0.1628,3.94,0.0,4.93,8/1,0.0391,0.235,9,0.301,7,58%
+B cell,--,11,0.4464,0.0,0.0,6.25,4/1,0.375,0.017,5,0.037,2,17%
+Mast cell,--,11,0.5322,0.0,-3.08,5.32,4/5,1.0,0.008,9,0.019,2,8%
+Dendritic,--,11,0.8125,0.0,-7.48,0.89,4/5,1.0,0.006,9,0.014,2,17%
+T cell,--,11,0.8125,0.0,0.0,7.11,5/2,0.4531,0.003,7,,0,0%
