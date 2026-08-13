@@ -352,3 +352,86 @@ def test_get_categorical_columns_and_infer_basis(minimal_spatial_adata):
     adata_empty = adata.copy()
     adata_empty.obsm.clear()
     assert viz_core.infer_basis(adata_empty) is None
+
+
+def test_apply_panel_spacing_uses_requested_values(minimal_spatial_adata):
+    """Regression: four modules hardcoded wspace=0.1, ignoring the parameter."""
+    import matplotlib.pyplot as plt
+
+    captured: dict[str, float] = {}
+    fig = plt.figure()
+    fig.subplots_adjust = lambda **kw: captured.update(kw)
+
+    viz_core.apply_panel_spacing(
+        fig, VisualizationParameters(subplot_wspace=0.42, subplot_hspace=0.21)
+    )
+
+    assert captured["wspace"] == pytest.approx(0.42)
+    assert captured["hspace"] == pytest.approx(0.21)
+    plt.close(fig)
+
+
+class TestLargeCategoricalPalettes:
+    """Above 20 categories the palette falls back to the HUSL hue wheel.
+
+    Walking that wheel in order puts near-identical hues next to each other,
+    which is unreadable in a legend — the same problem tab20 is reordered to
+    avoid.
+    """
+
+    @staticmethod
+    def _hues(colors):
+        import colorsys
+
+        return [colorsys.rgb_to_hsv(*c[:3])[0] * 360 for c in colors]
+
+    @pytest.mark.parametrize("n", [21, 22, 30, 40])
+    def test_adjacent_categories_get_distant_hues(self, n: int):
+        hues = self._hues(viz_core.get_category_colors(n))
+        gaps = [
+            min(abs(hues[i] - hues[i + 1]), 360 - abs(hues[i] - hues[i + 1]))
+            for i in range(len(hues) - 1)
+        ]
+        assert min(gaps) > 90
+
+    @pytest.mark.parametrize("n", [21, 25, 33])
+    def test_every_category_still_gets_its_own_colour(self, n: int):
+        colors = viz_core.get_category_colors(n)
+        assert len(colors) == n
+        assert len({tuple(c) for c in colors}) == n
+
+
+def test_plot_spatial_feature_orients_the_axis_like_the_image(minimal_spatial_adata):
+    """Spatial coordinates are image pixels, whose origin is top-left.
+
+    The helper always draws them, so it owns the flip. Leaving it to callers is
+    how enrichment, CNV and cell-communication maps ended up mirrored against
+    every other spatial view.
+    """
+    import matplotlib.pyplot as plt
+
+    adata = minimal_spatial_adata.copy()
+    _fig, ax = plt.subplots()
+    assert bool(ax.yaxis_inverted()) is False
+
+    viz_core.plot_spatial_feature(
+        adata, ax, feature="gene_0", params=VisualizationParameters()
+    )
+
+    assert bool(ax.yaxis_inverted()) is True
+    plt.close("all")
+
+
+def test_spatial_orientation_is_applied_once_per_axis(minimal_spatial_adata):
+    """Two draws on one axis must not flip it back."""
+    import matplotlib.pyplot as plt
+
+    adata = minimal_spatial_adata.copy()
+    _fig, ax = plt.subplots()
+    params = VisualizationParameters()
+
+    viz_core.plot_spatial_feature(adata, ax, feature="gene_0", params=params)
+    viz_core.plot_spatial_feature(adata, ax, feature="gene_1", params=params)
+
+    assert bool(ax.yaxis_inverted()) is True
+    plt.close("all")

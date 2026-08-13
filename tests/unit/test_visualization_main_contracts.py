@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import matplotlib.pyplot as plt
 import pytest
 
+from chatspatial.models.data import VisualizationParameters
 from chatspatial.tools.visualization import main as viz_main
 from chatspatial.utils.exceptions import (
     DataNotFoundError,
@@ -149,3 +150,58 @@ async def test_visualize_data_still_rejects_few_genes_for_feature_type():
     adata = SimpleNamespace(n_obs=60, n_vars=3)
     with pytest.raises(DataNotFoundError, match="too few genes"):
         await viz_main.visualize_data("d1", _Ctx(adata), _params(plot_type="feature"))
+
+
+class _WarningCtx(_Ctx):
+    def __init__(self, adata):
+        super().__init__(adata)
+        self.warnings: list[str] = []
+
+    async def warning(self, msg: str):
+        self.warnings.append(msg)
+
+
+async def test_batch_key_is_not_ignored_in_silence(monkeypatch):
+    """batch_key steers only the integration views.
+
+    Elsewhere it reads like a request to split panels per sample; without a
+    word, a multi-slice dataset comes back overplotted on a single panel.
+    """
+    adata = SimpleNamespace(n_obs=8, n_vars=8)
+    ctx = _WarningCtx(adata)
+
+    async def _handler(*_args, **_kwargs):
+        return plt.figure()
+
+    monkeypatch.setitem(viz_main.PLOT_HANDLERS, "feature", _handler)
+
+    async def _export(*_a, **_k):
+        return "out.png"
+
+    monkeypatch.setattr(viz_main, "optimize_fig_to_image_with_cache", _export)
+
+    params = VisualizationParameters(plot_type="feature", batch_key="batch")
+    await viz_main.visualize_data("d1", ctx, params)
+
+    assert [w for w in ctx.warnings if "batch_key is only used by" in w]
+
+
+async def test_no_batch_warning_when_left_at_its_default(monkeypatch):
+    adata = SimpleNamespace(n_obs=8, n_vars=8)
+    ctx = _WarningCtx(adata)
+
+    async def _handler(*_args, **_kwargs):
+        return plt.figure()
+
+    monkeypatch.setitem(viz_main.PLOT_HANDLERS, "feature", _handler)
+
+    async def _export(*_a, **_k):
+        return "out.png"
+
+    monkeypatch.setattr(viz_main, "optimize_fig_to_image_with_cache", _export)
+
+    await viz_main.visualize_data(
+        "d1", ctx, VisualizationParameters(plot_type="feature")
+    )
+
+    assert not [w for w in ctx.warnings if "batch_key" in w]

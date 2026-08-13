@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 from chatspatial.utils import data_loader as dl
+from chatspatial.utils.adata_utils import get_spatial_platform
 from chatspatial.utils.exceptions import (
     DataCompatibilityError,
     ParameterError,
@@ -305,3 +306,30 @@ def test_load_does_not_freeze_normalized_x_as_raw(minimal_spatial_adata):
 
     # Contract: normalized X should not be frozen as .raw
     assert not is_int or has_neg  # verify our test data IS normalized
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "platform", ["visium", "slide_seq", "merfish", "seqfish", "generic"]
+)
+async def test_load_records_the_platform_on_the_dataset(
+    minimal_spatial_adata, tmp_path: Path, monkeypatch, platform: str
+):
+    """Only the loader knows the platform, and downstream tools need it.
+
+    Whether an observation is one cell or a pool of them decides which methods
+    are even defined on the data, so the answer travels with the object.
+    """
+    adata = minimal_spatial_adata.copy()
+    path = tmp_path / "sample.h5ad"
+    path.write_text("placeholder")
+
+    fake_scanpy = ModuleType("scanpy")
+    fake_scanpy.read_h5ad = lambda _p: adata
+    fake_scanpy.read_visium = lambda _p: adata
+    monkeypatch.setitem(sys.modules, "scanpy", fake_scanpy)
+    monkeypatch.setattr(dl, "_load_visium_data", lambda _p, _sc: adata)
+
+    result = await dl.load_spatial_data(str(path), platform)
+
+    assert get_spatial_platform(result["adata"]) == platform

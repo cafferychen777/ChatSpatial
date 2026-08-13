@@ -499,3 +499,43 @@ async def test_expression_plots_read_adata_x_not_raw(
 def test_subplot_wspace_default_leaves_room_for_tick_labels():
     """Regression: the default of 0.0 pushed y tick labels onto the left panel."""
     assert VisualizationParameters().subplot_wspace >= 0.2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("params_kwargs", "expected"),
+    [
+        ({}, "var"),
+        ({"dotplot_standard_scale": None}, None),
+        ({"dotplot_standard_scale": "group"}, "group"),
+    ],
+    ids=["default-scales-per-gene", "explicit-none-respected", "explicit-group"],
+)
+async def test_heatmap_scales_per_gene_unless_told_otherwise(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, params_kwargs, expected
+):
+    """A heatmap draws every observation, so one loud gene flattens the rest.
+
+    Unlike a dot plot's group means, it needs per-gene scaling to be readable —
+    but an explicit choice must still win.
+    """
+    adata = minimal_spatial_adata.copy()
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(expr, "validate_obs_column", lambda *_a, **_k: None)
+
+    async def _features(*_args, **_kwargs):
+        return ["gene_0", "gene_1"]
+
+    monkeypatch.setattr(expr, "get_validated_features", _features)
+    monkeypatch.setattr(
+        expr.sc.pl, "heatmap", lambda *_a, **kwargs: captured.update(kwargs)
+    )
+
+    params = VisualizationParameters(
+        cluster_key="group", feature=["gene_0", "gene_1"], **params_kwargs
+    )
+    await expr._create_heatmap(adata, params, None)
+    plt.close("all")
+
+    assert captured["standard_scale"] == expected

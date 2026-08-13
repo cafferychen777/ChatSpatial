@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.3.6] - 2026-08-13 - Dataset Semantics and Visualization Consistency
+
+### Added
+
+- Named the comparison whose marker genes over-representation analysis is
+  testing. ORA reads whatever differential expression ran last, so a result
+  could quietly answer a question about a grouping the caller had moved on
+  from.
+- Reported the per-condition mean expression behind every differential
+  expression result. The fields existed but were never populated, leaving a
+  fold change with nothing to judge it against — doubling a gene at 5 counts
+  and one at 5000 are different findings.
+- Warned when `batch_key` is set on a plot type that does not read it. It only
+  steers the integration views, so elsewhere a multi-sample dataset came back
+  silently overplotted on a single panel.
+- Recorded the acquisition platform on each dataset at load time, and warned
+  when an annotation method that models every observation as a single cell is
+  run on a platform whose observations pool many. On Visium this previously
+  returned 99%-confident labels contradicted by the markers themselves; the
+  warning now points at `deconvolve_data`.
+
+### Fixed
+
+- Discarded PCA, UMAP and neighbour graphs when gene selection changes the
+  expression matrix. AnnData only checks that `obsm` matches the number of
+  observations, so an embedding of 19,000 genes stayed attached — and usable —
+  after the matrix was cut to 1,000, and everything built on it described genes
+  the dataset no longer contained.
+- Made spatial orientation the responsibility of the shared plotting helper
+  instead of each caller, which is how enrichment, CNV and cell-communication
+  maps came out mirrored. The flip is now idempotent, so drawing twice on one
+  axis no longer restores the original orientation.
+- Dropped the colour scale from Moran's I bar plots when every p-value has
+  underflowed to the same floor, where shading implied differences that were
+  numerical noise.
+
+- Restored deconvolution plots for datasets round-tripped through h5ad.
+  Sequences stored in `.uns` come back as arrays, and an emptiness check on one
+  raised "truth value of an array is ambiguous", so export -> reload ->
+  visualize crashed on real results.
+- Added a colour scale to the per-cell-type deconvolution panels, which could
+  not be read quantitatively without one.
+- Applied the requested `subplot_wspace`/`subplot_hspace` in deconvolution,
+  feature and multi-gene layouts, which hardcoded their spacing and silently
+  ignored both parameters; spacing now comes from one shared helper.
+- Oriented enrichment, CNV and cell-communication spatial maps like every other
+  spatial view instead of mirroring them vertically.
+- Spread hues apart for categorical palettes above 20 categories. The HUSL
+  fallback walked the hue wheel in order, so neighbouring categories — common
+  in MERFISH and seqFISH annotations — were nearly indistinguishable.
+- Scaled heatmaps per gene by default, since a heatmap draws every observation
+  and one high-expression gene flattened all the others; an explicit
+  `dotplot_standard_scale` still wins.
+- Pointed the CNV genomic-position error at how to add the missing columns.
+
 ## [v1.3.5] - 2026-08-13 - Analysis Recovery and Result Completeness
 
 ### Added

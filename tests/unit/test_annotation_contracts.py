@@ -10,6 +10,7 @@ import pytest
 
 from chatspatial.models.data import AnnotationParameters
 from chatspatial.tools import annotation as ann
+from chatspatial.utils.adata_utils import SPATIAL_PLATFORM_KEY
 from chatspatial.utils.exceptions import (
     DataError,
     DataNotFoundError,
@@ -23,6 +24,7 @@ class DummyCtx:
     def __init__(self, datasets: dict[str, object]):
         self.datasets = datasets
         self.calls: list[str] = []
+        self.warnings: list[str] = []
 
     async def get_adata(self, data_id: str):
         self.calls.append(data_id)
@@ -34,6 +36,7 @@ class DummyCtx:
         self.datasets[data_id] = adata
 
     async def warning(self, _msg: str):
+        self.warnings.append(_msg)
         return None
 
     async def info(self, _msg: str):
@@ -1137,3 +1140,99 @@ async def test_annotate_with_tangram_zero_sum_rows_include_unassigned_in_cell_ty
     # Confidence for unassigned spots must be 0
     unassigned_mask = adata.obs["cell_type_tangram"] == "unassigned"
     assert (adata.obs.loc[unassigned_mask, "confidence_tangram"] == 0.0).all()
+
+
+def _spot_adata(minimal_spatial_adata, platform: str):
+    adata = minimal_spatial_adata.copy()
+    adata.uns[SPATIAL_PLATFORM_KEY] = platform
+    return adata
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["cellassign", "scanvi"])
+async def test_single_cell_models_warn_on_pooled_platforms(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, method: str
+):
+    """A spot pools cells, so a per-cell model reports a mixture as an identity.
+
+    It still returns high-confidence labels, which is what makes it dangerous:
+    on Visium this produced 99%-confident calls contradicted by the markers.
+    """
+    adata = _spot_adata(minimal_spatial_adata, "visium")
+    ctx = DummyCtx({"d1": adata})
+
+    async def _fake(*_args, **_kwargs):
+        raise ParameterError("stop after the check")
+
+    monkeypatch.setattr(ann, f"_annotate_with_{method}", _fake)
+
+    with pytest.raises(ParameterError):
+        await ann.annotate_cell_types("d1", ctx, AnnotationParameters(method=method))
+
+    warned = [w for w in ctx.warnings if "single cell" in w]
+    assert len(warned) == 1
+    assert "deconvolve_data" in warned[0]
+
+
+@pytest.mark.asyncio
+async def test_no_warning_on_single_cell_resolution_platforms(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = _spot_adata(minimal_spatial_adata, "merfish")
+    ctx = DummyCtx({"d1": adata})
+
+    async def _fake(*_args, **_kwargs):
+        raise ParameterError("stop after the check")
+
+    monkeypatch.setattr(ann, "_annotate_with_cellassign", _fake)
+
+    with pytest.raises(ParameterError):
+        await ann.annotate_cell_types(
+            "d1", ctx, AnnotationParameters(method="cellassign")
+        )
+
+    assert not [w for w in ctx.warnings if "single cell" in w]
+
+
+@pytest.mark.asyncio
+async def test_no_warning_for_methods_defined_on_mixtures(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """Tangram maps a reference onto spots as densities, which is well defined."""
+    adata = _spot_adata(minimal_spatial_adata, "visium")
+    ctx = DummyCtx({"d1": adata, "ref": minimal_spatial_adata.copy()})
+
+    async def _fake(*_args, **_kwargs):
+        raise ParameterError("stop after the check")
+
+    monkeypatch.setattr(ann, "_annotate_with_tangram", _fake)
+
+    with pytest.raises(ParameterError):
+        await ann.annotate_cell_types(
+            "d1",
+            ctx,
+            AnnotationParameters(method="tangram", reference_data_id="ref"),
+        )
+
+    assert not [w for w in ctx.warnings if "single cell" in w]
+
+
+@pytest.mark.asyncio
+async def test_no_warning_when_the_platform_is_unknown(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """Datasets loaded as generic carry no platform; do not guess."""
+    adata = minimal_spatial_adata.copy()
+    ctx = DummyCtx({"d1": adata})
+
+    async def _fake(*_args, **_kwargs):
+        raise ParameterError("stop after the check")
+
+    monkeypatch.setattr(ann, "_annotate_with_cellassign", _fake)
+
+    with pytest.raises(ParameterError):
+        await ann.annotate_cell_types(
+            "d1", ctx, AnnotationParameters(method="cellassign")
+        )
+
+    assert not [w for w in ctx.warnings if "single cell" in w]

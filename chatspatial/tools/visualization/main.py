@@ -60,6 +60,9 @@ if TYPE_CHECKING:
 
 
 # Handler registry for dispatch - 11 unified plot_types
+# Plot types that actually read params.batch_key.
+_BATCH_AWARE_PLOT_TYPES = frozenset({"integration"})
+
 PLOT_HANDLERS = {
     # Core feature visualization (replaces spatial, umap, multi_gene, lr_pairs)
     "feature": create_feature_visualization,
@@ -115,6 +118,20 @@ async def visualize_data(
         raise ParameterError(
             f"Invalid plot_type: {params.plot_type}. "
             f"Must be one of {list(PLOT_HANDLERS)}"
+        )
+
+    # batch_key only steers the integration views. Setting it elsewhere reads
+    # like a request to split panels by sample, which these plots do not do —
+    # say so rather than returning every batch overplotted on one panel.
+    explicitly_set: frozenset[str] = frozenset(getattr(params, "model_fields_set", ()))
+    if (
+        "batch_key" in explicitly_set
+        and params.plot_type not in _BATCH_AWARE_PLOT_TYPES
+    ):
+        await ctx.warning(
+            f"batch_key is only used by {sorted(_BATCH_AWARE_PLOT_TYPES)} plots; "
+            f"'{params.plot_type}' ignores it and draws every batch on one "
+            "panel. Subset the dataset per batch to compare them side by side."
         )
 
     try:

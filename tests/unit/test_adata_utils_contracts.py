@@ -7,8 +7,11 @@ import pytest
 from scipy import sparse
 
 from chatspatial.utils.adata_utils import (
+    SPATIAL_PLATFORM_KEY,
     get_raw_data_source,
     get_spatial_key,
+    get_spatial_platform,
+    is_spot_based_platform,
     require_spatial_coords,
     to_dense,
 )
@@ -96,3 +99,36 @@ def test_to_dense_handles_sparse_and_dense_copy_semantics():
     out_copy = to_dense(dense, copy=True)
     out_copy[0, 0] = -1
     assert dense[0, 0] == 0
+
+
+class TestSpatialPlatformResolution:
+    """Whether one observation is a cell or a mixture is a platform property.
+
+    Downstream methods rely on it, and only the loader knows it, so it is
+    recorded on the object at load time.
+    """
+
+    @staticmethod
+    def _adata(platform=None):
+        import anndata as ad
+
+        a = ad.AnnData(np.zeros((4, 3), dtype=np.float32))
+        if platform is not None:
+            a.uns[SPATIAL_PLATFORM_KEY] = platform
+        return a
+
+    @pytest.mark.parametrize("platform", ["visium", "slide_seq"])
+    def test_pooled_platforms_are_spot_based(self, platform: str):
+        assert is_spot_based_platform(self._adata(platform)) is True
+        assert get_spatial_platform(self._adata(platform)) == platform
+
+    @pytest.mark.parametrize("platform", ["xenium", "merfish", "seqfish"])
+    def test_resolved_platforms_are_not_spot_based(self, platform: str):
+        assert is_spot_based_platform(self._adata(platform)) is False
+
+    def test_unknown_platform_is_reported_as_unknown_not_as_single_cell(self):
+        # "generic" and pre-existing datasets genuinely carry no platform, and
+        # callers must be able to tell that apart from single-cell resolution.
+        assert is_spot_based_platform(self._adata()) is None
+        assert is_spot_based_platform(self._adata("generic")) is None
+        assert get_spatial_platform(self._adata()) is None

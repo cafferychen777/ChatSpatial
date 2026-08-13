@@ -256,6 +256,22 @@ def safe_tight_layout(fig: Optional[plt.Figure] = None, **kwargs: Any) -> None:
             plt.tight_layout(**kwargs)
 
 
+def apply_panel_spacing(fig: plt.Figure, params: VisualizationParameters) -> None:
+    """Apply the caller's requested spacing to a multi-panel figure.
+
+    Panel spacing is a user-facing parameter, so every multi-panel layout has to
+    read it. Hardcoding the value silently makes ``subplot_wspace`` do nothing
+    for whichever plots forgot, which shows up as tick labels overlapping the
+    panel to their left.
+    """
+    fig.subplots_adjust(
+        top=0.92,
+        wspace=params.subplot_wspace,
+        hspace=params.subplot_hspace,
+        right=0.98,
+    )
+
+
 def add_colorbar(
     fig: plt.Figure,
     ax: plt.Axes,
@@ -519,6 +535,21 @@ def get_category_colors(
         palette = palette[::2] + palette[1::2]
         return palette[:n_categories]
 
+    if cmap_name == "husl":
+        # HUSL walks the hue wheel in order, so consecutive categories land on
+        # neighbouring hues — with 20+ categories those are barely
+        # distinguishable side by side in a legend. Interleaving the two halves
+        # puts roughly opposite hues next to each other, for the same reason
+        # tab20 is reordered above.
+        palette = sns.color_palette("husl", n_colors=n_categories)
+        half = (n_categories + 1) // 2
+        interleaved = []
+        for i in range(half):
+            interleaved.append(palette[i])
+            if i + half < n_categories:
+                interleaved.append(palette[i + half])
+        return interleaved
+
     if cmap_name in _QUALITATIVE_CMAPS:
         return sns.color_palette(cmap_name, n_colors=n_categories)
 
@@ -744,6 +775,13 @@ def plot_spatial_feature(
     ax.set_aspect("equal")
     ax.set_xlabel("")
     ax.set_ylabel("")
+    # Spatial coordinates are image pixels, whose origin is top-left. This
+    # function always draws them, so the flip belongs here — leaving it to each
+    # caller is how enrichment, CNV and cell-communication maps ended up
+    # mirrored against every other view. invert_yaxis() toggles, so express the
+    # intended state instead: drawing twice on one axis must not flip it back.
+    if not ax.yaxis_inverted():
+        ax.invert_yaxis()
 
     if not params.show_axes:
         ax.axis("off")

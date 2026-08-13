@@ -1522,6 +1522,44 @@ def get_raw_data_source(
 # =============================================================================
 # Expression Data Extraction: Unified sparse/dense handling
 # =============================================================================
+# Key under which the loader records which platform produced a dataset.
+SPATIAL_PLATFORM_KEY = "spatial_platform"
+
+# Platforms whose observations pool several cells. A label assigned to one of
+# these describes a mixture, not a cell identity.
+_SPOT_BASED_PLATFORMS = frozenset({"visium", "slide_seq"})
+
+# Platforms that resolve individual cells.
+_SINGLE_CELL_PLATFORMS = frozenset({"xenium", "merfish", "seqfish"})
+
+
+def get_spatial_platform(adata: Any) -> Optional[str]:
+    """Return the platform recorded when the dataset was loaded.
+
+    Returns None for datasets loaded before this was recorded, or loaded as
+    "generic", where the platform genuinely is not known.
+    """
+    platform = adata.uns.get(SPATIAL_PLATFORM_KEY)
+    return str(platform) if platform is not None else None
+
+
+def is_spot_based_platform(adata: Any) -> Optional[bool]:
+    """Whether each observation pools several cells.
+
+    Returns None when the platform is unknown, so callers can distinguish "this
+    is a spot platform" from "we cannot tell" — absence of evidence is not
+    evidence of single-cell resolution.
+    """
+    platform = get_spatial_platform(adata)
+    if platform is None:
+        return None
+    if platform in _SPOT_BASED_PLATFORMS:
+        return True
+    if platform in _SINGLE_CELL_PLATFORMS:
+        return False
+    return None
+
+
 def to_dense(X: Any, copy: bool = False) -> np.ndarray:
     """
     Convert sparse matrix to dense numpy array.

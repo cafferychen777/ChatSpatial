@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Published GitHub release tag to register (for example, v1.3.5)
+        description: Published GitHub release tag to register (for example, v1.3.6)
         required: true
         type: string
 

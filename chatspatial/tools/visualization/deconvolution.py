@@ -33,6 +33,8 @@ from ...utils.adata_utils import (
 from ...utils.exceptions import DataNotFoundError, ParameterError
 from .core import (
     DeconvolutionData,
+    add_colorbar,
+    apply_panel_spacing,
     auto_spot_size,
     create_figure_from_params,
     get_category_colors,
@@ -155,7 +157,10 @@ async def get_deconvolution_data(
     # Try to get from stored metadata (these live under "statistics", not "parameters")
     stats = get_analysis_metadata_field(adata, analysis_name, "statistics") or {}
     proportions_key = stats.get("proportions_key")
-    cell_types = stats.get("cell_types")
+    # Sequences stored in .uns come back from an h5ad round-trip as ndarrays,
+    # whose truth value is ambiguous; normalise before any emptiness check.
+    stored_cell_types = stats.get("cell_types")
+    cell_types = list(stored_cell_types) if stored_cell_types is not None else []
     dominant_type_key = stats.get("dominant_type_key")
 
     # Fall back to convention-based keys
@@ -626,11 +631,13 @@ async def _create_spatial_multi_deconvolution(
                 proportions_values = pd.Series(proportions_values).fillna(0).values
 
             if get_spatial_key(adata) is not None:
-                plot_spatial_feature(
+                mappable = plot_spatial_feature(
                     adata, values=proportions_values, ax=ax, params=params
                 )
                 ax.set_title(cell_type)
-                ax.invert_yaxis()
+                # Without a scale the panels cannot be read quantitatively.
+                if mappable is not None:
+                    add_colorbar(fig, ax, mappable, params, label="Proportion")
             else:
                 sorted_props = data.proportions[cell_type].sort_values(ascending=False)
                 ax.bar(
@@ -642,7 +649,7 @@ async def _create_spatial_multi_deconvolution(
                 ax.set_xlabel("Spots (sorted)")
                 ax.set_ylabel("Proportion")
 
-    fig.subplots_adjust(top=0.92, wspace=0.1, hspace=0.3, right=0.98)
+    apply_panel_spacing(fig, params)
     return fig
 
 

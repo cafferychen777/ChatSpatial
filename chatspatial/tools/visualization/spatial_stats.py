@@ -344,12 +344,19 @@ def _create_moran_visualization(
     # Color by -log10(p-value) to show significance
     color_min = float(top_genes["neg_log_pval"].min())
     color_max = float(top_genes["neg_log_pval"].max())
-    if color_min == color_max:
-        color_min -= 0.5
-        color_max += 0.5
-    norm = plt.Normalize(vmin=color_min, vmax=color_max)
+    # A colour scale should encode variation that actually exists. Once every
+    # gene clears significance by a wide margin its p-value underflows to the
+    # same floating-point floor, and shading across that spread would advertise
+    # differences that are numerical noise. One decade of p-value is the least
+    # that is worth distinguishing.
+    has_pvalue_gradient = (color_max - color_min) >= 1.0
     cmap = plt.colormaps.get_cmap(params.colormap or "viridis")
-    colors = [cmap(norm(v)) for v in top_genes["neg_log_pval"].values]
+    if has_pvalue_gradient:
+        norm = plt.Normalize(vmin=color_min, vmax=color_max)
+        colors = [cmap(norm(v)) for v in top_genes["neg_log_pval"].values]
+    else:
+        norm = None
+        colors = [cmap(0.6)] * len(top_genes)
 
     # Plot bars
     y_pos = np.arange(len(top_genes))
@@ -395,8 +402,8 @@ def _create_moran_visualization(
     ax.set_xlabel("Moran's I (spatial autocorrelation)", fontsize=12)
     ax.set_ylabel("Gene", fontsize=12)
 
-    # Add colorbar for significance
-    if params.show_colorbar:
+    # Add colorbar for significance, but only when it encodes something.
+    if params.show_colorbar and norm is not None:
         sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
         sm.set_array([])
         cbar = plt.colorbar(sm, ax=ax, pad=0.02)

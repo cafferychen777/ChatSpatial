@@ -755,6 +755,9 @@ def _create_spatial_lr_visualization(
 
         ax.set_title(display_name, fontsize=10)
         ax.set_aspect("equal")
+        # Spatial coordinates are image pixels, so y grows downward; without
+        # this the map is mirrored against every other spatial view.
+        ax.invert_yaxis()
         ax.set_xlabel("")
         ax.set_ylabel("")
         plt.colorbar(scatter, ax=ax, shrink=0.7, label="Score")

@@ -1600,3 +1600,73 @@ async def test_preprocess_data_gene_subsample_requires_hvg_column_presence(
                 remove_ribo_genes=False,
             ),
         )
+
+
+@pytest.mark.asyncio
+async def test_gene_selection_discards_embeddings_of_the_previous_gene_set(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A PCA of one gene set does not describe another.
+
+    AnnData only checks that obsm matches the number of observations, so an
+    embedding computed over 19,000 genes stays attached — and usable — after
+    the matrix is cut to 2,000, and every neighbour graph and clustering built
+    on it would silently describe genes the dataset no longer contains.
+    """
+    _install_lightweight_preprocess_mocks(monkeypatch)
+
+    adata = _make_adata(n_obs=20, n_vars=300)
+    adata.obsm["X_pca"] = np.zeros((adata.n_obs, 10), dtype=float)
+    adata.obsm["X_umap"] = np.zeros((adata.n_obs, 2), dtype=float)
+    adata.uns["neighbors"] = {"params": {"n_neighbors": 15}}
+    adata.obsp["connectivities"] = np.zeros((adata.n_obs, adata.n_obs))
+    ctx = DummyCtx(adata)
+
+    await preprocess_data(
+        "d_stale",
+        ctx,
+        PreprocessingParameters(
+            normalization="log",
+            filter_mito_pct=None,
+            n_hvgs=40,
+            subsample_genes=40,
+            remove_mito_genes=False,
+            remove_ribo_genes=False,
+        ),
+    )
+
+    out = ctx.saved_adata
+    assert out is not None
+    assert out.n_vars == 40
+    assert "X_pca" not in out.obsm
+    assert "X_umap" not in out.obsm
+    assert "neighbors" not in out.uns
+    assert "connectivities" not in out.obsp
+    assert any("Discarded" in msg and "X_pca" in msg for msg in ctx.warnings)
+
+
+@pytest.mark.asyncio
+async def test_embeddings_are_kept_when_the_gene_set_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Nothing is invalidated when every gene survives selection."""
+    _install_lightweight_preprocess_mocks(monkeypatch)
+
+    adata = _make_adata(n_obs=20, n_vars=300)
+    adata.obsm["X_pca"] = np.zeros((adata.n_obs, 10), dtype=float)
+    ctx = DummyCtx(adata)
+
+    await preprocess_data(
+        "d_keep",
+        ctx,
+        PreprocessingParameters(
+            normalization="log",
+            filter_mito_pct=None,
+            n_hvgs=300,
+            remove_mito_genes=False,
+            remove_ribo_genes=False,
+        ),
+    )
+
+    assert "X_pca" in ctx.saved_adata.obsm
+    assert not [m for m in ctx.warnings if "Discarded" in m]

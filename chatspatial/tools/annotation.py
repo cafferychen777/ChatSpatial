@@ -39,6 +39,8 @@ from ..utils.adata_utils import (
     get_cluster_key,
     get_raw_data_source,
     get_spatial_key,
+    get_spatial_platform,
+    is_spot_based_platform,
     shallow_copy_adata,
     to_dense,
     validate_obs_column,
@@ -1517,6 +1519,13 @@ def _build_annotation_suffix(
     return method
 
 
+# Methods whose model assigns each observation to exactly one cell type.
+# Tangram is excluded: it maps a reference onto spots as densities, which is
+# well defined for a mixture. mllmcelltype and scType label clusters rather
+# than individual observations.
+_SINGLE_CELL_MODEL_METHODS = frozenset({"cellassign", "scanvi"})
+
+
 async def annotate_cell_types(
     data_id: str,
     ctx: ToolContext,
@@ -1559,6 +1568,17 @@ async def annotate_cell_types(
 
     # Tangram-specific obsm key (parametrized by suffix)
     tangram_ct_pred_key = f"tangram_ct_pred_{suffix}"
+
+    # A spot pools several cells, so a method that models each observation as
+    # one cell of one type is describing a mixture as an identity. It still
+    # returns confident-looking labels, which is the dangerous part.
+    if params.method in _SINGLE_CELL_MODEL_METHODS and is_spot_based_platform(adata):
+        await ctx.warning(
+            f"{params.method} models every observation as a single cell, but "
+            f"{get_spatial_platform(adata)} spots each pool several cells, so "
+            "the labels describe mixtures and their confidence is overstated. "
+            "Use deconvolve_data to estimate cell type proportions instead."
+        )
 
     # Route to appropriate annotation method
     try:

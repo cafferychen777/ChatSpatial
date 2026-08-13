@@ -123,6 +123,14 @@ async def _create_heatmap(
         )
 
     # Use scanpy's heatmap function
+    # A heatmap draws every observation, so a single high-expression gene
+    # flattens all the others onto one end of the colour scale. Per-gene scaling
+    # is what makes the pattern legible, unlike a dot plot whose group means are
+    # already comparable. An explicit choice always wins.
+    standard_scale = params.dotplot_standard_scale
+    if "dotplot_standard_scale" not in params.model_fields_set:
+        standard_scale = "var"
+
     sc.pl.heatmap(
         adata,
         var_names=features,
@@ -132,7 +140,7 @@ async def _create_heatmap(
         use_raw=False,
         dendrogram=params.dotplot_dendrogram,
         swap_axes=params.dotplot_swap_axes,
-        standard_scale=params.dotplot_standard_scale,
+        standard_scale=standard_scale,
     )
     fig = plt.gcf()
 

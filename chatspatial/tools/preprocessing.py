@@ -236,6 +236,41 @@ def _preserve_raw_counts(adata, params: PreprocessingParameters) -> None:
     }
 
 
+# Representations derived from the expression matrix: a PCA of one gene set
+# does not describe another, and everything built on it inherits that.
+_GENE_SET_DEPENDENT_OBSM = ("X_pca", "X_umap", "X_tsne", "X_diffmap")
+_GENE_SET_DEPENDENT_UNS = ("neighbors", "pca", "umap")
+_GENE_SET_DEPENDENT_OBSP = ("connectivities", "distances")
+
+
+async def _discard_embeddings_of_previous_gene_set(
+    adata: Any,
+    ctx: ToolContext,
+) -> None:
+    """Drop embeddings computed before the gene set changed.
+
+    AnnData only checks that ``obsm`` matches the number of observations, so a
+    PCA of 19,000 genes stays attached — and usable — after the matrix is cut
+    to 2,000. Every downstream neighbour graph, UMAP and clustering would then
+    silently describe genes the dataset no longer contains.
+    """
+    discarded = [key for key in _GENE_SET_DEPENDENT_OBSM if key in adata.obsm]
+    for key in discarded:
+        del adata.obsm[key]
+    for key in _GENE_SET_DEPENDENT_UNS:
+        adata.uns.pop(key, None)
+    for key in _GENE_SET_DEPENDENT_OBSP:
+        if key in adata.obsp:
+            del adata.obsp[key]
+
+    if discarded:
+        await ctx.warning(
+            f"Discarded {', '.join(discarded)} because gene selection changed "
+            "the expression matrix they were computed from. Run "
+            "compute_embeddings again before clustering or spatial analysis."
+        )
+
+
 async def _select_and_subsample_genes(
     adata,
     params: PreprocessingParameters,
@@ -331,6 +366,7 @@ async def _select_and_subsample_genes(
         )
     if requested_gene_count is not None and requested_gene_count < adata.n_vars:
         adata = adata[:, adata.var["highly_variable"]].copy()
+        await _discard_embeddings_of_previous_gene_set(adata, ctx)
     return adata
 
 

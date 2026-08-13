@@ -2306,6 +2306,19 @@ async def analyze_enrichment(
         )
 
     elif params.method == "pathway_ora":
+        # ORA tests the markers left behind by the last differential expression
+        # run — the query genes and the pathway sets come from different places,
+        # and that run need not be the comparison the caller has in mind. Name
+        # the grouping so the result states which question it answered.
+        de_groupby = (
+            adata.uns.get("rank_genes_groups", {}).get("params", {}).get("groupby")
+        )
+        if de_groupby:
+            await ctx.info(
+                f"ORA is testing the marker genes from the last find_markers run, "
+                f"which grouped by '{de_groupby}'."
+            )
+
         result = perform_ora(
             adata=adata,
             gene_sets=gene_sets_dict,

@@ -44,6 +44,7 @@ class DummyCtx:
     def __init__(self, adata):
         self._adata = adata
         self.errors: list[str] = []
+        self.infos: list[str] = []
         self.set_adata_calls: list[tuple[str, object]] = []
 
     async def get_adata(self, data_id: str):
@@ -58,6 +59,9 @@ class DummyCtx:
 
     async def warning(self, _msg: str):
         return None
+
+    async def info(self, msg: str):
+        self.infos.append(msg)
 
 
 def test_filter_significant_statistics_uses_gsea_threshold_025():
@@ -1299,3 +1303,74 @@ def test_perform_enrichr_passes_pvalue_cutoff_through(
     ), "gp.enrichr should receive the user-specified cutoff"
     # Path_A has adj-pval 0.005 < 0.01, Path_B has 0.02 >= 0.01
     assert out.n_significant == 1
+
+
+@pytest.mark.asyncio
+async def test_ora_names_the_comparison_its_genes_came_from(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """ORA tests whatever differential expression ran last.
+
+    The query genes and the pathway sets come from different places, so a run
+    can silently answer a question about a grouping the caller has moved on
+    from. The response has to name it.
+    """
+    adata = minimal_spatial_adata.copy()
+    adata.uns["rank_genes_groups"] = {
+        "names": np.array([("gene_0",)], dtype=[("A", "U16")]),
+        "params": {"groupby": "spatial_domains_spagcn_n8"},
+    }
+    ctx = DummyCtx(adata)
+
+    monkeypatch.setattr(
+        enrichment_module, "load_gene_sets", lambda **_kw: {"set_a": ["gene_0"]}
+    )
+    monkeypatch.setattr(
+        enrichment_module,
+        "perform_ora",
+        lambda **_kw: EnrichmentResult(
+            method="pathway_ora",
+            n_gene_sets=1,
+            n_significant=1,
+            top_gene_sets=["set_a"],
+            top_depleted_sets=[],
+        ),
+    )
+
+    await analyze_enrichment(
+        "d1", ctx, EnrichmentParameters(species="human", method="pathway_ora")
+    )
+
+    named = [m for m in ctx.infos if "spatial_domains_spagcn_n8" in m]
+    assert len(named) == 1
+    assert "find_markers" in named[0]
+
+
+@pytest.mark.asyncio
+async def test_ora_says_nothing_when_no_markers_are_stored(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+    adata.uns.pop("rank_genes_groups", None)
+    ctx = DummyCtx(adata)
+
+    monkeypatch.setattr(
+        enrichment_module, "load_gene_sets", lambda **_kw: {"set_a": ["gene_0"]}
+    )
+    monkeypatch.setattr(
+        enrichment_module,
+        "perform_ora",
+        lambda **_kw: EnrichmentResult(
+            method="pathway_ora",
+            n_gene_sets=1,
+            n_significant=0,
+            top_gene_sets=[],
+            top_depleted_sets=[],
+        ),
+    )
+
+    await analyze_enrichment(
+        "d1", ctx, EnrichmentParameters(species="human", method="pathway_ora")
+    )
+
+    assert not [m for m in ctx.infos if "find_markers" in m]

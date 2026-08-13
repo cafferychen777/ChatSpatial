@@ -414,11 +414,33 @@ def _run_deseq2(
         & (results_df["log2FoldChange"] < -log2fc_threshold)
     ].sort_values("padj")
 
+    # A fold change is only interpretable beside the expression it is a ratio
+    # of: doubling a gene at 5 counts and one at 5000 are not the same finding.
+    condition_labels = metadata_df["condition"]
+    mean_expression = {
+        condition: counts_df.loc[(condition_labels == condition).values].mean()
+        for condition in (condition1, condition2)
+    }
+
+    def _mean_for(condition: str, gene: object) -> Optional[float]:
+        series = mean_expression[condition]
+        if gene not in series.index:
+            return None
+        value = float(series[gene])
+        return value if np.isfinite(value) else None
+
     # Convert to DEGene objects (vectorized, 10x faster than iterrows)
     def df_to_degenes(df: pd.DataFrame, n: int) -> list[DEGene]:
         df_head = df.head(n)
         return [
-            DEGene(gene=str(idx), log2fc=lfc, pvalue=pv, padj=pa)
+            DEGene(
+                gene=str(idx),
+                log2fc=lfc,
+                pvalue=pv,
+                padj=pa,
+                mean_expr_condition1=_mean_for(condition1, idx),
+                mean_expr_condition2=_mean_for(condition2, idx),
+            )
             for idx, lfc, pv, pa in zip(
                 df_head.index,
                 df_head["log2FoldChange"].values,

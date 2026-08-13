@@ -27,6 +27,7 @@ from ...utils.compute import ensure_umap
 from ...utils.exceptions import DataNotFoundError, ParameterError
 from .core import (
     add_colorbar,
+    apply_panel_spacing,
     auto_spot_size,
     create_figure,
     get_category_colors,
@@ -479,13 +480,7 @@ async def _create_multi_feature_plot(
         if not params.show_axes:
             ax.axis("off")
 
-    # Adjust spacing
-    fig.subplots_adjust(
-        top=0.92,
-        wspace=params.subplot_wspace,
-        hspace=params.subplot_hspace,
-        right=0.98,
-    )
+    apply_panel_spacing(fig, params)
     return fig
 
 
@@ -671,5 +666,5 @@ async def _create_lr_pairs_visualization(
             ax.plot(ligand_expr, p(ligand_expr), "r--", alpha=0.8)
             ax_idx += 1
 
-    fig.subplots_adjust(top=0.92, wspace=0.1, hspace=0.3, right=0.98)
+    apply_panel_spacing(fig, params)
     return fig

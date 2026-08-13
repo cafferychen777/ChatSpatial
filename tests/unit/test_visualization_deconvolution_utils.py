@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from chatspatial.models.data import VisualizationParameters
 from chatspatial.tools.visualization import deconvolution as viz_deconv
+from chatspatial.utils.adata_utils import store_analysis_metadata
 from chatspatial.utils.exceptions import DataNotFoundError, ParameterError
 
 
@@ -735,3 +738,38 @@ async def test_create_card_imputation_zero_sum_rows_labeled_unassigned(
     fc = unassigned_patch.get_facecolor()
     assert abs(fc[0] - 0.8) < 0.01 and abs(fc[1] - 0.8) < 0.01
     fig.clf()
+
+
+def test_cell_types_survive_an_h5ad_round_trip(minimal_spatial_adata, tmp_path):
+    """Regression: .uns sequences come back as ndarrays after a round trip.
+
+    `if not cell_types` then raised "truth value of an array is ambiguous",
+    so export -> reload -> visualize crashed on real deconvolution results.
+    """
+    import anndata as ad
+
+    adata = minimal_spatial_adata.copy()
+    n_types = 3
+    adata.obsm["deconvolution_flashdeconv"] = np.tile(
+        np.array([0.5, 0.3, 0.2]), (adata.n_obs, 1)
+    )
+    store_analysis_metadata(
+        adata,
+        analysis_name="deconvolution_flashdeconv",
+        method="flashdeconv",
+        parameters={},
+        results_keys={"obsm": ["deconvolution_flashdeconv"]},
+        statistics={
+            "proportions_key": "deconvolution_flashdeconv",
+            "cell_types": ["A", "B", "C"],
+        },
+    )
+
+    path = tmp_path / "round_trip.h5ad"
+    adata.write_h5ad(path)
+    reloaded = ad.read_h5ad(path)
+
+    data = asyncio.run(viz_deconv.get_deconvolution_data(reloaded, None, None))
+
+    assert list(data.cell_types) == ["A", "B", "C"]
+    assert data.proportions.shape == (adata.n_obs, n_types)

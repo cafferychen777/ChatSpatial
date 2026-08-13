@@ -651,3 +651,58 @@ async def test_co_occurrence_mixed_type_labels_no_type_error(
     )
     assert fig is not None
     fig.clf()
+
+
+class TestMoranBarplotColourEncoding:
+    """Colour should encode p-value variation only when there is any.
+
+    Once every gene clears significance by a wide margin its p-value underflows
+    to the same floating-point floor; shading across that spread advertises
+    differences that are numerical noise.
+    """
+
+    @staticmethod
+    def _moran_frame(neg_log_pvals):
+        return pd.DataFrame(
+            {
+                "I": np.linspace(0.9, 0.5, len(neg_log_pvals)),
+                "pval_norm": [10.0**-v for v in neg_log_pvals],
+                "pval_norm_fdr": [10.0**-v for v in neg_log_pvals],
+            },
+            index=[f"gene_{i}" for i in range(len(neg_log_pvals))],
+        )
+
+    def _render(self, minimal_spatial_adata, monkeypatch, neg_log_pvals):
+        import matplotlib.pyplot as plt
+
+        adata = minimal_spatial_adata.copy()
+        adata.uns["moranI"] = self._moran_frame(neg_log_pvals)
+        fig = viz_ss._create_moran_visualization(
+            adata, VisualizationParameters(plot_type="statistics", subtype="moran")
+        )
+        n_colorbars = sum(
+            1 for a in fig.axes if a.get_label() == "<colorbar>" or a is not fig.axes[0]
+        )
+        bars = [p for p in fig.axes[0].patches]
+        colors = {tuple(np.round(b.get_facecolor(), 4)) for b in bars}
+        plt.close(fig)
+        return n_colorbars, colors
+
+    def test_saturated_pvalues_get_one_colour_and_no_scale(
+        self, minimal_spatial_adata, monkeypatch
+    ):
+        # Everything pinned at the floating-point floor, as real data produces.
+        n_cbar, colors = self._render(
+            minimal_spatial_adata, monkeypatch, [50.0, 50.0, 49.9, 50.1, 50.0]
+        )
+        assert len(colors) == 1
+        assert n_cbar == 0
+
+    def test_real_pvalue_spread_still_gets_a_scale(
+        self, minimal_spatial_adata, monkeypatch
+    ):
+        n_cbar, colors = self._render(
+            minimal_spatial_adata, monkeypatch, [8.0, 5.0, 3.0, 2.0, 1.0]
+        )
+        assert len(colors) > 1
+        assert n_cbar >= 1

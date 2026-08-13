@@ -88,8 +88,12 @@ def _validate_gene_positions(adata: "ad.AnnData") -> None:
     )
     if missing_position_columns:
         raise DataCompatibilityError(
-            "CNV inference requires genomic positions in adata.var. Missing columns: "
-            f"{missing_position_columns}. Expected columns: chromosome, start, end."
+            "CNV inference requires genomic positions in adata.var. Missing "
+            f"columns: {missing_position_columns} (expected chromosome, start, "
+            "end). ChatSpatial does not annotate gene positions; add them from "
+            "a GTF for your genome build, e.g. "
+            "infercnvpy.io.genomic_position_from_gtf(gtf_path, adata), then "
+            "rerun."
         )
     if not adata.var_names.is_unique:
         raise DataCompatibilityError(

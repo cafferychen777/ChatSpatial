@@ -26,6 +26,7 @@ from ...utils.adata_utils import (
 )
 from ...utils.exceptions import DataNotFoundError, ParameterError, ProcessingError
 from .core import (
+    apply_panel_spacing,
     create_figure,
     get_validated_features,
     plot_spatial_feature,
@@ -167,7 +168,7 @@ async def create_multi_gene_visualization(
                 ax.set_title(gene, fontsize=12)
 
     # Adjust spacing
-    fig.subplots_adjust(top=0.92, wspace=0.1, hspace=0.3, right=0.98)
+    apply_panel_spacing(fig, params)
     return fig
 
 
@@ -390,7 +391,7 @@ async def create_lr_pairs_visualization(
             ax_idx += 1
 
     # Adjust spacing
-    fig.subplots_adjust(top=0.92, wspace=0.1, hspace=0.3, right=0.98)
+    apply_panel_spacing(fig, params)
     return fig
 
 

@@ -20,7 +20,9 @@ from ..models.data import SpatialPlatform
 if TYPE_CHECKING:
     from zarr.core.array import Array
     from zarr.core.group import Group
+
 from .adata_utils import (
+    SPATIAL_PLATFORM_KEY,
     check_is_integer_counts,
     ensure_unique_var_names,
     get_adata_profile,
@@ -440,6 +442,9 @@ def _finalize_loaded_data(
     tissue_image_available = has_tissue_image(adata)
     ensure_unique_var_names(adata)
     _ensure_raw_count_sources(adata)
+    # Record the platform on the object itself: downstream tools need to know
+    # whether an observation is one cell or a mixture, and only the loader knows.
+    adata.uns[SPATIAL_PLATFORM_KEY] = platform
     return {
         "name": dataset_name,
         "type": platform,

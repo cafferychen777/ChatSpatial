@@ -679,3 +679,66 @@ def test_create_pseudobulk_rejects_mixed_condition_sample(minimal_spatial_adata)
             condition_key="condition",
             min_cells_per_sample=1,
         )
+
+
+def test_run_deseq2_reports_expression_behind_each_fold_change(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A fold change alone cannot be judged.
+
+    Doubling a gene at 5 counts and one at 5000 are different findings, so each
+    result carries the per-condition means the ratio was taken over.
+    """
+    counts_df = pd.DataFrame(
+        [[300, 5], [340, 7], [100, 6], [120, 4]],
+        index=["s1", "s2", "s3", "s4"],
+        columns=["gene_high", "gene_low"],
+    )
+    metadata_df = pd.DataFrame(
+        {"condition": ["treated", "treated", "control", "control"]},
+        index=counts_df.index,
+    )
+
+    class FakeDeseqDataSet:
+        def __init__(self, counts, metadata, design_factors):
+            pass
+
+        def deseq2(self):
+            pass
+
+    class FakeDeseqStats:
+        def __init__(self, dds, contrast):
+            self.results_df = pd.DataFrame(
+                {
+                    "log2FoldChange": [1.6, 1.6],
+                    "pvalue": [0.001, 0.001],
+                    "padj": [0.01, 0.01],
+                },
+                index=["gene_high", "gene_low"],
+            )
+
+        def summary(self):
+            pass
+
+    dds_mod = ModuleType("pydeseq2.dds")
+    dds_mod.DeseqDataSet = FakeDeseqDataSet
+    ds_mod = ModuleType("pydeseq2.ds")
+    ds_mod.DeseqStats = FakeDeseqStats
+    _patch_pydeseq2_modules(monkeypatch, dds_mod, ds_mod)
+
+    top_up, _down, _n_sig, _df, _up, _down_n = _run_deseq2(
+        counts_df,
+        metadata_df,
+        condition1="treated",
+        condition2="control",
+        n_top_genes=5,
+        padj_threshold=0.05,
+        log2fc_threshold=0.5,
+    )
+
+    by_gene = {g.gene: g for g in top_up}
+    # Identical fold changes, three orders of magnitude apart in expression.
+    assert by_gene["gene_high"].mean_expr_condition1 == pytest.approx(320.0)
+    assert by_gene["gene_high"].mean_expr_condition2 == pytest.approx(110.0)
+    assert by_gene["gene_low"].mean_expr_condition1 == pytest.approx(6.0)
+    assert by_gene["gene_low"].mean_expr_condition2 == pytest.approx(5.0)
