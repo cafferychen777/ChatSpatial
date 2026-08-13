@@ -29,7 +29,7 @@ SCRIPT_DIR = Path(__file__).parent
 REPO_ROOT = SCRIPT_DIR.parent
 load_env_file()
 CODE_ROOT = find_chatspatial_code_dir(required=True)
-BENCH_ROOT = find_benchmarks_dir(required=True)
+BENCH_ROOT = find_benchmarks_dir(required=False) or REPO_ROOT.parent / "benchmarks"
 
 DATA_DIR = REPO_ROOT / "data" / "dlpfc_benchmark"
 SAMPLES_DIR = DATA_DIR / "samples"
