@@ -178,18 +178,19 @@ test: add integration test for trajectory
 Releases follow one tested path rather than a separate set of manual commands:
 
 1. Update the version in `pyproject.toml` and the matching changelog entry.
-2. Merge to `main` and wait for the **Release readiness (Python 3.11)** CI job.
-   It runs the same quality, build, metadata, and archive-content checks used by
-   the release contract, then stores the audited wheel and sdist.
+2. Merge to `main` and wait for CI to pass before deciding to release.
 3. Create an annotated `vX.Y.Z` tag on a commit contained in `main` and push
    only that tag.
-4. The tag workflow requires a successful full CI run for that exact commit and
-   promotes its immutable artifacts without resolving dependencies or rebuilding.
-   Separate single-purpose jobs create a draft GitHub Release, publish the same
-   files to PyPI with trusted publishing, and make the GitHub Release public only
-   after the PyPI upload succeeds. The final job then registers that exact release
-   with the MCP Registry. Repository write access, PyPI's OIDC token, and the MCP
-   Registry's OIDC token are never granted to the same job.
+4. The tag workflow calls the same CI definition on the tagged commit. Its
+   release-readiness job builds and audits the wheel and sdist once, and the
+   remaining release jobs consume those immutable artifacts from the same
+   workflow run. Separate single-purpose jobs create a draft GitHub Release,
+   publish the same files to PyPI with trusted publishing, and make the GitHub
+   Release public only after the PyPI upload succeeds. The final jobs then
+   register that exact release with the MCP Registry and build its versioned,
+   `latest`, and commit-addressed GHCR image once. Repository write access,
+   package write access, PyPI's OIDC token, and the MCP Registry's OIDC token are
+   never granted to the same job.
 
 The release frontend and build backend versions are intentionally pinned in
 `pyproject.toml` and `constraints/release-build.txt`. Runtime dependencies remain
@@ -199,9 +200,17 @@ result instead of embedding one development machine's lockfile.
 Do not move a tag after PyPI accepts a version. PyPI releases and their files
 are immutable; publish a new patch version for any subsequent correction.
 
-Maintainers can dispatch the **Release** workflow on a branch to dry-run CI
-artifact discovery, download, and re-auditing. All externally mutating jobs also
-require a tag-push event, so a manual dispatch cannot create or publish a release.
+The tag workflow has no cross-workflow polling or artifact lookup. Testing,
+building, provenance validation, and publication form one explicit dependency
+graph, so publication cannot start before its own tagged quality gate succeeds.
+The Docker workflow is part of that graph rather than a second tag listener, so
+one release cannot start duplicate image builds or publish an image before its
+GitHub Release is public.
+
+For a non-publishing rehearsal, manually dispatch **CI** with **Build and retain
+the audited wheel and source distribution** enabled. That exercises the shared
+quality and build definition and retains its artifacts, but has no path to any
+external publishing job.
 
 To retry only MCP Registry publication, dispatch **Publish to MCP Registry** with
 the immutable GitHub release tag. The workflow checks out that tag, verifies that

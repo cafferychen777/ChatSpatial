@@ -4,25 +4,24 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+permissions: {}
+
 jobs:
-  verify:
+  provenance:
     name: Verify release provenance
     runs-on: ubuntu-latest
-    outputs:
-      ci_run_id: ${{ steps.ci.outputs.ci_run_id }}
     permissions:
-      actions: read
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up minimum supported Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -32,57 +31,62 @@ jobs:
       - name: Verify version and branch provenance
         run: |
           package_version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            test "$GITHUB_REF_NAME" = "v${package_version}" || {
-              echo "Tag $GITHUB_REF_NAME does not match package version v${package_version}" >&2
-              exit 1
-            }
-          fi
+          test "$GITHUB_REF_NAME" = "v${package_version}" || {
+            echo "Tag $GITHUB_REF_NAME does not match package version v${package_version}" >&2
+            exit 1
+          }
           git fetch origin main:refs/remotes/origin/main
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
             echo "Tag commit $GITHUB_SHA is not part of origin/main" >&2
             exit 1
           }
 
-      - name: Find the successful CI run for this commit
-        id: ci
-        run: |
-          ci_run_id=$(gh run list --workflow CI --commit "$GITHUB_SHA" --event push --status success --limit 10 --json databaseId,headSha --jq 'map(select(.headSha == env.GITHUB_SHA)) | first | .databaseId // empty')
-          test -n "$ci_run_id" || {
-            echo "No successful main CI run found for $GITHUB_SHA" >&2
-            exit 1
-          }
-          echo "ci_run_id=$ci_run_id" >> "$GITHUB_OUTPUT"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  quality:
+    name: Test and build the tagged release
+    needs: provenance
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      build_release_distributions: true
 
-      - name: Download the CI-built distributions
+  verify-distributions:
+    name: Verify release distributions
+    needs: quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up minimum supported Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+
+      - name: Download the tagged release distributions
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-distributions
           path: dist/
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ steps.ci.outputs.ci_run_id }}
 
-      - name: Re-audit the promoted distributions
+      - name: Re-audit the release distributions
         run: python scripts/quality/audit_distribution.py dist
 
   draft-release:
     name: Create draft GitHub Release
-    needs: verify
-    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: verify-distributions
     runs-on: ubuntu-latest
     permissions:
-      actions: read
-      contents: write
+      contents: write # Create the draft GitHub Release and attach distributions.
     steps:
-      - name: Download the CI-built distributions
+      - name: Download the tagged release distributions
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-distributions
           path: dist/
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ needs.verify.outputs.ci_run_id }}
 
       - name: Create draft with verified distributions
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
@@ -97,20 +101,16 @@ jobs:
 
   publish-pypi:
     name: Publish to PyPI
-    needs: [verify, draft-release]
-    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: draft-release
     runs-on: ubuntu-latest
     permissions:
-      actions: read
-      id-token: write
+      id-token: write # Exchange GitHub OIDC for a scoped PyPI publishing token.
     steps:
-      - name: Download the CI-built distributions
+      - name: Download the tagged release distributions
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-distributions
           path: dist/
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ needs.verify.outputs.ci_run_id }}
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
@@ -118,10 +118,9 @@ jobs:
   publish-github:
     name: Publish GitHub Release
     needs: publish-pypi
-    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # Change the verified GitHub Release from draft to public.
     steps:
       - name: Publish GitHub Release
         run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
@@ -131,10 +130,17 @@ jobs:
   publish-mcp-registry:
     name: Publish to MCP Registry
     needs: publish-github
-    if: github.event_name == 'push' && github.ref_type == 'tag'
     permissions:
       contents: read
-      id-token: write
+      id-token: write # Authenticate the immutable release to the MCP Registry.
     uses: ./.github/workflows/mcp-registry.yml
     with:
       release_tag: ${{ github.ref_name }}
+
+  publish-docker:
+    name: Publish Docker image
+    needs: publish-github
+    permissions:
+      contents: read
+      packages: write # Pass GHCR publication authority to the Docker workflow.
+    uses: ./.github/workflows/docker.yml
