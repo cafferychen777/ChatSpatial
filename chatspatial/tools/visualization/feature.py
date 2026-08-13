@@ -482,7 +482,7 @@ async def _create_multi_feature_plot(
     # Adjust spacing
     fig.subplots_adjust(
         top=0.92,
-        wspace=params.subplot_wspace + 0.1,
+        wspace=params.subplot_wspace,
         hspace=params.subplot_hspace,
         right=0.98,
     )

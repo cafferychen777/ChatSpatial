@@ -455,3 +455,47 @@ async def test_correlation_applies_color_scale_transform(
     else:
         assert called["sqrt"] == 1
         assert called["log"] == 0
+
+
+@pytest.mark.asyncio
+async def test_expression_plots_read_adata_x_not_raw(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """Regression: scanpy defaults to adata.raw, which here holds raw counts.
+
+    In the scanpy/Seurat convention ``.raw`` carries normalized, unscaled
+    expression, so scanpy reads it by default. ChatSpatial freezes unnormalized
+    counts there, which let a single high-count gene flatten the colour scale
+    for every other gene.
+    """
+    adata = minimal_spatial_adata.copy()
+    adata.raw = adata.copy()
+    captured: dict[str, dict] = {}
+
+    monkeypatch.setattr(expr, "validate_obs_column", lambda *_a, **_k: None)
+
+    async def _features(*_args, **_kwargs):
+        return ["gene_0", "gene_1"]
+
+    monkeypatch.setattr(expr, "get_validated_features", _features)
+    for name in ("heatmap", "violin", "dotplot"):
+        monkeypatch.setattr(
+            expr.sc.pl,
+            name,
+            lambda *_a, _n=name, **kwargs: captured.__setitem__(_n, kwargs),
+        )
+
+    params = VisualizationParameters(cluster_key="group", feature=["gene_0", "gene_1"])
+    await expr._create_heatmap(adata, params, None)
+    await expr._create_violin(adata, params, None)
+    await expr._create_dotplot(adata, params, None)
+    plt.close("all")
+
+    assert captured["heatmap"]["use_raw"] is False
+    assert captured["violin"]["use_raw"] is False
+    assert captured["dotplot"]["use_raw"] is False
+
+
+def test_subplot_wspace_default_leaves_room_for_tick_labels():
+    """Regression: the default of 0.0 pushed y tick labels onto the left panel."""
+    assert VisualizationParameters().subplot_wspace >= 0.2

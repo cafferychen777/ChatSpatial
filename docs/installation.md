@@ -83,7 +83,7 @@ Codex, use `/mcp`; in Claude Code, run `claude mcp list`.
 Use an exact version when a reproducible runtime matters:
 
 ```bash
-uvx --from 'chatspatial==1.3.3' chatspatial server
+uvx --from 'chatspatial==1.3.4' chatspatial server
 ```
 
 Without a pin, `uvx` resolves the current PyPI release and reuses its cached

@@ -66,7 +66,8 @@ async def test_e2e_load_preprocess_find_markers(
     assert prep.n_cells > 0, ctx
     assert prep.n_genes > 0, ctx
     assert result.n_genes >= 0, ctx
-    assert len(result.top_genes) > 0, ctx
+    assert result.top_genes_by_group, ctx
+    assert all(result.top_genes_by_group.values()), ctx
 
 
 @pytest.mark.e2e

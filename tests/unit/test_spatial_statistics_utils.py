@@ -1905,3 +1905,38 @@ async def test_analyze_spatial_statistics_metadata_includes_mean_score_when_pres
         "n_cells": adata.n_obs,
         "mean_score": 0.45,
     }
+
+
+def test_descriptive_analyses_report_no_significance_count():
+    """Regression: 0 read as "tested, nothing significant".
+
+    Co-occurrence and Ripley's statistics are descriptive — squidpy runs no
+    significance test for them — so the count must be absent, not zero.
+    """
+    co_occurrence = _extract_result_summary(
+        {
+            "n_clusters": 9,
+            "top_features": ["6-7", "7-6"],
+            "summary_metrics": {"mean_co_occurrence": 1.35},
+            "analysis_key": "domains_co_occurrence",
+        },
+        "co_occurrence",
+    )
+    assert co_occurrence["n_significant"] is None
+    assert co_occurrence["top_features"] == ["6-7", "7-6"]
+
+    ripley = _extract_result_summary({"n_clusters": 9}, "ripley")
+    assert ripley["n_significant"] is None
+
+
+def test_tested_analyses_still_report_their_significance_count():
+    summary = _extract_result_summary(
+        {
+            "n_genes_analyzed": 12,
+            "n_significant": 3,
+            "top_highest_autocorrelation": ["g1"],
+            "mean_morans_i": 0.31,
+        },
+        "moran",
+    )
+    assert summary["n_significant"] == 3

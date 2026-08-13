@@ -91,6 +91,190 @@ def _top_n_indices(values: np.ndarray, n_top: int) -> np.ndarray:
     return top_n_desc_indices(values, n_top)
 
 
+# Housekeeping families whose spatial "signal" usually reflects expression
+# level rather than tissue structure (Chen et al. 2016; Eisenberg & Levanon 2013).
+_HOUSEKEEPING_PATTERNS = (
+    "RPS",  # Ribosomal protein small subunit
+    "RPL",  # Ribosomal protein large subunit
+    "Rps",  # Mouse ribosomal small
+    "Rpl",  # Mouse ribosomal large
+    "MT-",  # Mitochondrial (human)
+    "mt-",  # Mitochondrial (mouse)
+    "ACTB",  # Beta-actin
+    "GAPDH",  # Glyceraldehyde-3-phosphate dehydrogenase
+    "EEF1A1",  # Eukaryotic translation elongation factor 1 alpha 1
+    "TUBA1B",  # Tubulin alpha 1b
+    "B2M",  # Beta-2-microglobulin
+)
+
+
+def _select_testable_genes(
+    adata: Any,
+    gene_names: Any,
+    params: SpatialVariableGenesParameters,
+    *,
+    gene_totals: Any = None,
+) -> np.ndarray:
+    """Apply the backend-independent gene filters to a candidate gene list.
+
+    ``filter_mt_genes``, ``filter_ribo_genes`` and ``test_only_hvg`` live on the
+    shared parameter model, so they describe the gene universe for every SVG
+    backend rather than only the one they were first implemented in. Backends
+    keep applying their own method-specific filters on top of this mask.
+
+    Args:
+        adata: Dataset carrying the ``highly_variable`` marker in ``.var``.
+        gene_names: Candidate gene names, which may be a raw-layer superset of
+            ``adata.var_names``.
+        params: Shared SVG parameters.
+        gene_totals: Per-gene expression totals aligned with ``gene_names``,
+            used to rank genes when ``max_genes_tested`` caps the gene set.
+
+    Returns:
+        Boolean mask over ``gene_names`` marking the genes to test.
+    """
+    names = [str(gene) for gene in gene_names]
+    mask = np.ones(len(names), dtype=bool)
+    if not names:
+        return mask
+
+    if params.filter_mt_genes:
+        mask &= ~np.array(
+            [name.startswith(("MT-", "mt-")) for name in names], dtype=bool
+        )
+
+    if params.filter_ribo_genes:
+        mask &= ~np.array(
+            [name.startswith(("RPS", "RPL", "Rps", "Rpl")) for name in names],
+            dtype=bool,
+        )
+
+    if params.test_only_hvg:
+        validate_var_column(
+            adata,
+            "highly_variable",
+            "Highly variable genes marker (test_only_hvg=True requires this)",
+        )
+        hvg_genes_set = set(adata.var_names[adata.var["highly_variable"]])
+        if not hvg_genes_set:
+            raise DataNotFoundError("No HVGs found. Run preprocessing first.")
+
+        hvg_mask = np.array([name in hvg_genes_set for name in names], dtype=bool)
+        if not hvg_mask.any():
+            raise DataError(
+                f"test_only_hvg=True but no overlap found between current gene "
+                f"list ({len(names)} genes) and HVGs ({len(hvg_genes_set)} genes). "
+                "This may occur if adata.raw contains different genes than the "
+                "preprocessed data. Try setting test_only_hvg=False or ensure "
+                "adata.raw is None."
+            )
+        mask &= hvg_mask
+
+    # Runtime cap: keep the highest-expressed survivors. Expression is the only
+    # signal available before testing, and it is what the backends already used.
+    if params.max_genes_tested is not None and mask.sum() > params.max_genes_tested:
+        if gene_totals is None:
+            raise ProcessingError(
+                "max_genes_tested requires per-gene expression totals."
+            )
+        ranked = np.where(mask, np.asarray(gene_totals, dtype=float), -np.inf)
+        capped = np.zeros(len(names), dtype=bool)
+        capped[top_n_desc_indices(ranked, params.max_genes_tested)] = True
+        mask &= capped
+
+    return mask
+
+
+def _rank_significant_genes(
+    genes: Any,
+    qvalues: Any,
+    *,
+    effect_sizes: Any = None,
+    tested: Any = None,
+    limit: int | None = None,
+    alpha: float = 0.05,
+) -> tuple[list[str], list[str]]:
+    """Select significant spatial genes and rank them by signal strength.
+
+    Significance and ranking answer different questions, and q-values can only
+    answer the first. Once thousands of genes clear the FDR threshold their
+    q-values saturate at floating-point precision, so ordering by q-value
+    degrades into the arbitrary column order of the gene matrix and surfaces
+    housekeeping genes as the "top" hits. Effect sizes stay informative across
+    that range, so they drive the ranking whenever a backend reports one.
+
+    Args:
+        genes: Gene names aligned with ``qvalues``.
+        qvalues: Multiple-testing corrected p-values.
+        effect_sizes: Per-gene spatial signal strength, ranked descending.
+            ``None`` for backends that report no effect size, which then fall
+            back to ascending q-value order.
+        tested: Optional mask marking genes the backend actually tested.
+        limit: Maximum genes in the second return value. ``None`` keeps all.
+        alpha: FDR threshold for significance.
+
+    Returns:
+        ``(all_significant, limited)``: every significant gene in ranked order,
+        and that same list truncated to ``limit``.
+    """
+    gene_names = np.asarray(genes, dtype=object)
+    q = np.asarray(qvalues, dtype=float)
+
+    significant = q < alpha
+    if tested is not None:
+        significant &= np.asarray(tested, dtype=bool)
+
+    if effect_sizes is not None:
+        # Stable sort keeps the ordering reproducible when effect sizes tie.
+        order = np.argsort(-np.asarray(effect_sizes, dtype=float), kind="stable")
+    else:
+        order = np.argsort(q, kind="stable")
+
+    ranked = [str(gene) for gene in gene_names[order[significant[order]]]]
+    return ranked, ranked if limit is None else ranked[:limit]
+
+
+async def _warn_housekeeping_dominance(
+    top_genes: list[str],
+    ctx: "ToolContext",
+) -> None:
+    """Warn when housekeeping genes dominate the top-ranked spatial genes.
+
+    Housekeeping dominance means the ranking is tracking expression level
+    rather than tissue structure, which is a backend-independent failure mode.
+    """
+    if not top_genes:
+        return
+
+    housekeeping_genes = [
+        gene
+        for gene in top_genes
+        if any(
+            gene.startswith(pattern) or gene == pattern
+            for pattern in _HOUSEKEEPING_PATTERNS
+        )
+    ]
+
+    n_housekeeping = len(housekeeping_genes)
+    n_top = len(top_genes)
+    if n_housekeeping / n_top <= 0.3:
+        return
+
+    shown = ", ".join(housekeeping_genes[:10])
+    await ctx.warning(
+        f"WARNING:Housekeeping gene dominance detected: {n_housekeeping}/{n_top} "
+        f"({n_housekeeping / n_top * 100:.1f}%) of top genes are housekeeping genes.\n"
+        f"   • Housekeeping genes found: {shown}"
+        f"{'...' if len(housekeeping_genes) > 10 else ''}\n"
+        f"   • These genes may not represent true spatial patterns\n"
+        f"   • Recommendations:\n"
+        f"     1. Use test_only_hvg=True to reduce housekeeping dominance\n"
+        f"     2. Use filter_ribo_genes=True to filter ribosomal genes\n"
+        f"     3. Focus on genes with clear biological relevance\n"
+        f"   • Note: This is a quality warning, not an error"
+    )
+
+
 async def identify_spatial_genes(
     data_id: str,
     ctx: "ToolContext",
@@ -187,16 +371,18 @@ async def _identify_spatial_genes_spatialde(
         - Returns both raw and adjusted p-values
 
     Key Parameters:
-        - n_top_genes: Limit analysis to top N genes (for performance)
-            * If provided, preferentially uses HVGs if available
+        - max_genes_tested: Cap how many genes are tested (for performance)
+            * Keeps the highest-expressed genes that pass the shared filters
             * Recommended: 1000-3000 for quick analysis
-            * None (default): Test all genes (may take 15-30 min for large datasets)
+            * None (default): Test every gene that passes the filters
+              (may take 15-30 min for large datasets)
+        - n_top_genes: Cap how many genes are returned (does not affect runtime)
 
     Performance Notes:
         - ~10 minutes for 14,000 genes (official benchmark)
         - Scales approximately linearly with gene count
         - Performance warning issued when n_genes > 5000
-        - Tip: Use n_top_genes parameter to reduce runtime
+        - Tip: Use max_genes_tested to reduce runtime
 
     Data Requirements:
         - Raw count data (from adata.raw or adata.X)
@@ -250,42 +436,16 @@ async def _identify_spatial_genes_spatialde(
     )
     raw_data = raw_result.X
     var_names = raw_result.var_names
-    var_df = adata.var  # For HVG lookup (HVG info is in adata.var)
 
     # Step 1: Filter low-expression genes ON SPARSE MATRIX (Official recommendation)
     # SpatialDE README: "Filter practically unobserved genes" with total_counts >= 3
     gene_totals, _ = _calculate_sparse_gene_stats(raw_data)
 
-    keep_genes_mask = gene_totals >= 3
-    selected_var_names = var_names[keep_genes_mask]
-    # Step 2: Select top N HVGs ON SPARSE MATRIX (if requested)
-    # This further reduces genes BEFORE densification
-    final_genes = selected_var_names
-
-    if params.n_top_genes is not None and params.n_top_genes < len(selected_var_names):
-        if "highly_variable" in var_df.columns:
-            # Prioritize HVGs if available.
-            # selected_var_names may include raw-only genes not in adata.var;
-            # restrict lookup to genes present in var_df to avoid KeyError.
-            in_var = selected_var_names.isin(var_df.index)
-            hvg_mask = var_df.loc[selected_var_names[in_var], "highly_variable"]
-            hvg_genes = selected_var_names[in_var][hvg_mask]
-
-            if len(hvg_genes) >= params.n_top_genes:
-                # Use HVGs
-                final_genes = hvg_genes[: params.n_top_genes]
-            else:
-                # Not enough HVGs, select by expression
-                gene_totals_filtered = gene_totals[keep_genes_mask]
-                top_indices = top_n_desc_indices(
-                    gene_totals_filtered, params.n_top_genes
-                )
-                final_genes = selected_var_names[top_indices]
-        else:
-            # Select by expression
-            gene_totals_filtered = gene_totals[keep_genes_mask]
-            top_indices = top_n_desc_indices(gene_totals_filtered, params.n_top_genes)
-            final_genes = selected_var_names[top_indices]
+    # Combined with the shared gene universe filters.
+    keep_genes_mask = (gene_totals >= 3) & _select_testable_genes(
+        adata, var_names, params, gene_totals=gene_totals
+    )
+    final_genes = var_names[keep_genes_mask]
 
     # Step 3: Slice sparse matrix to final genes, THEN convert to dense
     # This is where the memory optimization happens: only convert selected genes
@@ -307,7 +467,7 @@ async def _identify_spatial_genes_spatialde(
         await ctx.warning(
             f"WARNING:Running SpatialDE on {n_genes} genes × {n_spots} spots may take {estimated_time}-{estimated_time * 2} minutes.\n"
             f"   • Official benchmark: ~10 min for 14,000 genes\n"
-            f"   • Tip: Use n_top_genes=1000-3000 to test fewer genes\n"
+            f"   • Tip: Use max_genes_tested=1000-3000 to test fewer genes\n"
             f"   • Or use method='flashs'/'sparkx' for faster analysis (typically 1-5 min)"
         )
 
@@ -359,19 +519,14 @@ async def _identify_spatial_genes_spatialde(
         # Adaptive pi0 estimation (SpatialDE default, recommended)
         results["qval"] = spatialde_util.qvalue(results["pval"].values)
 
-    # Sort by q-value
-    results = results.sort_values("qval")
-
-    # Filter significant genes
-    significant_genes_all = results[results["qval"] < 0.05]["g"].tolist()
-
-    # Limit for MCP response (full results stored in adata.var)
-    limit = (
-        params.n_top_genes
-        if params.n_top_genes is not None
-        else len(significant_genes_all)
+    # SpatialDE reports no effect size, so ranking falls back to q-value order.
+    significant_genes_all, significant_genes = _rank_significant_genes(
+        results["g"],
+        results["qval"],
+        limit=params.n_top_genes,
     )
-    significant_genes = significant_genes_all[:limit]
+    if params.warn_housekeeping:
+        await _warn_housekeeping_dominance(significant_genes_all[:50], ctx)
 
     # Store results in adata.var (per-gene statistics)
     adata.var["spatialde_pval"] = results.set_index("g")["pval"]
@@ -439,8 +594,6 @@ async def _identify_spatial_genes_flashs(
     It is designed for speed on sparse count matrices while preserving
     per-gene statistical outputs and FDR control.
     """
-    del ctx  # Signature parity with other methods; no warnings currently emitted.
-
     flashs = require("flashs")
     FlashS = flashs.FlashS
 
@@ -450,6 +603,17 @@ async def _identify_spatial_genes_flashs(
     gene_names = [str(gene) for gene in raw_result.var_names]
 
     coords = require_spatial_coords(adata, spatial_key=params.spatial_key)[:, :2]
+
+    # Shared gene universe: mitochondrial, ribosomal, HVG-only, and runtime cap.
+    gene_totals, _ = _calculate_sparse_gene_stats(X)
+    gene_mask = _select_testable_genes(
+        adata, gene_names, params, gene_totals=gene_totals
+    )
+    if not gene_mask.all():
+        X = X[:, gene_mask]
+        gene_names = [
+            gene for gene, keep in zip(gene_names, gene_mask, strict=True) if keep
+        ]
 
     model = FlashS(
         n_features=params.flashs_n_features,
@@ -510,24 +674,17 @@ async def _identify_spatial_genes_flashs(
         "flashs_tested", tested_mask, fill_value=False, cast_type=bool
     )
 
-    # Compute ranked significant genes for concise MCP response.
-    result_df = pd.DataFrame(
-        {
-            "gene": gene_names,
-            "qval": flashs_result.qvalues,
-            "tested": tested_mask,
-        }
-    ).sort_values("qval")
-    significant_genes_all = result_df[
-        (result_df["tested"]) & (result_df["qval"] < 0.05)
-    ]["gene"].tolist()
-
-    limit = (
-        params.n_top_genes
-        if params.n_top_genes is not None
-        else len(significant_genes_all)
+    # Rank by effect size: FlashS q-values saturate at floating-point precision
+    # once thousands of genes clear the threshold, so they cannot order them.
+    significant_genes_all, significant_genes = _rank_significant_genes(
+        gene_names,
+        flashs_result.qvalues,
+        effect_sizes=flashs_result.effect_size,
+        tested=tested_mask,
+        limit=params.n_top_genes,
     )
-    significant_genes = significant_genes_all[:limit]
+    if params.warn_housekeeping:
+        await _warn_housekeeping_dominance(significant_genes_all[:50], ctx)
 
     from ..utils.adata_utils import store_analysis_metadata
     from ..utils.results_export import export_analysis_result
@@ -604,7 +761,7 @@ async def _identify_spatial_genes_sparkx(
             - Expression filtering: Min percentage + total counts
 
         TIER 2 - Advanced Options (2024 best practice from PMC11537352):
-            - test_only_hvg: Test only highly variable genes [default: False]
+            - test_only_hvg: Test only highly variable genes [default: True]
               * Reduces housekeeping gene dominance
               * Requires prior HVG computation in preprocessing
 
@@ -619,7 +776,7 @@ async def _identify_spatial_genes_sparkx(
         - sparkx_n_cores: Number of CPU cores for parallel processing
         - filter_mt_genes: Filter mitochondrial genes (default: True)
         - filter_ribo_genes: Filter ribosomal genes (default: False)
-        - test_only_hvg: Test only HVGs (default: False)
+        - test_only_hvg: Test only HVGs (default: True)
         - warn_housekeeping: Warn about housekeeping dominance (default: True)
 
     Data Processing:
@@ -675,64 +832,17 @@ async def _identify_spatial_genes_sparkx(
     # Following SPARK-X paper best practices + 2024 literature recommendations
     # All filtering done on sparse matrix to minimize memory usage
 
-    # Initialize gene mask (all True = keep all genes initially)
-    gene_mask = np.ones(len(gene_names), dtype=bool)
+    # Calculate gene statistics on sparse matrix (efficient!)
+    gene_totals, n_expressed = _calculate_sparse_gene_stats(sparse_counts)
 
-    # TIER 1: Mitochondrial gene filtering (SPARK-X paper standard practice)
-    # Use pattern-based detection on gene names (works regardless of data source)
-    if params.filter_mt_genes:
-        mt_mask = np.array([gene.startswith(("MT-", "mt-")) for gene in gene_names])
-        n_mt_genes = mt_mask.sum()
-        if n_mt_genes > 0:
-            gene_mask &= ~mt_mask  # Exclude MT genes
-
-    # TIER 1: Ribosomal gene filtering (optional)
-    # Use pattern-based detection on gene names
-    if params.filter_ribo_genes:
-        ribo_mask = np.array(
-            [gene.startswith(("RPS", "RPL", "Rps", "Rpl")) for gene in gene_names]
-        )
-
-        n_ribo_genes = ribo_mask.sum()
-        if n_ribo_genes > 0:
-            gene_mask &= ~ribo_mask  # Exclude ribosomal genes
-
-    # TIER 2: HVG-only testing (2024 best practice from PMC11537352)
-    if params.test_only_hvg:
-        # Check if HVGs are available in adata.var (the preprocessed data)
-        validate_var_column(
-            adata,
-            "highly_variable",
-            "Highly variable genes marker (test_only_hvg=True requires this)",
-        )
-
-        # Get HVG list from preprocessed data (adata.var)
-        hvg_genes_set = set(adata.var_names[adata.var["highly_variable"]])
-
-        if len(hvg_genes_set) == 0:
-            raise DataNotFoundError("No HVGs found. Run preprocessing first.")
-
-        # Filter gene_names to only include HVGs
-        hvg_mask = np.array([gene in hvg_genes_set for gene in gene_names])
-        n_hvg = hvg_mask.sum()
-
-        if n_hvg == 0:
-            # No overlap between current gene list and HVGs
-            raise DataError(
-                f"test_only_hvg=True but no overlap found between current gene list ({len(gene_names)} genes) "
-                f"and HVGs ({len(hvg_genes_set)} genes). "
-                "This may occur if adata.raw contains different genes than the preprocessed data. "
-                "Try setting test_only_hvg=False or ensure adata.raw is None."
-            )
-
-        gene_mask &= hvg_mask  # Keep only HVGs
+    # Shared gene universe: mitochondrial, ribosomal, HVG-only, and runtime cap.
+    gene_mask = _select_testable_genes(
+        adata, gene_names, params, gene_totals=gene_totals
+    )
 
     # TIER 1: Apply SPARK-X standard filtering (expression-based) - ON SPARSE MATRIX
     percentage = params.sparkx_percentage
     min_total_counts = params.sparkx_min_total_counts
-
-    # Calculate gene statistics on sparse matrix (efficient!)
-    gene_totals, n_expressed = _calculate_sparse_gene_stats(sparse_counts)
 
     # Filter genes: must be expressed in at least percentage of cells AND have min total counts
     min_cells = int(np.ceil(n_spots * percentage))
@@ -884,68 +994,14 @@ async def _identify_spatial_genes_sparkx(
         except Exception as e:
             raise ProcessingError(f"SPARK-X analysis failed: {e}") from e
 
-    # Sort by adjusted p-value
-    results_df = results_df.sort_values("adjusted_pvalue")
-
-    # Filter significant genes
-    significant_genes_all = results_df[results_df["adjusted_pvalue"] < 0.05][
-        "gene"
-    ].tolist()
-
-    # Limit for MCP response (full results stored in adata.var)
-    limit = (
-        params.n_top_genes
-        if params.n_top_genes is not None
-        else len(significant_genes_all)
+    # SPARK-X reports no effect size, so ranking falls back to q-value order.
+    significant_genes_all, significant_genes = _rank_significant_genes(
+        results_df["gene"],
+        results_df["adjusted_pvalue"],
+        limit=params.n_top_genes,
     )
-    significant_genes = significant_genes_all[:limit]
-
-    # TIER 3: Housekeeping gene warnings (post-processing quality check)
-    if params.warn_housekeeping and len(results_df) > 0:
-        # Define housekeeping gene patterns (based on literature)
-        housekeeping_patterns = [
-            "RPS",  # Ribosomal protein small subunit
-            "RPL",  # Ribosomal protein large subunit
-            "Rps",  # Mouse ribosomal small
-            "Rpl",  # Mouse ribosomal large
-            "MT-",  # Mitochondrial (human)
-            "mt-",  # Mitochondrial (mouse)
-            "ACTB",  # Beta-actin
-            "GAPDH",  # Glyceraldehyde-3-phosphate dehydrogenase
-            "EEF1A1",  # Eukaryotic translation elongation factor 1 alpha 1
-            "TUBA1B",  # Tubulin alpha 1b
-            "B2M",  # Beta-2-microglobulin
-        ]
-
-        # Check top significant genes (up to 50)
-        top_genes_to_check = results_df.head(50)["gene"].tolist()
-
-        # Mark housekeeping genes
-        housekeeping_genes = [
-            gene
-            for gene in top_genes_to_check
-            if any(
-                gene.startswith(pattern) or gene == pattern
-                for pattern in housekeeping_patterns
-            )
-        ]
-
-        n_housekeeping = len(housekeeping_genes)
-        n_top = len(top_genes_to_check)
-        housekeeping_ratio = n_housekeeping / n_top if n_top > 0 else 0
-
-        # Warn if >30% are housekeeping genes
-        if housekeeping_ratio > 0.3:
-            await ctx.warning(
-                f"WARNING:Housekeeping gene dominance detected: {n_housekeeping}/{n_top} ({housekeeping_ratio * 100:.1f}%) of top genes are housekeeping genes.\n"
-                f"   • Housekeeping genes found: {', '.join(housekeeping_genes[:10])}{'...' if len(housekeeping_genes) > 10 else ''}\n"
-                f"   • These genes may not represent true spatial patterns\n"
-                f"   • Recommendations:\n"
-                f"     1. Use test_only_hvg=True to reduce housekeeping dominance (2024 best practice)\n"
-                f"     2. Use filter_ribo_genes=True to filter ribosomal genes\n"
-                f"     3. Focus on genes with clear biological relevance\n"
-                f"   • Note: This is a quality warning, not an error"
-            )
+    if params.warn_housekeeping:
+        await _warn_housekeeping_dominance(significant_genes_all[:50], ctx)
 
     # Store results in adata.var (per-gene statistics)
     adata.var["sparkx_pval"] = pd.Series(

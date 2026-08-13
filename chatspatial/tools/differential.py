@@ -130,28 +130,21 @@ async def differential_expression(
         # Get all groups (from filtered data)
         groups = adata_filtered.obs[group_key].unique()
 
-        # Collect top genes from all groups
-        all_top_genes = []
+        # Keep every group's markers under its own key. Group order follows the
+        # sorted result columns rather than the order spots happen to appear in
+        # the matrix, so the response does not depend on row ordering.
+        top_genes_by_group: dict[str, list[str]] = {}
         if (
             "rank_genes_groups" in adata_filtered.uns
             and "names" in adata_filtered.uns["rank_genes_groups"]
         ):
             gene_names = adata_filtered.uns["rank_genes_groups"]["names"]
-            for group in groups:
-                if str(group) in gene_names.dtype.names:
-                    genes = list(gene_names[str(group)][:n_top_genes])
-                    all_top_genes.extend(genes)
+            for group in sorted(gene_names.dtype.names):
+                top_genes_by_group[str(group)] = list(gene_names[group][:n_top_genes])
 
-        # Remove duplicates while preserving order
-        seen = set()
-        top_genes = []
-        for gene in all_top_genes:
-            if gene not in seen:
-                seen.add(gene)
-                top_genes.append(gene)
-
-        # Limit to n_top_genes
-        top_genes = top_genes[:n_top_genes]
+        n_distinct_genes = len(
+            {gene for genes in top_genes_by_group.values() for gene in genes}
+        )
 
         # Publish only after the statistical workspace has completed. The
         # managed dataset remains read-only until metadata and export succeed.
@@ -189,8 +182,8 @@ async def differential_expression(
         result = DifferentialExpressionResult(
             data_id=data_id,
             comparison=f"All groups in {group_key}",
-            n_genes=len(top_genes),
-            top_genes=top_genes,
+            n_genes=n_distinct_genes,
+            top_genes_by_group=top_genes_by_group,
             statistics={
                 "method": method,
                 "n_groups": len(groups),
@@ -443,7 +436,7 @@ async def differential_expression(
         data_id=data_id,
         comparison=comparison,
         n_genes=len(top_genes),
-        top_genes=top_genes,
+        top_genes_by_group={str(group1): top_genes},
         statistics=statistics,
     )
     await ctx.set_adata(data_id, result_adata)
@@ -725,7 +718,7 @@ async def _run_pydeseq2(
         data_id=data_id,
         comparison=f"{group1} vs {group2}",
         n_genes=len(top_genes),
-        top_genes=top_genes,
+        top_genes_by_group={str(group1): top_genes},
         statistics={
             "method": "pydeseq2",
             "n_pseudobulk_samples": n_samples,

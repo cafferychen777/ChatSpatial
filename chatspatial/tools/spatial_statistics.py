@@ -521,7 +521,7 @@ def _extract_result_summary(
     """
     summary: dict[str, Any] = {
         "n_features_analyzed": 0,
-        "n_significant": 0,
+        "n_significant": None,
         "top_features": [],
         "summary_metrics": {},
         "results_key": None,
@@ -530,14 +530,14 @@ def _extract_result_summary(
     # Extract based on analysis type
     if analysis_type == "moran":
         summary["n_features_analyzed"] = result.get("n_genes_analyzed", 0)
-        summary["n_significant"] = result.get("n_significant", 0)
+        summary["n_significant"] = result.get("n_significant")
         summary["top_features"] = result.get("top_highest_autocorrelation", [])[:10]
         summary["summary_metrics"] = {"mean_morans_i": result.get("mean_morans_i", 0.0)}
         summary["results_key"] = result.get("analysis_key")
 
     elif analysis_type == "geary":
         summary["n_features_analyzed"] = result.get("n_genes_analyzed", 0)
-        summary["n_significant"] = result.get("n_significant", 0)
+        summary["n_significant"] = result.get("n_significant")
         summary["top_features"] = result.get("top_positive_autocorrelation", [])[:10]
         summary["summary_metrics"] = {
             "mean_gearys_c": result.get("mean_gearys_c", 0.0),
@@ -621,7 +621,7 @@ def _extract_result_summary(
 
     elif analysis_type == "co_occurrence":
         summary["n_features_analyzed"] = result.get("n_clusters", 0)
-        summary["n_significant"] = result.get("n_significant", 0)
+        summary["n_significant"] = result.get("n_significant")
         summary["top_features"] = result.get("top_features", [])[:10]
         summary["summary_metrics"] = result.get("summary_metrics", {})
         summary["results_key"] = result.get("analysis_key")
@@ -632,7 +632,7 @@ def _extract_result_summary(
 
     elif analysis_type == "centrality":
         summary["n_features_analyzed"] = result.get("n_clusters", 0)
-        summary["n_significant"] = result.get("n_significant", 0)
+        summary["n_significant"] = result.get("n_significant")
         summary["top_features"] = result.get("top_features", [])[:10]
         summary["summary_metrics"] = result.get("summary_metrics", {})
         summary["results_key"] = result.get("analysis_key")

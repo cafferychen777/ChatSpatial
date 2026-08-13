@@ -27,8 +27,12 @@ async def test_find_markers_all_groups_contract(
 
     assert result.data_id == dataset.id
     assert result.comparison == "All groups in group"
-    assert result.n_genes == len(result.top_genes)
-    assert 0 < len(result.top_genes) <= 5
+    # Every group keeps its own ranking; a flat list could only carry one.
+    assert len(result.top_genes_by_group) > 1
+    assert all(0 < len(g) <= 5 for g in result.top_genes_by_group.values())
+    assert result.n_genes == len(
+        {gene for genes in result.top_genes_by_group.values() for gene in genes}
+    )
 
     stored = await data_manager.get_dataset(dataset.id)
     assert "rank_genes_groups" in stored["adata"].uns
@@ -51,8 +55,9 @@ async def test_find_markers_group_vs_rest_contract(
     result = await find_markers(data_id=dataset.id, params=params)
 
     assert result.comparison == "A vs rest"
-    assert result.n_genes == len(result.top_genes)
-    assert 0 < len(result.top_genes) <= 6
+    assert list(result.top_genes_by_group) == ["A"]
+    assert result.n_genes == len(result.top_genes_by_group["A"])
+    assert 0 < result.n_genes <= 6
 
 
 @pytest.mark.integration
@@ -73,8 +78,9 @@ async def test_find_markers_specific_groups_contract(
     result = await find_markers(data_id=dataset.id, params=params)
 
     assert result.comparison == "A vs B"
-    assert result.n_genes == len(result.top_genes)
-    assert 0 < len(result.top_genes) <= 4
+    assert list(result.top_genes_by_group) == ["A"]
+    assert result.n_genes == len(result.top_genes_by_group["A"])
+    assert 0 < result.n_genes <= 4
 
 
 @pytest.mark.integration

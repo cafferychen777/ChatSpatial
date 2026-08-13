@@ -276,7 +276,9 @@ async def test_spatialde_success_stores_var_outputs_and_metadata(
     out = await sg._identify_spatial_genes_spatialde(
         "d1",
         adata,
-        SpatialVariableGenesParameters(method="spatialde", spatial_key="spatial"),
+        SpatialVariableGenesParameters(
+            method="spatialde", spatial_key="spatial", test_only_hvg=False
+        ),
         DummyCtx(),
     )
     assert out.method == "spatialde"
@@ -349,7 +351,9 @@ async def test_flashs_success_stores_var_outputs_and_metadata(
     out = await sg._identify_spatial_genes_flashs(
         "d_flashs",
         adata,
-        SpatialVariableGenesParameters(method="flashs", spatial_key="spatial"),
+        SpatialVariableGenesParameters(
+            method="flashs", spatial_key="spatial", test_only_hvg=False
+        ),
         DummyCtx(),
     )
 
@@ -534,7 +538,9 @@ async def test_spatialde_warns_for_large_gene_set_runtime(
     out = await sg._identify_spatial_genes_spatialde(
         "d3",
         adata,
-        SpatialVariableGenesParameters(method="spatialde", spatial_key="spatial"),
+        SpatialVariableGenesParameters(
+            method="spatialde", spatial_key="spatial", test_only_hvg=False
+        ),
         ctx,
     )
 
@@ -543,7 +549,7 @@ async def test_spatialde_warns_for_large_gene_set_runtime(
 
 
 @pytest.mark.asyncio
-async def test_spatialde_prefers_hvgs_and_passes_pi0_to_qvalue(
+async def test_spatialde_tests_only_hvgs_and_passes_pi0_to_qvalue(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata[:, :6].copy()
@@ -610,19 +616,19 @@ async def test_spatialde_prefers_hvgs_and_passes_pi0_to_qvalue(
         SpatialVariableGenesParameters(
             method="spatialde",
             spatial_key="spatial",
-            n_top_genes=3,
+            test_only_hvg=True,
             spatialde_pi0=0.7,
         ),
         DummyCtx(),
     )
 
-    assert out.n_genes_analyzed == 3
+    assert out.n_genes_analyzed == 4
     assert captured["pi0"] == 0.7
-    assert captured["genes_in_run"] == ["gene_0", "gene_2", "gene_3"]
+    assert captured["genes_in_run"] == ["gene_0", "gene_2", "gene_3", "gene_5"]
 
 
 @pytest.mark.asyncio
-async def test_spatialde_falls_back_to_expression_when_hvgs_insufficient(
+async def test_spatialde_caps_tested_genes_by_expression(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata[:, :5].copy()
@@ -686,7 +692,8 @@ async def test_spatialde_falls_back_to_expression_when_hvgs_insufficient(
         SpatialVariableGenesParameters(
             method="spatialde",
             spatial_key="spatial",
-            n_top_genes=3,
+            test_only_hvg=False,
+            max_genes_tested=3,
         ),
         DummyCtx(),
     )
@@ -696,7 +703,7 @@ async def test_spatialde_falls_back_to_expression_when_hvgs_insufficient(
 
 
 @pytest.mark.asyncio
-async def test_spatialde_selects_by_expression_without_hvg_column(
+async def test_spatialde_caps_tested_genes_without_hvg_column(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata[:, :4].copy()
@@ -759,7 +766,8 @@ async def test_spatialde_selects_by_expression_without_hvg_column(
         SpatialVariableGenesParameters(
             method="spatialde",
             spatial_key="spatial",
-            n_top_genes=2,
+            test_only_hvg=False,
+            max_genes_tested=2,
         ),
         DummyCtx(),
     )
@@ -821,7 +829,9 @@ async def test_flashs_reindexs_to_adata_var_and_defaults_tested_mask(
     out = await sg._identify_spatial_genes_flashs(
         "d_flashs_reindex",
         adata,
-        SpatialVariableGenesParameters(method="flashs", spatial_key="spatial"),
+        SpatialVariableGenesParameters(
+            method="flashs", spatial_key="spatial", test_only_hvg=False
+        ),
         DummyCtx(),
     )
 
@@ -1069,3 +1079,392 @@ async def test_sparkx_invalid_output_formats_raise_processing_error(
             ),
             DummyCtx(),
         )
+
+
+class TestRankSignificantGenes:
+    """Ranking must survive q-value saturation.
+
+    Every backend produces q-values that bottom out at floating-point precision
+    once thousands of genes clear the FDR threshold, at which point q-value
+    order carries no information and falls back to the column order of the gene
+    matrix. These tests pin the effect-size ranking that replaced it.
+    """
+
+    def test_saturated_qvalues_are_ranked_by_effect_size(self):
+        # Real FlashS output on a Visium slide: thousands of genes share the
+        # exact same floor q-value, so only effect size separates them.
+        genes = ["Rps16", "Weak", "Slc17a7", "Fbl"]
+        qvalues = np.full(4, 4.824736e-15)
+        effect_sizes = np.array([33.2, 1.4, 104.9, 11.4])
+
+        all_significant, top = sg._rank_significant_genes(
+            genes, qvalues, effect_sizes=effect_sizes, limit=2
+        )
+
+        assert all_significant == ["Slc17a7", "Rps16", "Fbl", "Weak"]
+        assert top == ["Slc17a7", "Rps16"]
+
+    def test_ranking_ignores_meaningless_qvalue_spread(self):
+        # A stronger gene must not lose to a marginally smaller q-value when
+        # both are far below any threshold anyone would interpret.
+        genes = ["barely_smaller_q", "much_stronger"]
+        qvalues = np.array([1e-30, 1e-29])
+        effect_sizes = np.array([2.0, 120.0])
+
+        all_significant, _ = sg._rank_significant_genes(
+            genes, qvalues, effect_sizes=effect_sizes
+        )
+
+        assert all_significant == ["much_stronger", "barely_smaller_q"]
+
+    def test_without_effect_size_falls_back_to_qvalue_order(self):
+        # SPARK-X and SpatialDE report no effect size.
+        genes = ["mid", "best", "not_significant"]
+        qvalues = np.array([0.04, 0.001, 0.5])
+
+        all_significant, _ = sg._rank_significant_genes(genes, qvalues)
+
+        assert all_significant == ["best", "mid"]
+
+    def test_untested_genes_are_excluded_despite_effect_size(self):
+        genes = ["tested", "untested"]
+        qvalues = np.array([0.001, 0.001])
+        effect_sizes = np.array([1.0, 99.0])
+        tested = np.array([True, False])
+
+        all_significant, _ = sg._rank_significant_genes(
+            genes, qvalues, effect_sizes=effect_sizes, tested=tested
+        )
+
+        assert all_significant == ["tested"]
+
+    def test_limit_none_keeps_every_significant_gene(self):
+        genes = ["a", "b", "c"]
+        qvalues = np.array([0.001, 0.002, 0.9])
+
+        all_significant, top = sg._rank_significant_genes(genes, qvalues)
+
+        assert all_significant == top == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_warn_housekeeping_dominance_fires_above_threshold():
+    ctx = DummyCtx()
+    await sg._warn_housekeeping_dominance(["Rps16", "Rpl4", "mt-Co1", "Ttr"], ctx)
+    assert len(ctx.warnings) == 1
+    assert "Housekeeping gene dominance" in ctx.warnings[0]
+
+
+@pytest.mark.asyncio
+async def test_warn_housekeeping_dominance_silent_on_real_spatial_genes():
+    ctx = DummyCtx()
+    await sg._warn_housekeeping_dominance(["Ttr", "Mbp", "Slc17a7", "Rps16"], ctx)
+    assert ctx.warnings == []
+
+
+@pytest.mark.asyncio
+async def test_flashs_returns_effect_size_ranked_genes(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """End-to-end guard: saturated q-values must not decide the returned order."""
+    adata = minimal_spatial_adata.copy()
+
+    class _SaturatedResult:
+        def __init__(self, genes: list[str]):
+            n = len(genes)
+            self.gene_names = genes
+            # Identical floor q-values: gene-matrix order is the only tiebreak
+            # available to a q-value sort, which is exactly the bug.
+            self.qvalues = np.full(n, 4.824736e-15)
+            self.pvalues = np.full(n, 1e-300)
+            self.statistics = np.linspace(1.0, 2.0, n)
+            # Ascending effect size, so the correct ranking is the reverse of
+            # the input order.
+            self.effect_size = np.arange(1.0, n + 1.0)
+            self.pvalues_binary = np.full(n, 1e-300)
+            self.pvalues_rank = np.full(n, 1e-300)
+            self.n_expressed = np.arange(10, 10 + n)
+            self.tested_mask = np.ones(n, dtype=bool)
+            self.n_tested = n
+            self.n_significant = n
+
+    class _FakeFlashS:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def fit_test(self, coords, X, gene_names):
+            del coords, X
+            return _SaturatedResult(gene_names)
+
+    fake_flashs = ModuleType("flashs")
+    fake_flashs.FlashS = _FakeFlashS
+    monkeypatch.setitem(sys.modules, "flashs", fake_flashs)
+    monkeypatch.setattr(sg, "require", _required_module)
+    monkeypatch.setattr(
+        sg,
+        "get_raw_data_source",
+        lambda _adata, **_kw: SimpleNamespace(
+            X=_adata.X, var_names=_adata.var_names, source="current"
+        ),
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.adata_utils.store_analysis_metadata",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.results_export.export_analysis_result",
+        lambda *_args, **_kwargs: [],
+    )
+
+    out = await sg._identify_spatial_genes_flashs(
+        "d_flashs_rank",
+        adata,
+        SpatialVariableGenesParameters(
+            method="flashs", spatial_key="spatial", test_only_hvg=False, n_top_genes=3
+        ),
+        DummyCtx(),
+    )
+
+    expected = list(reversed([str(name) for name in adata.var_names]))[:3]
+    assert out.spatial_genes == expected
+
+
+class TestSelectTestableGenes:
+    """The shared gene-universe filters apply to every backend.
+
+    ``filter_mt_genes``, ``filter_ribo_genes`` and ``test_only_hvg`` live on the
+    shared parameter model but were originally honoured only by SPARK-X, so
+    FlashS silently tested the full gene matrix.
+    """
+
+    @staticmethod
+    def _adata_with_hvg(hvg_genes: set[str], genes: list[str]):
+        import anndata as ad
+
+        adata = ad.AnnData(np.zeros((3, len(genes)), dtype=np.float32))
+        adata.var_names = genes
+        adata.var["highly_variable"] = [g in hvg_genes for g in genes]
+        return adata
+
+    def test_mito_genes_are_dropped_by_default(self):
+        genes = ["mt-Co1", "Ttr", "MT-ND1"]
+        adata = self._adata_with_hvg(set(genes), genes)
+        mask = sg._select_testable_genes(
+            adata, genes, SpatialVariableGenesParameters(method="flashs")
+        )
+        assert list(mask) == [False, True, False]
+
+    def test_ribosomal_genes_only_dropped_when_requested(self):
+        genes = ["Rps16", "Ttr"]
+        adata = self._adata_with_hvg(set(genes), genes)
+        params = SpatialVariableGenesParameters(method="flashs")
+        assert list(sg._select_testable_genes(adata, genes, params)) == [True, True]
+
+        params_filtered = SpatialVariableGenesParameters(
+            method="flashs", filter_ribo_genes=True
+        )
+        assert list(sg._select_testable_genes(adata, genes, params_filtered)) == [
+            False,
+            True,
+        ]
+
+    def test_non_hvg_genes_are_dropped_when_test_only_hvg(self):
+        genes = ["Ttr", "boring_gene"]
+        adata = self._adata_with_hvg({"Ttr"}, genes)
+        mask = sg._select_testable_genes(
+            adata, genes, SpatialVariableGenesParameters(method="flashs")
+        )
+        assert list(mask) == [True, False]
+
+    def test_cap_ranks_only_genes_that_passed_the_filters(self):
+        # The mitochondrial gene is the highest expressed, but it is dropped
+        # before the cap, so it must not consume one of the two slots.
+        genes = ["mt-Co1", "hi", "mid", "lo"]
+        adata = self._adata_with_hvg(set(genes), genes)
+        params = SpatialVariableGenesParameters(method="flashs", max_genes_tested=2)
+
+        mask = sg._select_testable_genes(
+            adata, genes, params, gene_totals=np.array([1000.0, 30.0, 20.0, 10.0])
+        )
+
+        assert list(mask) == [False, True, True, False]
+
+    def test_cap_above_survivor_count_changes_nothing(self):
+        genes = ["a", "b"]
+        adata = self._adata_with_hvg(set(genes), genes)
+        params = SpatialVariableGenesParameters(method="flashs", max_genes_tested=99)
+
+        mask = sg._select_testable_genes(
+            adata, genes, params, gene_totals=np.array([2.0, 1.0])
+        )
+
+        assert list(mask) == [True, True]
+
+    def test_cap_without_expression_totals_is_an_error(self):
+        genes = ["a", "b"]
+        adata = self._adata_with_hvg(set(genes), genes)
+        params = SpatialVariableGenesParameters(method="flashs", max_genes_tested=1)
+
+        with pytest.raises(ProcessingError, match="expression totals"):
+            sg._select_testable_genes(adata, genes, params)
+
+    def test_missing_hvg_column_raises_actionable_error(self):
+        import anndata as ad
+
+        adata = ad.AnnData(np.zeros((3, 2), dtype=np.float32))
+        adata.var_names = ["a", "b"]
+        with pytest.raises(DataError, match="Highly variable genes marker"):
+            sg._select_testable_genes(
+                adata, ["a", "b"], SpatialVariableGenesParameters(method="flashs")
+            )
+
+
+@pytest.mark.asyncio
+async def test_flashs_tests_only_highly_variable_genes(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """Regression: FlashS used to ignore test_only_hvg and test every gene."""
+    adata = minimal_spatial_adata.copy()
+    hvg = {"gene_1", "gene_5", "gene_9"}
+    adata.var["highly_variable"] = [g in hvg for g in adata.var_names]
+    seen: dict[str, list[str]] = {}
+
+    class _FakeResult:
+        def __init__(self, genes: list[str]):
+            n = len(genes)
+            self.gene_names = genes
+            self.pvalues = np.full(n, 1e-40)
+            self.qvalues = np.full(n, 1e-40)
+            self.statistics = np.ones(n)
+            self.effect_size = np.arange(1.0, n + 1.0)
+            self.pvalues_binary = np.full(n, 1e-40)
+            self.pvalues_rank = np.full(n, 1e-40)
+            self.n_expressed = np.arange(n)
+            self.tested_mask = np.ones(n, dtype=bool)
+            self.n_tested = n
+            self.n_significant = n
+
+    class _FakeFlashS:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def fit_test(self, coords, X, gene_names):
+            del coords
+            seen["genes"] = list(gene_names)
+            seen["n_cols"] = X.shape[1]
+            return _FakeResult(gene_names)
+
+    fake_flashs = ModuleType("flashs")
+    fake_flashs.FlashS = _FakeFlashS
+    monkeypatch.setitem(sys.modules, "flashs", fake_flashs)
+    monkeypatch.setattr(sg, "require", _required_module)
+    monkeypatch.setattr(
+        sg,
+        "get_raw_data_source",
+        lambda _adata, **_kw: SimpleNamespace(
+            X=_adata.X, var_names=_adata.var_names, source="current"
+        ),
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.adata_utils.store_analysis_metadata",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.results_export.export_analysis_result",
+        lambda *_args, **_kwargs: [],
+    )
+
+    out = await sg._identify_spatial_genes_flashs(
+        "d_flashs_hvg",
+        adata,
+        SpatialVariableGenesParameters(method="flashs", spatial_key="spatial"),
+        DummyCtx(),
+    )
+
+    assert sorted(seen["genes"]) == sorted(hvg)
+    assert seen["n_cols"] == len(hvg)
+    assert out.n_genes_analyzed == len(hvg)
+    # Genes that were never tested still get a row, flagged as untested.
+    assert not bool(adata.var.loc["gene_0", "flashs_tested"])
+    assert bool(adata.var.loc["gene_1", "flashs_tested"])
+
+
+@pytest.mark.asyncio
+async def test_spatialde_n_top_genes_limits_output_not_input(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """Regression: SpatialDE read n_top_genes as "how many genes to test".
+
+    Every other backend read it as "how many genes to return", which is what the
+    MCP schema documents. Input-side capping now belongs to max_genes_tested.
+    """
+    adata = minimal_spatial_adata[:, :5].copy()
+    adata.X = np.tile(
+        np.asarray([[10, 9, 8, 1, 0]], dtype=np.float32), (adata.n_obs, 1)
+    )
+    captured: dict[str, object] = {}
+
+    fake_naivede = ModuleType("NaiveDE")
+    fake_naivede.stabilize = lambda x: x
+    fake_naivede.regress_out = lambda _tc, expr_t, _formula: expr_t
+
+    def _fake_run(_coords, expr):
+        captured["genes_in_run"] = list(expr.columns)
+        genes = list(expr.columns)
+        return pd.DataFrame(
+            {
+                "g": genes,
+                "pval": [0.001, 0.002, 0.003, 0.5][: len(genes)],
+                "l": [0.2, 0.3, 0.4, 0.5][: len(genes)],
+            }
+        )
+
+    fake_spatialde = ModuleType("SpatialDE")
+    fake_spatialde.run = _fake_run
+    fake_spatialde_util = ModuleType("SpatialDE.util")
+    fake_spatialde_util.qvalue = lambda pvals, pi0=None: np.asarray(
+        [0.01, 0.02, 0.03, 0.6]
+    )[: len(pvals)]
+
+    monkeypatch.setitem(sys.modules, "NaiveDE", fake_naivede)
+    monkeypatch.setitem(sys.modules, "SpatialDE", fake_spatialde)
+    monkeypatch.setitem(sys.modules, "SpatialDE.util", fake_spatialde_util)
+    monkeypatch.setattr(sg, "require", _required_module)
+    monkeypatch.setattr(
+        "chatspatial.utils.compat.ensure_spatialde_compat",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        sg,
+        "get_raw_data_source",
+        lambda _adata, **_kw: SimpleNamespace(
+            X=_adata.X, var_names=_adata.var_names, source="raw"
+        ),
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.adata_utils.store_analysis_metadata",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.results_export.export_analysis_result",
+        lambda *_args, **_kwargs: [],
+    )
+
+    out = await sg._identify_spatial_genes_spatialde(
+        "spatialde_output_limit",
+        adata,
+        SpatialVariableGenesParameters(
+            method="spatialde",
+            spatial_key="spatial",
+            test_only_hvg=False,
+            n_top_genes=2,
+        ),
+        DummyCtx(),
+    )
+
+    # gene_4 has zero counts and is dropped by SpatialDE's own >=3 filter;
+    # n_top_genes must not shrink the tested set any further.
+    assert captured["genes_in_run"] == ["gene_0", "gene_1", "gene_2", "gene_3"]
+    assert out.n_genes_analyzed == 4
+    assert out.n_significant_genes == 3
+    assert len(out.spatial_genes) == 2

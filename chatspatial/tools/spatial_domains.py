@@ -64,6 +64,59 @@ def _build_domain_suffix(
     return f"{method}_n{n_domains}"
 
 
+async def _resolve_expression_source(
+    adata: Any,
+    params: SpatialDomainParameters,
+    ctx: "ToolContext",
+) -> bool:
+    """Decide whether to read ``adata.raw`` and report why.
+
+    Every backend shares this check, so the message names the method actually
+    running and states the consequence, rather than guessing which
+    normalization produced the values it found.
+
+    Returns:
+        True when the backend should read ``adata.raw`` instead of ``adata.X``.
+    """
+    from scipy.sparse import issparse
+
+    # Sample a small portion for efficiency
+    sample_X = adata.X[:100, :100] if adata.shape[0] > 100 else adata.X
+    if issparse(sample_X):
+        data_min = sample_X.data.min() if sample_X.data.size > 0 else 0
+        data_max = sample_X.data.max() if sample_X.data.size > 0 else 0
+    else:
+        data_min = float(sample_X.min())
+        data_max = float(sample_X.max())
+
+    if data_min < 0:
+        # Negative values are what variance-stabilizing normalizations produce
+        # (Pearson residuals, scaling), so report the fallback, not a guess.
+        if adata.raw is not None:
+            await ctx.warning(
+                f"Expression matrix contains negative values "
+                f"(min={data_min:.2f}), which variance-stabilizing "
+                f"normalization produces. Using adata.raw for "
+                f"{params.method} instead."
+            )
+            return True
+        await ctx.warning(
+            f"Expression matrix contains negative values (min={data_min:.2f}) "
+            f"and no adata.raw is available, so {params.method} will run on "
+            f"them directly."
+        )
+        return False
+
+    if data_max > 100:
+        await ctx.warning(
+            f"Expression matrix contains large values (max={data_max:.2f}), "
+            f"which suggests unnormalized counts. Normalizing and "
+            f"log-transforming before {params.method} usually improves results."
+        )
+
+    return False
+
+
 async def identify_spatial_domains(
     data_id: str,
     ctx: "ToolContext",
@@ -125,35 +178,7 @@ async def identify_spatial_domains(
         hvg_mask = adata.var["highly_variable"] if use_hvg else None
 
         # Step 2: Check data quality on original adata (read-only)
-        # Sample a small portion for efficiency
-        sample_X = adata.X[:100, :100] if adata.shape[0] > 100 else adata.X
-        if issparse(sample_X):
-            data_min = sample_X.data.min() if sample_X.data.size > 0 else 0
-            data_max = sample_X.data.max() if sample_X.data.size > 0 else 0
-        else:
-            data_min = float(sample_X.min())
-            data_max = float(sample_X.max())
-
-        has_negatives = data_min < 0
-        has_large_values = data_max > 100
-        use_raw = False
-
-        if has_negatives:
-            await ctx.warning(
-                f"Data contains negative values (min={data_min:.2f}). "
-                "This might indicate scaled/z-scored data. "
-                "SpaGCN typically works best with normalized, log-transformed data."
-            )
-            # Will use raw data if available
-            if adata.raw is not None:
-                use_raw = True
-
-        elif has_large_values:
-            await ctx.warning(
-                f"Data contains large values (max={data_max:.2f}). "
-                "This might indicate raw count data. "
-                "Consider normalizing and log-transforming for better results."
-            )
+        use_raw = await _resolve_expression_source(adata, params, ctx)
 
         # Step 3: Create working copy EXACTLY ONCE with final gene selection
         if use_raw:

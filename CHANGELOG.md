@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.3.4] - 2026-08-13 - Analysis Semantics and Visualization Corrections
+
+### Added
+
+- Added `max_genes_tested`, a shared cap on how many genes an SVG backend
+  tests, applied after the mitochondrial/ribosomal/HVG filters by keeping the
+  highest-expressed genes. Runtime control now works on every backend rather
+  than SpatialDE alone.
+
+### Fixed
+
+- Unified the meaning of `n_top_genes` across SVG backends. SpatialDE read it
+  as "how many genes to test" while FlashS and SPARK-X read it as "how many
+  genes to return", which is what the MCP schema documents; it is now the
+  output limit everywhere, and input-side capping moved to `max_genes_tested`.
+- Reported differential expression markers per group. One-vs-rest runs
+  returned a single flat list built in row order and truncated to
+  `n_top_genes`, so the response carried only the markers of whichever group
+  owned the first spot while presenting them as the dataset's top genes.
+- Read `adata.X` rather than `adata.raw` in heatmap, violin, and dot plots.
+  scanpy defaults to `.raw` because that conventionally holds normalized
+  expression, but ChatSpatial freezes unnormalized counts there, letting one
+  high-count gene flatten the colour scale for every other gene.
+- Widened the default `subplot_wspace` so y-axis tick labels no longer overlap
+  the panel to their left, and removed a hardcoded offset that made one
+  parameter value mean two different spacings.
+- Reported `n_significant` as absent rather than `0` for co-occurrence and
+  Ripley's statistics, which run no significance test; `0` read as "tested,
+  nothing significant".
+- Named the running method in spatial-domain data warnings, which previously
+  cited SpaGCN on a path shared by every backend, and stopped attributing
+  negative values to z-scoring when variance-stabilizing normalization
+  produces them.
+- Ranked spatial variable genes by effect size instead of q-value. Once
+  thousands of genes clear the FDR threshold their q-values saturate at
+  floating-point precision, so the previous q-value sort fell back to the
+  column order of the gene matrix and returned housekeeping genes as the top
+  spatial hits.
+- Applied the housekeeping-dominance warning to every SVG backend rather than
+  SPARK-X alone, matching the shared `warn_housekeeping` parameter.
+- Applied `filter_mt_genes`, `filter_ribo_genes`, and `test_only_hvg` to every
+  SVG backend rather than SPARK-X alone. FlashS previously ignored all three
+  and tested the full gene matrix, including mitochondrial genes, despite the
+  shared parameter defaults.
+- Corrected the documented default for `test_only_hvg`, which is `True`.
+
+### Changed
+
+- FlashS and SpatialDE now require highly variable genes to be present, as
+  SPARK-X already did. Run `preprocess_data()` first, or pass
+  `test_only_hvg=False` to test the full gene matrix.
+
 ## [v1.3.3] - 2026-08-13 - Installation and Release Hardening
 
 ### Added

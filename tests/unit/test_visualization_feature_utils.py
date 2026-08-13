@@ -700,3 +700,42 @@ async def test_create_lr_pairs_visualization_umap_spearman_with_colorbars(
     assert any("Correlation:" in ax.get_title() for ax in fig.axes)
     assert "_lr_viz_temp_99" not in adata.obs.columns
     plt.close(fig)
+
+
+@pytest.mark.asyncio
+async def test_multi_feature_plot_applies_requested_wspace_verbatim(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """Regression: this path silently added 0.1 to the requested spacing.
+
+    The offset compensated for a default of 0.0 that left no room for y tick
+    labels, but it also meant one parameter value produced two different
+    spacings depending on which plotting path ran.
+    """
+    captured: dict[str, float] = {}
+    original = plt.Figure.subplots_adjust
+
+    def _spy(self, **kwargs):
+        captured.update(kwargs)
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(plt.Figure, "subplots_adjust", _spy)
+
+    adata = minimal_spatial_adata.copy()
+    params = VisualizationParameters(
+        plot_type="feature",
+        basis="spatial",
+        feature=["gene_0", "gene_1"],
+        subplot_wspace=0.42,
+    )
+    fig = await viz_feature._create_multi_feature_plot(
+        adata,
+        params,
+        context=None,
+        features=["gene_0", "gene_1"],
+        basis="spatial",
+        coords=adata.obsm["spatial"],
+    )
+
+    assert captured["wspace"] == pytest.approx(0.42)
+    plt.close(fig)

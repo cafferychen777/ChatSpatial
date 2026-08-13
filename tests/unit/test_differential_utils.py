@@ -95,7 +95,7 @@ async def test_differential_expression_dispatches_pydeseq2(
         data_id="d1",
         comparison="A vs B",
         n_genes=1,
-        top_genes=["gene_0"],
+        top_genes_by_group={"A": ["gene_0"]},
         statistics={"method": "pydeseq2"},
     )
 
@@ -163,7 +163,10 @@ async def test_differential_all_groups_skips_tiny_groups(
 
     assert result.comparison == "All groups in cluster"
     assert result.n_genes == 3
-    assert result.top_genes == ["gene_0", "gene_1", "gene_2"]
+    assert result.top_genes_by_group == {
+        "A": ["gene_0", "gene_1", "gene_2"],
+        "B": ["gene_1", "gene_0", "gene_2"],
+    }
     assert any("Skipped 1 group(s)" in msg for msg in ctx.warnings)
 
 
@@ -271,7 +274,7 @@ async def test_differential_specific_group_warns_on_missing_genes(
     result = await differential_expression("d5", ctx, params)
 
     assert result.comparison == "A vs B"
-    assert result.top_genes == ["gene_0", "missing_gene"]
+    assert result.top_genes_by_group == {"A": ["gene_0", "missing_gene"]}
     assert result.statistics["mean_log2fc"] is not None
     assert any("genes not found in raw data" in msg for msg in ctx.warnings)
 
@@ -421,7 +424,7 @@ async def test_run_pydeseq2_success_auto_group_selection_and_persistence(
 
     assert out.comparison == "A vs B"
     assert out.n_genes == 2
-    assert out.top_genes == ["gene_0", "gene_1"]
+    assert out.top_genes_by_group == {"A": ["gene_0", "gene_1"]}
     assert out.statistics["n_pseudobulk_samples"] == 4
     assert any("No group specified" in msg for msg in ctx.infos)
     assert captured["analysis_name"] == "de_pydeseq2_A_vs_B"
@@ -666,7 +669,7 @@ async def test_differential_specific_group_uses_fallback_name_column_and_float16
     out = await differential_expression("d13", ctx, params)
 
     assert captured["dtype"] == np.float32
-    assert out.top_genes == ["gene_0"]
+    assert out.top_genes_by_group == {"A": ["gene_0"]}
 
 
 @pytest.mark.asyncio
@@ -964,3 +967,50 @@ async def test_run_pydeseq2_raises_when_no_top_genes_after_dropna(
 
     with pytest.raises(ProcessingError, match="No DE genes found"):
         await _run_pydeseq2("d20", ctx, params)
+
+
+@pytest.mark.asyncio
+async def test_all_groups_markers_are_independent_of_row_order(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Regression: the response used to be whichever group appeared first.
+
+    Group order came from ``obs[group_key].unique()`` (first-appearance order),
+    and the flat list was then truncated to n_top_genes, so the markers the
+    caller saw depended on which spot happened to sit in row 0.
+    """
+    markers = {
+        "A": ["gene_0", "gene_1", "gene_2"],
+        "B": ["gene_1", "gene_0", "gene_2"],
+    }
+    monkeypatch.setattr(
+        differential_mod.sc.tl,
+        "rank_genes_groups",
+        _fake_rank_genes_groups_factory(markers),
+    )
+    monkeypatch.setattr(
+        differential_mod, "store_analysis_metadata", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        differential_mod, "export_analysis_result", lambda *a, **k: None
+    )
+    params = DifferentialExpressionParameters(
+        group_key="cluster", group1=None, method="wilcoxon", n_top_genes=3, min_cells=3
+    )
+
+    a_first = _make_de_adata()
+    # Same cells, B's block moved to the front.
+    b_first = a_first[list(range(5, 10)) + list(range(0, 5)) + [10, 11]].copy()
+    assert list(b_first.obs["cluster"].unique())[0] == "B"
+
+    result_a = await differential_expression("d_a", DummyCtx(a_first), params)
+    result_b = await differential_expression("d_b", DummyCtx(b_first), params)
+
+    expected = {
+        "A": ["gene_0", "gene_1", "gene_2"],
+        "B": ["gene_1", "gene_0", "gene_2"],
+    }
+    assert result_a.top_genes_by_group == expected
+    assert result_b.top_genes_by_group == expected
+    # Deterministic key order regardless of row order.
+    assert list(result_a.top_genes_by_group) == list(result_b.top_genes_by_group)

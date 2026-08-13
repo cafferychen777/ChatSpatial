@@ -380,10 +380,14 @@ class VisualizationParameters(StrictParameters):
 
     # GridSpec subplot spacing parameters (for multi-panel plots)
     subplot_wspace: float = Field(
-        0.0,
+        0.3,
         ge=-0.3,
         le=1.0,
-        description="Horizontal subplot spacing. Lower for tighter, higher for looser.",
+        description=(
+            "Horizontal subplot spacing as a fraction of axis width. The default "
+            "leaves room for y-axis tick labels; lower it for tighter panels once "
+            "axes are hidden."
+        ),
     )
     subplot_hspace: float = Field(
         0.3,
@@ -1474,7 +1478,11 @@ class SpatialVariableGenesParameters(StrictParameters):
         default=None,
         gt=0,
         le=5000,
-        description="Top spatial variable genes to return. None = all significant.",
+        description=(
+            "Top spatial variable genes to return, ranked by effect size where "
+            "the backend reports one. None = all significant. This limits the "
+            "output; use max_genes_tested to limit how many genes are tested."
+        ),
     )
     spatial_key: str = "spatial"
 
@@ -1541,6 +1549,25 @@ class SpatialVariableGenesParameters(StrictParameters):
         # Requires preprocessing with HVG detection first; set to False to test all genes (not recommended)
     )
     warn_housekeeping: bool = True  # Warn if >30% of top genes are housekeeping genes
+    max_genes_tested: Optional[int] = Field(
+        default=None,
+        gt=0,
+        le=50000,
+        description=(
+            "Cap on how many genes are tested, applied after the "
+            "mitochondrial/ribosomal/HVG filters by keeping the highest-expressed "
+            "genes. None = test everything that passes the filters. Use to bound "
+            "runtime on slow backends (SpatialDE benchmarks at ~10 min per 14,000 "
+            "genes). This limits the input; n_top_genes limits the output."
+        ),
+    )
+
+    @field_validator("max_genes_tested")
+    @classmethod
+    def validate_max_genes_tested(cls, v: int | None) -> int | None:
+        if v is not None and v <= 0:
+            raise ValueError("max_genes_tested must be positive")
+        return v
 
     @field_validator("n_top_genes")
     @classmethod

@@ -4,6 +4,14 @@ Unified expression visualization for spatial transcriptomics.
 This module provides aggregated gene expression visualizations
 grouped by cell clusters or cell types.
 
+All plots read ``adata.X`` (``use_raw=False``). scanpy defaults to ``adata.raw``
+whenever it exists, because in the scanpy/Seurat convention ``.raw`` holds
+normalized, unscaled expression. ChatSpatial freezes *unnormalized counts*
+there instead, so the default would colour these plots by raw count magnitude:
+one highly expressed gene flattens every other gene to the bottom of the scale.
+``adata.X`` is also the matrix that drove clustering and differential
+expression, so reading it keeps the figures consistent with the analysis.
+
 Replaces: heatmap, violin, dotplot, gene_correlation (from basic.py and multi_gene.py)
 """
 
@@ -121,6 +129,7 @@ async def _create_heatmap(
         groupby=params.cluster_key,
         cmap=params.colormap,
         show=False,
+        use_raw=False,
         dendrogram=params.dotplot_dendrogram,
         swap_axes=params.dotplot_swap_axes,
         standard_scale=params.dotplot_standard_scale,
@@ -172,6 +181,7 @@ async def _create_violin(
         keys=features,
         groupby=params.cluster_key,
         show=False,
+        use_raw=False,
     )
     fig = plt.gcf()
 
@@ -222,6 +232,7 @@ async def _create_dotplot(
         "groupby": params.cluster_key,
         "cmap": params.colormap,
         "show": False,
+        "use_raw": False,
     }
 
     # Add optional parameters

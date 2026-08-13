@@ -66,17 +66,21 @@ class DifferentialExpressionResult(BaseAnalysisResult):
 
         Fields included in MCP response:
         - data_id, comparison (basic info)
-        - n_genes (count)
-        - top_genes (top differentially expressed genes)
+        - n_genes (count of distinct genes returned)
+        - top_genes_by_group (top genes keyed by the group they mark)
 
         Fields excluded from MCP response:
         - statistics (detailed DE metrics per group)
+
+        Markers are keyed by group because a flat list cannot say which group a
+        gene marks. One-vs-rest runs compare every group at once, so a flat list
+        would silently collapse to whichever group happened to come first.
     """
 
     data_id: str
     comparison: str
     n_genes: int
-    top_genes: list[str] = Field(default_factory=list)
+    top_genes_by_group: dict[str, list[str]] = Field(default_factory=dict)
 
     # Detailed statistics - excluded from MCP response
     statistics: SkipJsonSchema[dict[str, Any]] = Field(
@@ -139,7 +143,10 @@ class SpatialStatisticsResult(BaseAnalysisResult):
 
     # Summary fields - always included in MCP response
     n_features_analyzed: int = 0
-    n_significant: int = 0
+    # None when the analysis reports no significance test (co-occurrence and
+    # Ripley's statistics are descriptive), which 0 would misreport as
+    # "tested, nothing significant".
+    n_significant: Optional[int] = None
     top_features: list[str] = Field(default_factory=list)
     summary_metrics: dict[str, float] = Field(default_factory=dict)
     results_key: Optional[str] = None  # Key in adata.uns for full results

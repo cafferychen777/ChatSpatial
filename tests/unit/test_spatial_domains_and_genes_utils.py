@@ -2264,3 +2264,85 @@ async def test_identify_domains_aestetik_timeout_is_wrapped(
             SpatialDomainParameters(method="aestetik", timeout=1),
             DummyCtx(adata),
         )
+
+
+class _WarnCtx:
+    def __init__(self):
+        self.warnings: list[str] = []
+
+    async def warning(self, msg: str) -> None:
+        self.warnings.append(msg)
+
+    async def info(self, msg: str) -> None:
+        pass
+
+
+def _adata_with_values(values, with_raw: bool):
+    import anndata as ad
+
+    adata = ad.AnnData(np.asarray(values, dtype=np.float32))
+    adata.var_names = [f"gene_{i}" for i in range(adata.n_vars)]
+    if with_raw:
+        adata.raw = adata.copy()
+    return adata
+
+
+@pytest.mark.asyncio
+async def test_expression_source_warning_names_the_running_method():
+    """Regression: this warning hardcoded SpaGCN on a path shared by all methods."""
+    adata = _adata_with_values([[-2.0, 1.0], [0.5, 3.0]], with_raw=True)
+    ctx = _WarnCtx()
+
+    use_raw = await sd._resolve_expression_source(
+        adata, SpatialDomainParameters(method="leiden"), ctx
+    )
+
+    assert use_raw is True
+    assert len(ctx.warnings) == 1
+    assert "leiden" in ctx.warnings[0]
+    assert "SpaGCN" not in ctx.warnings[0]
+    # Negative values are a normal Pearson-residual outcome, not evidence of
+    # z-scoring, so the message must not assert a cause it cannot know.
+    assert "z-scored" not in ctx.warnings[0]
+
+
+@pytest.mark.asyncio
+async def test_expression_source_reports_when_no_raw_is_available():
+    adata = _adata_with_values([[-2.0, 1.0], [0.5, 3.0]], with_raw=False)
+    ctx = _WarnCtx()
+
+    use_raw = await sd._resolve_expression_source(
+        adata, SpatialDomainParameters(method="stagate"), ctx
+    )
+
+    assert use_raw is False
+    assert "no adata.raw" in ctx.warnings[0]
+    assert "stagate" in ctx.warnings[0]
+
+
+@pytest.mark.asyncio
+async def test_expression_source_flags_unnormalized_counts():
+    adata = _adata_with_values([[0.0, 5000.0], [1.0, 200.0]], with_raw=False)
+    ctx = _WarnCtx()
+
+    use_raw = await sd._resolve_expression_source(
+        adata, SpatialDomainParameters(method="graphst"), ctx
+    )
+
+    assert use_raw is False
+    assert "unnormalized counts" in ctx.warnings[0]
+    assert "graphst" in ctx.warnings[0]
+
+
+@pytest.mark.asyncio
+async def test_expression_source_stays_silent_on_normalized_data():
+    adata = _adata_with_values([[0.0, 2.5], [1.0, 3.0]], with_raw=True)
+    ctx = _WarnCtx()
+
+    assert (
+        await sd._resolve_expression_source(
+            adata, SpatialDomainParameters(method="leiden"), ctx
+        )
+        is False
+    )
+    assert ctx.warnings == []
