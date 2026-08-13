@@ -52,7 +52,7 @@ def find_chatspatial_code_dir(required: bool = False) -> Path | None:
     if required:
         raise FileNotFoundError(
             "Could not locate the ChatSpatial source tree. Set "
-            "CHATSPATIAL_CODE_DIR=/path/to/ChatSpatial/code."
+            "CHATSPATIAL_CODE_DIR=/path/to/ChatSpatial."
         )
     return None
 

@@ -525,6 +525,16 @@ outputs/*/*.md
 # Local/downloaded datasets are runtime assets, not source code.
 /data/
 
+# Local research workspace directories kept beside the public repository.
+/paper/
+/archive/
+/benchmarks/
+/promo/
+/.worktrees/
+/.codex/
+/.competitor_analysis/
+/AGENTS.md
+
 # Local zarr scratch/test outputs.
 /test_zarr/
 /chatspatial/test_zarr/

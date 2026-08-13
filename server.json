@@ -3,16 +3,24 @@
   "name": "io.github.cafferychen777/chatspatial",
   "title": "ChatSpatial",
   "description": "Schema-enforced spatial transcriptomics analysis with 20 tools and 66 methods via MCP",
+  "websiteUrl": "https://docs.cafferyang.com/",
   "repository": {
     "url": "https://github.com/cafferychen777/ChatSpatial",
     "source": "github"
   },
-  "version": "1.3.2",
+  "version": "1.3.3",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "chatspatial",
-      "version": "1.3.2",
+      "version": "1.3.3",
+      "runtimeHint": "uvx",
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "server"
+        }
+      ],
       "transport": {
         "type": "stdio"
       },

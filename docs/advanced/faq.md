@@ -32,7 +32,9 @@ Python 3.11-3.14 is supported, with 3.12 recommended. See [Installation](../inst
 
 ### Should I use a virtual environment?
 
-Yes. Use a dedicated environment to avoid dependency conflicts. See [Installation](../installation.md).
+Most users can use `uvx`, which creates and caches an isolated environment
+automatically. Create a persistent virtual environment when you need optional
+method families or custom dependency control. See [Installation](../installation.md).
 
 ### How do I configure ChatSpatial in my client?
 

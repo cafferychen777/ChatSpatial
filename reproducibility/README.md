@@ -573,7 +573,7 @@ Analysis scripts read from `data/` and write summary CSVs and text files. They d
 | S4 | `Supplementary_Table_4_AI_Agent_Comparison.csv` | Feature comparison of ChatSpatial, STAgent, and SpatialAgent across architecture, tool count, validation, and error handling |
 
 The S2 catalog is the frozen `v1.2.10` manuscript snapshot with 65 methods.
-The current `v1.3.2` package exposes 66 methods after the addition of the
+The current `v1.3.3` package exposes 66 methods after the addition of the
 optional `rctd-py` backend; the historical table is intentionally not rewritten.
 
 ---

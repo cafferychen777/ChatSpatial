@@ -1,7 +1,9 @@
 # Installation
 
-Use this guide to install ChatSpatial in a local Python environment. If you want
-a containerized runtime, use the [Docker / GHCR](docker.md) guide instead.
+Use `uvx` for the shortest setup: it runs ChatSpatial in an isolated,
+automatically managed environment. Use a persistent environment when you need
+optional method families or tighter dependency control. If you want a
+containerized runtime, use the [Docker / GHCR](docker.md) guide instead.
 
 - For exact MCP client syntax, see [Configuration Guide](advanced/configuration.md).
 - For your first workflow after setup, see [Quick Start](quickstart.md).
@@ -11,7 +13,8 @@ a containerized runtime, use the [Docker / GHCR](docker.md) guide instead.
 
 ## Requirements
 
-- **Python 3.11-3.14** (3.12 recommended)
+- **uv** for the recommended zero-environment setup
+- **Python 3.11-3.14** (3.12 recommended) for persistent environments
 - **MCP Python SDK 2.x** (installed automatically with ChatSpatial)
 - **8GB+ RAM** (16GB+ for large datasets)
 - **macOS, Linux, or Windows**
@@ -23,16 +26,91 @@ a containerized runtime, use the [Docker / GHCR](docker.md) guide instead.
 
 | Runtime | Use when | Guide |
 |---------|----------|-------|
-| **Python environment** | You want direct control of packages on the host machine | Continue below |
+| **uvx (recommended)** | You want the shortest setup with an isolated, cached environment | Continue below |
+| **Persistent Python environment** | You need optional methods or direct control of packages | [Persistent installation](#persistent-python-installation) |
 | **Docker / GHCR** | You want the most reproducible runtime or local dependency resolution fails | [Docker / GHCR](docker.md) |
 
 ---
 
-## Step 1: Create an Environment
+## Recommended: Run with uvx
+
+### Step 1: Install uv
+
+```bash
+# macOS and Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+On Windows, use the installer documented by the
+[uv project](https://docs.astral.sh/uv/getting-started/installation/).
+
+### Step 2: Add ChatSpatial to your MCP client
+
+Codex:
+
+```bash
+codex mcp add chatspatial -- uvx --from chatspatial chatspatial server
+```
+
+Claude Code:
+
+```bash
+claude mcp add --scope user chatspatial -- \
+  uvx --from chatspatial chatspatial server
+```
+
+For other clients, use `uvx` as the command and the following arguments:
+
+```text
+--from chatspatial chatspatial server
+```
+
+The first launch downloads the core scientific stack into an isolated cache.
+Later launches reuse that cache. No virtual environment or Python executable
+path needs to be managed manually.
+
+### Step 3: Verify
+
+```bash
+uvx --from chatspatial chatspatial --version
+```
+
+Restart the MCP client, then confirm that ChatSpatial exposes its tools. In
+Codex, use `/mcp`; in Claude Code, run `claude mcp list`.
+
+### Pin a release
+
+Use an exact version when a reproducible runtime matters:
+
+```bash
+uvx --from 'chatspatial==1.3.3' chatspatial server
+```
+
+Without a pin, `uvx` resolves the current PyPI release and reuses its cached
+environment. Pin the package for a manuscript or long-running analysis.
+
+### Run optional method families with uvx
+
+Extras can be selected in the `--from` package specification:
+
+```bash
+uvx --from 'chatspatial[cell-communication,velocity]' chatspatial server
+```
+
+Because MCP clients store a single command, update that command when you change
+extras. For long-lived, heavily customized stacks, use a persistent environment
+instead.
+
+---
+
+(persistent-python-installation)=
+## Persistent Python Installation
+
+### Step 1: Create an environment
 
 ```bash
 # venv
-python3 -m venv venv
+python3.12 -m venv venv
 source venv/bin/activate  # macOS/Linux
 # venv\Scripts\activate   # Windows
 
@@ -41,21 +119,14 @@ conda create -n chatspatial python=3.12
 conda activate chatspatial
 ```
 
----
-
-## Step 2: Install ChatSpatial
-
-**Recommended: use `uv` for dependency resolution**
+### Step 2: Install ChatSpatial
 
 ```bash
-# Install uv if needed
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Install the MCP server and core analysis stack
 uv pip install chatspatial
 ```
 
-> **Why `uv`?** ChatSpatial depends on a large scientific Python stack. Standard `pip` can fail on deep dependency resolution; `uv` is more reliable for this environment.
+ChatSpatial depends on a large scientific Python stack. `uv` generally resolves
+it faster and more reliably than `pip`.
 
 ### Install options
 
@@ -125,7 +196,7 @@ python -m pip install -c constraints/shared-py312.txt \
 
 ---
 
-## Step 3: Connect ChatSpatial to an MCP Client
+### Step 3: Connect the environment to an MCP client
 
 After installation, register the environment's Python executable in your MCP
 client. The command shape is:
@@ -139,7 +210,7 @@ absolute-path rules, Docker-backed client examples, and the runtime path model.
 
 ---
 
-## Step 4: Verify the Installation
+### Step 4: Verify the installation
 
 ```bash
 python -c "import chatspatial; print(f'ChatSpatial {chatspatial.__version__} ready')"

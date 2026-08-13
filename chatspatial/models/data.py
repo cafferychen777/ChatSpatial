@@ -345,7 +345,14 @@ class VisualizationParameters(StrictParameters):
         "cnv",  # Copy number variation
         "integration",  # Batch integration quality
     ] = "feature"
-    colormap: str = "coolwarm"
+    colormap: str = Field(
+        "coolwarm",
+        description=(
+            "Colormap for continuous values. Categorical features automatically use "
+            "a qualitative palette; set a qualitative palette such as 'tab20' to "
+            "override that selection."
+        ),
+    )
 
     # Unified subtype parameter for plot_types with multiple visualization modes
     subtype: Optional[str] = Field(

@@ -82,7 +82,7 @@ html_theme_options = {
     # Source links
     "source_repository": "https://github.com/cafferychen777/ChatSpatial",
     "source_branch": "main",
-    "source_directory": "code/docs/",
+    "source_directory": "docs/",
     # Light mode colors - Clean scientific palette
     "light_css_variables": {
         # Primary colors - Deep blue for trust and professionalism

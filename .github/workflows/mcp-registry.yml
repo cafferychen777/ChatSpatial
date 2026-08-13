@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Published GitHub release tag to register (for example, v1.3.0)
+        description: Published GitHub release tag to register (for example, v1.3.3)
         required: true
         type: string
 
@@ -142,6 +142,9 @@ jobs:
         with:
           ref: ${{ inputs.release_tag }}
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+
       - name: Download verified MCP Publisher
         run: |
           archive=mcp-publisher_linux_amd64.tar.gz
@@ -193,6 +196,50 @@ jobs:
 
                   print(f"Waiting for PyPI package {identifier}=={version} (attempt {attempt}/30)")
                   time.sleep(10)
+          PY
+
+      - name: Verify the published uvx MCP server
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          uv run --no-project --with 'mcp>=2.0.0,<3.0' python - <<'PY'
+          import os
+
+          import anyio
+          from mcp import ClientSession, StdioServerParameters
+          from mcp.client.stdio import stdio_client
+
+          version = os.environ["RELEASE_TAG"].removeprefix("v")
+
+          async def verify():
+              parameters = StdioServerParameters(
+                  command="uvx",
+                  args=[
+                      "--from",
+                      f"chatspatial=={version}",
+                      "chatspatial",
+                      "server",
+                  ],
+              )
+              with anyio.fail_after(180):
+                  async with stdio_client(parameters) as (read, write):
+                      async with ClientSession(read, write) as session:
+                          initialized = await session.initialize()
+                          tools = await session.list_tools()
+
+              if initialized.server_info.version != version:
+                  raise RuntimeError(
+                      "Published MCP server reported version "
+                      f"{initialized.server_info.version!r}, expected {version!r}"
+                  )
+              if not tools.tools:
+                  raise RuntimeError("Published MCP server exposed no tools")
+              print(
+                  f"Verified ChatSpatial {version} via uvx with "
+                  f"{len(tools.tools)} MCP tools"
+              )
+
+          anyio.run(verify)
           PY
 
       - name: Publish to MCP Registry

@@ -42,6 +42,24 @@ def test_mcp_registry_versions_match_pyproject():
 
 
 @pytest.mark.unit
+def test_mcp_registry_pypi_package_is_uvx_runnable():
+    """Registry clients should be able to derive the zero-environment command."""
+    repo_root = Path(__file__).resolve().parents[2]
+    with (repo_root / "server.json").open("r", encoding="utf-8") as f:
+        server = json.load(f)
+
+    pypi_packages = [
+        package for package in server["packages"] if package["registryType"] == "pypi"
+    ]
+    assert len(pypi_packages) == 1
+
+    package = pypi_packages[0]
+    assert package["runtimeHint"] == "uvx"
+    assert package["packageArguments"] == [{"type": "positional", "value": "server"}]
+    assert package["transport"] == {"type": "stdio"}
+
+
+@pytest.mark.unit
 def test_docs_build_python_satisfies_package_requires_python():
     """Read the Docs build Python must satisfy the package support policy."""
     repo_root = Path(__file__).resolve().parents[2]

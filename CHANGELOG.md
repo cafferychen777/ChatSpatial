@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.3.3] - 2026-08-13 - Installation and Release Hardening
+
 ### Added
 
 - Integrated the manuscript reproducibility scripts, compact aggregate results,
@@ -16,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Made `uvx` the default MCP installation path, added executable Registry
+  metadata, and gated Registry publication on a real handshake with the
+  released PyPI package.
 - Reworked releases to promote one CI-built, audited artifact set through
   separately permissioned GitHub draft, PyPI trusted-publishing, and GitHub
   publication jobs, with pinned build backends and reproducible archive metadata.
@@ -27,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Aligned citation metadata with the current manuscript title and removed
   import-time filesystem writes from the reproducibility scripts.
+- Declared FlashS as a core dependency so the default spatial-variable-gene
+  method works in clean `pip` and `uvx` installations, and added an isolated
+  installed-wheel calculation to the release gate.
+- Made categorical feature, batch, and cluster plots select qualitative
+  palettes automatically instead of applying the continuous `coolwarm` scale.
 
 ## [v1.3.2] - 2026-08-09 - Registry Metadata Fix
 

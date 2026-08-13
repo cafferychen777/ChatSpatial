@@ -25,13 +25,13 @@ Start with the earliest layer that could be broken:
 ### Tools not showing in the client
 
 1. Confirm you used the correct config file for your client.
-2. Confirm the Python path is an **absolute** path from `which python`.
+2. For the recommended setup, confirm `uvx --version` works in a new terminal.
 3. Check the config file for JSON/TOML syntax errors.
 4. Restart the client after configuration changes.
 5. Test the server directly:
 
 ```bash
-python -m chatspatial server --help
+uvx --from chatspatial chatspatial --version
 ```
 
 If you need the exact config file format, go back to the [Configuration Guide](configuration.md).
@@ -41,6 +41,22 @@ If you need the exact config file format, go back to the [Configuration Guide](c
 - Make sure ChatSpatial is installed inside the environment you configured
 - Re-run `which python` inside the activated environment
 - Update the MCP config to use that exact path
+
+### `uvx` not found
+
+- Install `uv` using the official installer, then open a new terminal.
+- Confirm `uvx --version` works from the same environment that launches the MCP client.
+- On desktop clients, restart the application so it reloads `PATH`.
+
+### First launch is slow
+
+The first `uvx` launch downloads and installs the core scientific Python stack
+into an isolated cache. Later launches reuse it. Run the following once in a
+terminal to warm the cache and surface installation errors directly:
+
+```bash
+uvx --from chatspatial chatspatial --version
+```
 
 ---
 
@@ -55,7 +71,7 @@ Install Docker Desktop or Docker Engine, confirm `docker --version` works, then 
 Check the image name and network access:
 
 ```bash
-docker pull ghcr.io/cafferychen777/chatspatial:v1.3.0
+docker pull ghcr.io/cafferychen777/chatspatial:v1.3.3
 ```
 
 ### MCP tools do not appear when using Docker
@@ -154,8 +170,8 @@ For human: species="human", liana_resource="consensus"
 |---------|-----------|
 | Import errors | Reinstall with `uv pip install chatspatial[full]` |
 | `resolution-too-deep` | Use `uv` instead of `pip` |
-| Client not connecting | Re-check config and restart the client |
-| Docker pull fails | Run `docker pull ghcr.io/cafferychen777/chatspatial:v1.3.0` and check network access |
+| Client not connecting | Run the configured `uvx` command in a terminal, then restart the client |
+| Docker pull fails | Run `docker pull ghcr.io/cafferychen777/chatspatial:v1.3.3` and check network access |
 | Docker dataset not found | Mount the host data directory and prompt with `/data/...` |
 | Path errors | Use absolute paths |
 | Analysis fails immediately | Run preprocessing first |

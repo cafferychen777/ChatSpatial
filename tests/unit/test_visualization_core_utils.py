@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pytest
+import seaborn as sns
 
 from chatspatial.models.data import VisualizationParameters
 from chatspatial.tools.visualization import core as viz_core
@@ -181,24 +182,35 @@ def test_validate_and_prepare_feature_handles_gene_obs_and_missing(
 
 def test_categorical_colormap_selection_and_fallback():
     assert viz_core.get_categorical_cmap(8, user_cmap="Set2") == "Set2"
+    assert viz_core.get_categorical_cmap(8, user_cmap="coolwarm") == "tab10"
     assert viz_core.get_categorical_cmap(15) == "tab20"
-    assert viz_core.get_categorical_cmap(100) == "tab20"
+    assert viz_core.get_categorical_cmap(100) == "husl"
 
 
 def test_category_colors_and_colormap_variants():
     auto_colors = viz_core.get_category_colors(3)
-    mpl_colors = viz_core.get_category_colors(4, cmap_name="viridis")
+    fallback_colors = viz_core.get_category_colors(4, cmap_name="viridis")
+    explicit_colors = viz_core.get_category_colors(4, cmap_name="Set2")
 
     indexed_colors = viz_core.get_colormap("tab10", n_colors=3)
     seaborn_palette = viz_core.get_colormap("Set2")
     mpl_cmap = viz_core.get_colormap("viridis")
 
     assert len(auto_colors) == 3
-    assert len(mpl_colors) == 4
+    assert fallback_colors == viz_core.get_category_colors(4)
+    assert explicit_colors == sns.color_palette("Set2", n_colors=4)
     assert len(indexed_colors) == 3
     assert len(seaborn_palette) > 0
     assert hasattr(mpl_cmap, "__call__")
     assert viz_core.get_diverging_colormap() == "RdBu_r"
+
+
+def test_tab20_orders_distinct_hues_before_lighter_companions():
+    colors = viz_core.get_category_colors(15, cmap_name="tab20")
+    tab20 = sns.color_palette("tab20", n_colors=20)
+
+    assert colors[:10] == tab20[::2]
+    assert colors[10:] == tab20[1::2][:5]
 
 
 def test_auto_spot_size_prioritizes_user_metadata_and_adaptive_fallback(

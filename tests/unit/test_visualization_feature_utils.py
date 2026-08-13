@@ -170,6 +170,14 @@ async def test_create_single_feature_plot_categorical_obs_branch(minimal_spatial
         adata.obsm["spatial"],
     )
     assert fig is not None
+    expected_colors = viz_feature.get_category_colors(2)
+    actual_colors = [
+        collection.get_facecolors()[0] for collection in fig.axes[0].collections
+    ]
+    np.testing.assert_allclose(
+        [color[:3] for color in actual_colors],
+        [color[:3] for color in expected_colors],
+    )
     plt.close(fig)
 
 

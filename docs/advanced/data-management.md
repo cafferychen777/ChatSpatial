@@ -52,6 +52,6 @@ scripts/maintenance/clean_workspace.sh
 
 ## Testing Contract
 
-- Default test suite must not depend on `code/data`.
+- Default test suite must not depend on `data/`.
 - Use fixtures that generate temporary `.h5ad` files under `tmp_path`.
 - Heavy dependency checks are marked `@pytest.mark.slow` and excluded by default.

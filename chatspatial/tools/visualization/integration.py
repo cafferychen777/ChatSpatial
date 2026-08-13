@@ -15,7 +15,7 @@ import numpy as np
 from ...models.data import VisualizationParameters
 from ...utils.adata_utils import validate_obs_column
 from ...utils.exceptions import DataError, DataNotFoundError, ParameterError
-from .core import get_categorical_cmap
+from .core import get_category_colors
 
 if TYPE_CHECKING:
     import anndata as ad
@@ -99,11 +99,7 @@ async def _create_umap_by_batch(
     unique_batches = batch_values.dropna().unique()
 
     # Get colors
-    cmap_name = get_categorical_cmap(len(unique_batches))
-    cmap = plt.get_cmap(cmap_name)
-    colors = [
-        cmap(i / max(1, len(unique_batches) - 1)) for i in range(len(unique_batches))
-    ]
+    colors = get_category_colors(len(unique_batches), params.colormap)
 
     # Plot each batch
     for i, batch in enumerate(unique_batches):
@@ -184,11 +180,7 @@ async def _create_umap_by_cluster(
     unique_clusters = cluster_values.dropna().unique()
 
     # Get colors
-    cmap_name = get_categorical_cmap(len(unique_clusters))
-    cmap = plt.get_cmap(cmap_name)
-    colors = [
-        cmap(i / max(1, len(unique_clusters) - 1)) for i in range(len(unique_clusters))
-    ]
+    colors = get_category_colors(len(unique_clusters), params.colormap)
 
     # Plot each cluster
     for i, cluster in enumerate(unique_clusters):
@@ -280,9 +272,7 @@ async def _create_batch_highlight(
     axes = np.atleast_2d(axes).flatten()
 
     # Get colors
-    cmap_name = get_categorical_cmap(n_batches)
-    cmap = plt.get_cmap(cmap_name)
-    colors = [cmap(i / max(1, n_batches - 1)) for i in range(n_batches)]
+    colors = get_category_colors(n_batches, params.colormap)
 
     # Plot each batch
     for i, batch in enumerate(unique_batches):

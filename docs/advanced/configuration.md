@@ -12,13 +12,19 @@ and Claude Desktop are examples.
 
 ## Configuration Workflow
 
-1. Choose a runtime: Python environment or Docker/GHCR image.
-2. For Python, activate the environment and run `which python`.
-3. Use the Python command or Docker command shape in your MCP client config.
+1. Choose a runtime: `uvx`, a persistent Python environment, or Docker/GHCR.
+2. Prefer `uvx` unless you need a customized persistent environment.
+3. Use the corresponding command shape in your MCP client config.
 4. Restart the client after configuration changes.
 5. Verify the server can start.
 
-Canonical Python command shape:
+Canonical `uvx` command shape:
+
+```text
+uvx --from chatspatial chatspatial server
+```
+
+Canonical persistent-Python command shape:
 
 ```text
 /absolute/path/to/python -m chatspatial server
@@ -30,7 +36,7 @@ Canonical Docker command shape:
 docker run --rm -i \
   -v /absolute/path/to/your/data:/data:ro \
   -v /absolute/path/to/outputs:/outputs \
-  ghcr.io/cafferychen777/chatspatial:v1.3.0 server --transport stdio
+  ghcr.io/cafferychen777/chatspatial:v1.3.3 server --transport stdio
 ```
 
 Use `--rm -i`, not `-it`, for MCP stdio. If you mount host data to `/data`, prompts must use container paths such as `/data/sample.h5ad`.
@@ -47,7 +53,7 @@ ChatSpatial has three separate path concepts:
 | **Active export/reload path** | Default path used by `export_data()` and `reload_data()` when `path` is omitted | `~/.chatspatial/active/{data_id}.h5ad` inside the runtime |
 | **Visualization/output path** | Where generated figures and explicit output files are written | `CHATSPATIAL_OUTPUT_DIR` if set, otherwise a safe writable directory |
 
-For a local Python runtime, input paths are normal host paths such as
+For local `uvx` and Python runtimes, input paths are normal host paths such as
 `/Users/alice/spatial/sample.h5ad`.
 
 For Docker, the runtime sees container paths. If you mount
@@ -63,16 +69,18 @@ prompts or tool calls.
 ## Claude Code
 
 ```bash
-source venv/bin/activate
-which python
-claude mcp add chatspatial /path/to/venv/bin/python -- -m chatspatial server
+claude mcp add --scope user chatspatial -- \
+  uvx --from chatspatial chatspatial server
 claude mcp list
 ```
 
 **Notes:**
-- `--` separates the Python path from module arguments
-- use the absolute Python path from `which python`
-- use `--scope user` if you want the server available across projects
+- `--` separates Claude Code options from the server command
+- `uvx` creates and caches an isolated ChatSpatial environment
+- remove `--scope user` or choose another scope for project-specific setup
+
+For a persistent environment, replace the command after `--` with
+`/path/to/venv/bin/python -m chatspatial server`.
 
 ### Docker-backed Claude Code server
 
@@ -81,7 +89,7 @@ claude mcp add chatspatial-docker docker -- \
   run --rm -i \
   -v /absolute/path/to/your/data:/data:ro \
   -v /absolute/path/to/outputs:/outputs \
-  ghcr.io/cafferychen777/chatspatial:v1.3.0 server --transport stdio
+  ghcr.io/cafferychen777/chatspatial:v1.3.3 server --transport stdio
 ```
 
 Use `/data/...` paths in prompts when using this Docker-backed server.
@@ -95,25 +103,34 @@ Codex stores MCP configuration in `~/.codex/config.toml`.
 ### Add via CLI
 
 ```bash
-source venv/bin/activate
-which python
-codex mcp add chatspatial -- /path/to/venv/bin/python -m chatspatial server
+codex mcp add chatspatial -- uvx --from chatspatial chatspatial server
 ```
 
 ### Or edit config directly
 
 ```toml
 [mcp_servers.chatspatial]
-command = "/path/to/venv/bin/python"
-args = ["-m", "chatspatial", "server"]
+command = "uvx"
+args = ["--from", "chatspatial", "chatspatial", "server"]
 ```
+
+The ChatGPT desktop app, Codex CLI, and Codex IDE extension share this Codex
+configuration. Restart the active client after changing it. For a persistent
+environment, use its absolute Python path as `command` and
+`["-m", "chatspatial", "server"]` as `args`.
+
+In the ChatGPT desktop app, you can configure the same command under
+**Settings → MCP servers → Add server**: choose **STDIO**, enter `uvx` as the
+command, and enter `--from chatspatial chatspatial server` as the arguments.
+See the [official OpenAI MCP documentation](https://learn.chatgpt.com/docs/extend/mcp)
+for the current UI and shared-configuration behavior.
 
 ### Advanced options
 
 ```toml
 [mcp_servers.chatspatial]
-command = "/path/to/venv/bin/python"
-args = ["-m", "chatspatial", "server"]
+command = "uvx"
+args = ["--from", "chatspatial", "chatspatial", "server"]
 startup_timeout_sec = 30
 tool_timeout_sec = 120
 enabled = true
@@ -148,7 +165,7 @@ opencode mcp list
   "mcp": {
     "chatspatial": {
       "type": "local",
-      "command": ["/path/to/venv/bin/python", "-m", "chatspatial", "server"],
+      "command": ["uvx", "--from", "chatspatial", "chatspatial", "server"],
       "enabled": true,
       "environment": {
         "CHATSPATIAL_OUTPUT_DIR": "/absolute/path/to/chatspatial-outputs"
@@ -160,7 +177,7 @@ opencode mcp list
 
 **Notes:**
 - `command` is an array: `[executable, ...args]`
-- use the **absolute** Python path from `which python`
+- confirm `uvx --version` works before restarting OpenCode
 - prefer project-level config for repo-specific settings
 
 ---
@@ -177,8 +194,8 @@ Edit the Claude Desktop config file:
 {
   "mcpServers": {
     "chatspatial": {
-      "command": "/path/to/venv/bin/python",
-      "args": ["-m", "chatspatial", "server"]
+      "command": "uvx",
+      "args": ["--from", "chatspatial", "chatspatial", "server"]
     }
   }
 }
@@ -199,7 +216,7 @@ Docker-backed example:
         "/absolute/path/to/your/data:/data:ro",
         "-v",
         "/absolute/path/to/outputs:/outputs",
-        "ghcr.io/cafferychen777/chatspatial:v1.3.0",
+        "ghcr.io/cafferychen777/chatspatial:v1.3.3",
         "server",
         "--transport",
         "stdio"
@@ -218,10 +235,10 @@ Restart Claude Desktop after saving the file.
 ChatSpatial works with any MCP-compatible client.
 
 Minimum requirement:
-- configure the executable as your environment’s Python
-- pass `-m chatspatial server` as arguments
+- configure the executable as `uvx`
+- pass `--from chatspatial chatspatial server` as arguments
 
-Use the same absolute Python path pattern shown above.
+Use a persistent Python command only when you need a custom environment.
 
 ---
 
@@ -285,12 +302,13 @@ after the container exits.
 ## Verify Configuration
 
 ```bash
-which python
-python -c "import chatspatial; print(f'ChatSpatial {chatspatial.__version__} ready')"
-python -m chatspatial server --help
+uvx --version
+uvx --from chatspatial chatspatial --version
 ```
 
-If these checks fail, use [Troubleshooting](troubleshooting.md).
+For a persistent environment, also verify its absolute Python path and run
+`python -m chatspatial server --help`. If these checks fail, use
+[Troubleshooting](troubleshooting.md).
 
 ---
 

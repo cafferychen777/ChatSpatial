@@ -46,6 +46,18 @@ def test_dependency_families_keep_conflicting_backends_separate() -> None:
 
 
 @pytest.mark.unit
+def test_default_flashs_backend_is_a_core_dependency() -> None:
+    """A clean default install must support the default spatial gene method."""
+    project = _project_metadata()
+    core = _requirements(project["dependencies"])
+
+    assert "flashs" in core
+    requirement = core["flashs"][0]
+    assert requirement.specifier.contains("0.1.1")
+    assert not requirement.specifier.contains("0.2.0")
+
+
+@pytest.mark.unit
 def test_spatial_domain_extra_pins_a_coherent_graph_stack() -> None:
     """Louvain and Leiden must resolve against the same igraph generation."""
     project = _project_metadata()

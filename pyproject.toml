@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chatspatial"
-version = "1.3.2"
+version = "1.3.3"
 description = "ChatSpatial: Natural language-driven spatial transcriptomics analysis via Model Context Protocol (MCP) integration"
 readme = "README.md"
 license = "MIT"
@@ -49,6 +49,9 @@ dependencies = [
     "scanpy>=1.11.0,<2.0",
     "anndata>=0.11.0",  # Updated for scvi-tools 1.3.x compatibility
     "squidpy>=1.6.0,<2.0",
+
+    # Default Python-native spatial variable gene backend
+    "flashs>=0.1.1,<0.2",
     
     # Clustering and dimensionality reduction
     "umap-learn>=0.5.0",
@@ -60,8 +63,8 @@ dependencies = [
     "click>=8.0.0",
     
     # Heavy method-specific packages live in optional extras below. The default
-    # install should start the MCP server quickly and let tools report clear
-    # installation guidance only when an optional method is requested.
+    # install includes every default backend; optional methods report clear
+    # installation guidance only when their extra has not been installed.
 ]
 
 [project.optional-dependencies]

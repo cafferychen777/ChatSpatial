@@ -431,10 +431,27 @@ def validate_and_prepare_feature(
 
 # Categorical colormaps by size threshold
 _CATEGORICAL_CMAPS = {
-    10: "tab10",  # Best for <= 10 categories
-    20: "tab20",  # Best for 11-20 categories
-    40: "tab20b",  # Extended palette for more categories
+    10: "tab10",
+    20: "tab20",
 }
+
+_QUALITATIVE_CMAPS = frozenset(
+    {
+        "tab10",
+        "tab20",
+        "tab20b",
+        "tab20c",
+        "Set1",
+        "Set2",
+        "Set3",
+        "Paired",
+        "Accent",
+        "Dark2",
+        "Pastel1",
+        "Pastel2",
+        "husl",
+    }
+)
 
 
 def get_categorical_cmap(n_categories: int, user_cmap: Optional[str] = None) -> str:
@@ -456,24 +473,8 @@ def get_categorical_cmap(n_categories: int, user_cmap: Optional[str] = None) -> 
         >>> get_categorical_cmap(15)  # Returns "tab20"
         >>> get_categorical_cmap(8, user_cmap="Set2")  # Returns "Set2"
     """
-    # Known categorical palettes that user might specify
-    categorical_palettes = {
-        "tab10",
-        "tab20",
-        "tab20b",
-        "tab20c",
-        "Set1",
-        "Set2",
-        "Set3",
-        "Paired",
-        "Accent",
-        "Dark2",
-        "Pastel1",
-        "Pastel2",
-    }
-
-    # User preference takes precedence if it's a categorical palette
-    if user_cmap and user_cmap in categorical_palettes:
+    # A user override is honored only when it preserves categorical semantics.
+    if user_cmap and user_cmap in _QUALITATIVE_CMAPS:
         return user_cmap
 
     # Auto-select based on category count
@@ -481,8 +482,10 @@ def get_categorical_cmap(n_categories: int, user_cmap: Optional[str] = None) -> 
         if n_categories <= threshold:
             return cmap
 
-    # Fallback for very large category counts
-    return "tab20"
+    # Fixed-size Matplotlib palettes repeat beyond 20 colors. HUSL can produce
+    # any requested number of distinct hues, which is a safer large-cardinality
+    # fallback even though very large legends remain inherently hard to read.
+    return "husl"
 
 
 def get_category_colors(
@@ -496,7 +499,9 @@ def get_category_colors(
 
     Args:
         n_categories: Number of categories to color
-        cmap_name: Colormap name (auto-selected if None)
+        cmap_name: Requested qualitative palette. Sequential and diverging
+            colormaps are ignored because they imply an ordering that
+            categorical values do not have.
 
     Returns:
         List of colors (can be used with matplotlib scatter, legend, etc.)
@@ -505,17 +510,19 @@ def get_category_colors(
         >>> colors = get_category_colors(5)  # 5 distinct colors
         >>> colors = get_category_colors(15, "tab20")  # 15 colors from tab20
     """
-    # Select appropriate colormap
-    if cmap_name is None:
-        cmap_name = get_categorical_cmap(n_categories)
+    cmap_name = get_categorical_cmap(n_categories, cmap_name)
 
-    # Seaborn palettes
-    if cmap_name in ["tab10", "tab20", "Set1", "Set2", "Set3", "Paired", "husl"]:
+    if cmap_name == "tab20":
+        # Put the ten distinct base hues before their lighter companions. This
+        # preserves tab10 assignments and avoids adjacent same-hue pairs.
+        palette = sns.color_palette("tab20", n_colors=20)
+        palette = palette[::2] + palette[1::2]
+        return palette[:n_categories]
+
+    if cmap_name in _QUALITATIVE_CMAPS:
         return sns.color_palette(cmap_name, n_colors=n_categories)
 
-    # Matplotlib colormaps
-    cmap = plt.get_cmap(cmap_name)
-    return [cmap(i / max(n_categories - 1, 1)) for i in range(n_categories)]
+    raise ValueError(f"Unsupported categorical palette: {cmap_name}")
 
 
 def get_colormap(name: str, n_colors: Optional[int] = None) -> Any:
@@ -680,7 +687,7 @@ def plot_spatial_feature(
         cat_series = pd.Categorical(plot_values)
         categories = cat_series.categories
         n_cats = len(categories)
-        colors = get_colormap(params.colormap, n_colors=max(n_cats, 1))
+        colors = get_category_colors(max(n_cats, 1), params.colormap)
 
         cat_to_idx = {cat: i for i, cat in enumerate(categories)}
         # NaN/missing → -1 (will be drawn transparent)

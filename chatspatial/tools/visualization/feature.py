@@ -29,7 +29,7 @@ from .core import (
     add_colorbar,
     auto_spot_size,
     create_figure,
-    get_colormap,
+    get_category_colors,
     get_validated_features,
     plot_spatial_feature,
     resolve_figure_size,
@@ -267,7 +267,7 @@ async def _create_single_feature_plot(
             cat_series = pd.Categorical(values)
             categories = cat_series.categories
             n_cats = len(categories)
-            colors = get_colormap(params.colormap, n_colors=n_cats)
+            colors = get_category_colors(n_cats, params.colormap)
 
             for i, cat in enumerate(categories):
                 mask = adata.obs[feature] == cat
@@ -440,7 +440,7 @@ async def _create_multi_feature_plot(
                 cat_series = pd.Categorical(values)
                 categories = cat_series.categories
                 n_cats = len(categories)
-                colors = get_colormap(params.colormap, n_colors=n_cats)
+                colors = get_category_colors(n_cats, params.colormap)
 
                 for j, cat in enumerate(categories):
                     mask = adata.obs[feature] == cat

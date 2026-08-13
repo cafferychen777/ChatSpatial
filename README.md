@@ -34,15 +34,36 @@ explicitly configured HTTP deployments.
 
 ## Start Here
 
-1. **Install ChatSpatial** — [Installation Guide](docs/installation.md) for Python/uv setup, or [Docker Guide](docs/docker.md) for the GHCR image
-2. **Configure your MCP client** — [Configuration Guide](docs/advanced/configuration.md)
-3. **Run your first analysis** — [Quick Start](docs/quickstart.md)
+Install [`uv`](https://docs.astral.sh/uv/getting-started/installation/) once, then
+register ChatSpatial without creating or managing a Python environment:
+
+**Codex:**
+
+```bash
+codex mcp add chatspatial -- uvx --from chatspatial chatspatial server
+```
+
+**Claude Code:**
+
+```bash
+claude mcp add --scope user chatspatial -- \
+  uvx --from chatspatial chatspatial server
+```
+
+`uvx` creates an isolated environment on first launch and reuses its cache on
+later launches. Restart the MCP client after adding the server.
+
+Then:
+
+1. **Run your first analysis** — [Quick Start](docs/quickstart.md)
+2. **Choose optional method families or a persistent environment** — [Installation Guide](docs/installation.md)
+3. **Configure another MCP client** — [Configuration Guide](docs/advanced/configuration.md)
 4. **Inspect or reproduce the manuscript results** — [Reproducibility workspace](reproducibility/README.md)
 
 **Docker quick start:**
 
 ```bash
-docker pull ghcr.io/cafferychen777/chatspatial:v1.3.0
+docker pull ghcr.io/cafferychen777/chatspatial:v1.3.2
 ```
 
 **Minimal example prompt:**
@@ -85,7 +106,7 @@ Current coverage includes 66 methods across 15 analytical categories, exposed th
 
 | Guide | Use this when... |
 |-------|------------------|
-| [Installation](docs/installation.md) | You need to install ChatSpatial in a Python environment |
+| [Installation](docs/installation.md) | You need optional methods or a persistent Python environment |
 | [Docker](docs/docker.md) | You want a reproducible container runtime or local dependency resolution fails |
 | [Configuration](docs/advanced/configuration.md) | You need exact MCP client syntax or the runtime path model |
 | [Quick Start](docs/quickstart.md) | ChatSpatial is installed and you want the first successful analysis |

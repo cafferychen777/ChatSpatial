@@ -397,7 +397,7 @@ Create all plot types.
 | `feature` | None | Gene(s) or column to show |
 | `basis` | `spatial` | `spatial`, `umap` |
 | `cluster_key` | None | Grouping column |
-| `colormap` | `coolwarm` | Color scheme |
+| `colormap` | `coolwarm` | Color scheme for continuous values. Categorical features automatically use a qualitative palette such as `tab10` or `tab20`. |
 | `dpi` | 300 | Resolution |
 | `output_format` | `png` | `png`, `pdf`, `svg`, `eps`, `tiff`, `jpg` |
 

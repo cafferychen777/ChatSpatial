@@ -125,6 +125,14 @@ async def test_umap_by_batch_success_logs_and_renders_legend(
     )
     assert fig.axes[0].get_title() == "Batch panel"
     assert fig.axes[0].get_legend() is not None
+    expected_colors = viz_integ.get_category_colors(2)
+    actual_colors = [
+        collection.get_facecolors()[0] for collection in fig.axes[0].collections
+    ]
+    np.testing.assert_allclose(
+        [color[:3] for color in actual_colors],
+        [color[:3] for color in expected_colors],
+    )
     assert any("colored by batch" in m for m in ctx.infos)
     fig.clf()
 

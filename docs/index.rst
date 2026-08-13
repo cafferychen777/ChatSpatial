@@ -64,9 +64,9 @@ Getting Started
         :link-type: doc
         :class-card: sd-rounded-3
 
-        **Set up the environment**
+        **Connect the MCP server**
 
-        Install ChatSpatial and prepare your Python environment.
+        Start with uvx or choose a persistent runtime.
 
     .. grid-item-card:: Quick Start
         :link: quickstart
