@@ -226,3 +226,89 @@ def test_gmm_clustering_returns_one_indexed_labels():
     assert labels.min() >= 1
     assert labels.max() <= 2
     assert len(labels) == 20
+
+
+class TestEnsureHighlyVariableGenes:
+    """Scanpy's mean-binned dispersion is undefined on degenerate inputs.
+
+    Genes that are all zero — routine after merging samples with different gene
+    sets — make the bins unusable, and pandas signals that as a KeyError or a
+    ValueError depending on where it gives up. Both mean the same thing.
+    """
+
+    @pytest.mark.parametrize(
+        "binning_error",
+        [
+            KeyError("[nan] not in index"),
+            ValueError(
+                "cannot specify integer `bins` when input data contains infinity"
+            ),
+        ],
+        ids=["nan-bin-edges", "infinite-bins"],
+    )
+    def test_unusable_bins_fall_back_to_variance(
+        self, minimal_spatial_adata, monkeypatch, binning_error: Exception
+    ):
+        adata = minimal_spatial_adata.copy()
+
+        def _raise(*_args, **_kwargs):
+            raise binning_error
+
+        monkeypatch.setattr(compute.sc.pp, "highly_variable_genes", _raise)
+
+        used_fallback = compute.ensure_highly_variable_genes(adata, n_top_genes=5)
+
+        assert used_fallback is True
+        assert int(adata.var["highly_variable"].sum()) == 5
+
+    def test_reports_no_fallback_when_scanpy_succeeds(
+        self, minimal_spatial_adata, monkeypatch
+    ):
+        adata = minimal_spatial_adata.copy()
+
+        def _mark(a, **_kwargs):
+            a.var["highly_variable"] = True
+
+        monkeypatch.setattr(compute.sc.pp, "highly_variable_genes", _mark)
+
+        assert compute.ensure_highly_variable_genes(adata, n_top_genes=5) is False
+
+    def test_unrelated_failures_still_propagate(
+        self, minimal_spatial_adata, monkeypatch
+    ):
+        adata = minimal_spatial_adata.copy()
+
+        def _raise(*_args, **_kwargs):
+            raise RuntimeError("scanpy is broken")
+
+        monkeypatch.setattr(compute.sc.pp, "highly_variable_genes", _raise)
+
+        with pytest.raises(RuntimeError, match="scanpy is broken"):
+            compute.ensure_highly_variable_genes(adata, n_top_genes=5)
+
+    def test_scanpy_kwargs_are_forwarded(self, minimal_spatial_adata, monkeypatch):
+        adata = minimal_spatial_adata.copy()
+        seen: dict[str, object] = {}
+
+        def _capture(a, **kwargs):
+            seen.update(kwargs)
+            a.var["highly_variable"] = True
+
+        monkeypatch.setattr(compute.sc.pp, "highly_variable_genes", _capture)
+
+        compute.ensure_highly_variable_genes(adata, n_top_genes=7, batch_key="batch")
+
+        assert seen["n_top_genes"] == 7
+        assert seen["batch_key"] == "batch"
+
+
+def test_select_hvgs_by_variance_picks_the_most_variable(minimal_spatial_adata):
+    adata = minimal_spatial_adata.copy()
+    adata.X = np.zeros((adata.n_obs, adata.n_vars), dtype=np.float32)
+    # Give two genes real variance; everything else is constant.
+    adata.X[:, 3] = np.arange(adata.n_obs, dtype=np.float32)
+    adata.X[:, 7] = np.arange(adata.n_obs, dtype=np.float32) * 2
+
+    compute.select_hvgs_by_variance(adata, n_hvgs=2)
+
+    assert list(np.flatnonzero(adata.var["highly_variable"].to_numpy())) == [3, 7]

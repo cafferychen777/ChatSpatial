@@ -1496,18 +1496,29 @@ async def test_preprocess_data_hvg_selection_failure_is_wrapped(
 
 
 @pytest.mark.asyncio
-async def test_preprocess_data_hvg_nan_bin_keyerror_falls_back_to_variance(
+@pytest.mark.parametrize(
+    "binning_error",
+    [
+        # scanpy's mean-binned dispersion fails in whichever way pandas reaches
+        # first; both mean the bins are unusable, so both must fall back.
+        KeyError("[nan] not in index"),
+        ValueError("cannot specify integer `bins` when input data contains infinity"),
+    ],
+    ids=["nan-bin-edges", "infinite-bins"],
+)
+async def test_preprocess_data_falls_back_when_hvg_binning_is_unusable(
     monkeypatch: pytest.MonkeyPatch,
+    binning_error: Exception,
 ):
     _install_lightweight_preprocess_mocks(monkeypatch)
 
-    def _raise_nan_bin_keyerror(*_args, **_kwargs):
-        raise KeyError("[nan] not in index")
+    def _raise_binning_error(*_args, **_kwargs):
+        raise binning_error
 
     monkeypatch.setattr(
         preprocessing_mod.sc.pp,
         "highly_variable_genes",
-        _raise_nan_bin_keyerror,
+        _raise_binning_error,
     )
 
     adata = _make_adata(n_obs=14, n_vars=120)
@@ -1527,7 +1538,7 @@ async def test_preprocess_data_hvg_nan_bin_keyerror_falls_back_to_variance(
 
     assert ctx.saved_adata is not None
     assert int(ctx.saved_adata.var["highly_variable"].sum()) == 20
-    assert any("NaN bins" in msg for msg in ctx.warnings)
+    assert any("finite variance" in msg for msg in ctx.warnings)
 
 
 @pytest.mark.asyncio

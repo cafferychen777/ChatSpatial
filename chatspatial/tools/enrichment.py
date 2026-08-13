@@ -1427,11 +1427,10 @@ def perform_ssgsea(
         return EnrichmentResult(
             method="ssgsea",
             n_gene_sets=len(gene_sets),
-            # IMPORTANT: ssGSEA does NOT perform significance testing
-            # Setting n_significant=0 is honest: no pathways are "statistically significant"
-            # All gene sets receive enrichment scores, but these are sample-level metrics
-            # without associated p-values. Use GSEA or ORA for significance testing.
-            n_significant=0,  # ssGSEA doesn't test significance - no p-values produced
+            # ssGSEA scores every gene set per sample but runs no test, so
+            # there is no significant count to report. Use GSEA or ORA when
+            # significance is needed.
+            n_significant=None,
             enrichment_scores=enrichment_scores,  # Mean scores per gene set
             pvalues=pvalues,
             adjusted_pvalues=adjusted_pvalues,
@@ -1846,9 +1845,9 @@ async def _perform_spatial_enrichment_on_adata(
     return EnrichmentResult(
         method="spatial_enrichmap",
         n_gene_sets=len(validated_gene_sets),
-        # No significance testing in spatial enrichment — n_significant=0
-        # (successful computation != statistical significance)
-        n_significant=0,
+        # Spatial enrichment scores signatures without testing them;
+        # n_successful_signatures below reports what was actually computed.
+        n_significant=None,
         n_successful_signatures=len(successful_signatures),
         enrichment_scores=enrichment_scores,
         pvalues=pvalues,

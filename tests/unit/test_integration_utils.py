@@ -11,6 +11,7 @@ import pytest
 import scipy.sparse as sp
 from anndata import AnnData, ImplicitModificationWarning
 
+from chatspatial.tools import integration as integration_mod
 from chatspatial.tools.integration import (
     _orient_harmony_embedding,
     _reassemble_scanorama_embeddings,
@@ -1365,3 +1366,35 @@ def test_rescale_spatial_coordinates_uses_first_batch_when_reference_is_none(
 
     assert out.obsm["spatial_aligned"].shape == (adata.n_obs, 2)
     assert captured["parameters"]["reference_batch"] == "first"
+
+
+@pytest.mark.parametrize(
+    "binning_error",
+    [
+        KeyError("[nan] not in index"),
+        ValueError("cannot specify integer `bins` when input data contains infinity"),
+    ],
+    ids=["nan-bin-edges", "infinite-bins"],
+)
+def test_integration_hvg_recalculation_survives_unusable_bins(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, binning_error: Exception
+):
+    """Regression: merging samples with different gene sets leaves all-zero genes.
+
+    Those make scanpy's mean-binned dispersion undefined, which used to abort
+    the whole integration run.
+    """
+    combined = minimal_spatial_adata.copy()
+    combined.obs["batch"] = ["a"] * (combined.n_obs // 2) + ["b"] * (
+        combined.n_obs - combined.n_obs // 2
+    )
+
+    def _raise(*_args, **_kwargs):
+        raise binning_error
+
+    monkeypatch.setattr(integration_mod.sc.pp, "highly_variable_genes", _raise)
+
+    integration_mod._ensure_integration_hvgs(combined, batch_key="batch")
+
+    assert "highly_variable" in combined.var
+    assert int(combined.var["highly_variable"].sum()) > 0

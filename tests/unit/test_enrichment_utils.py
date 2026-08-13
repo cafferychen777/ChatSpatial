@@ -496,8 +496,9 @@ async def test_perform_spatial_enrichment_partial_failure_still_returns_success(
 
     assert result.method == "spatial_enrichmap"
     assert result.n_gene_sets == 1
-    # Spatial enrichment has no significance testing — n_significant is always 0
-    assert result.n_significant == 0
+    # Spatial enrichment scores signatures without testing them, so there is
+    # no significant count to report — 0 would claim a test that never ran.
+    assert result.n_significant is None
     assert result.n_successful_signatures == 1
     assert "sig_ok" in result.enrichment_scores
     assert "sig_ok_score" not in adata.obs.columns
@@ -1058,7 +1059,8 @@ def test_perform_ssgsea_success_populates_obs_and_uns(
 
     assert out.method == "ssgsea"
     assert out.n_gene_sets == 2
-    assert out.n_significant == 0
+    # ssGSEA produces no p-values, so it reports no significant count.
+    assert out.n_significant is None
     assert set(out.top_gene_sets) == {"GS_A", "GS_B"}
     assert "ssgsea_GS_A" in adata.obs.columns
     assert "ssgsea_GS_B" in adata.obs.columns

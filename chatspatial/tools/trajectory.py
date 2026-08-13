@@ -9,6 +9,7 @@ Key functionality:
 - Supports CellRank (velocity-based), Palantir (expression-based), and DPT (diffusion-based)
 """
 
+import logging
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
@@ -125,6 +126,7 @@ def infer_spatial_trajectory_cellrank(
     spatial_weight: float = 0.5,
     kernel_weights: tuple[float, float] = (0.8, 0.2),
     n_states: int = 5,
+    stability_threshold: float = 0.96,
 ) -> "ad.AnnData":
     """Infer cellular trajectories by combining RNA velocity with CellRank.
 
@@ -190,8 +192,6 @@ def infer_spatial_trajectory_cellrank(
             spatial_dist = squareform(pdist(spatial_coords))
             dist_mean = spatial_dist.mean()
             if dist_mean < 1e-10:
-                import logging
-
                 logging.getLogger(__name__).warning(
                     "Spatial coordinates are nearly identical; "
                     "disabling spatial kernel."
@@ -226,12 +226,23 @@ def infer_spatial_trajectory_cellrank(
                 f"Try reducing n_states or use method='palantir'/'dpt'."
             ) from e
 
-        # Predict terminal states
+        # Terminal states are optional: when none qualify, the macrostate
+        # fallback below still yields a pseudotime. CellRank reports this as a
+        # ValueError whose wording depends on which criterion failed, so the
+        # authoritative test is whether terminal states exist afterwards —
+        # matching on the message turns a recoverable run into a hard failure
+        # as soon as upstream rephrases it.
         try:
-            g.predict_terminal_states(method="stability")
+            g.predict_terminal_states(
+                method="stability", stability_threshold=stability_threshold
+            )
         except ValueError as e:
-            if "No macrostates have been selected" not in str(e):
-                raise
+            logging.getLogger(__name__).warning(
+                "CellRank selected no terminal states (%s). Falling back to "
+                "macrostate-based pseudotime; lower "
+                "cellrank_stability_threshold to select terminal states.",
+                e,
+            )
 
         # Check terminal states and compute fate probabilities
         has_terminal_states = (
@@ -272,8 +283,6 @@ def infer_spatial_trajectory_cellrank(
 
                 if nan_mask.any():
                     pseudotime[nan_mask] = np.nan
-                    import logging
-
                     logging.getLogger(__name__).warning(
                         "%d cells have NaN fate probabilities; "
                         "their pseudotime is set to NaN.",
@@ -290,9 +299,10 @@ def infer_spatial_trajectory_cellrank(
                     f"Try method='palantir' or 'dpt' instead."
                 ) from e
         else:
-            # Fall back to macrostates-based pseudotime
-            if hasattr(g, "macrostates") and g.macrostates is not None:
-                macrostate_probs = g.macrostates_memberships
+            # Fall back to macrostates-based pseudotime. Guard on the
+            # memberships actually read, not on the macrostates attribute.
+            macrostate_probs = getattr(g, "macrostates_memberships", None)
+            if macrostate_probs is not None:
                 pseudotime = 1 - macrostate_probs[:, 0].X.flatten()
                 adata_for_cellrank.obs["pseudotime"] = pseudotime
             else:
@@ -481,8 +491,6 @@ def infer_pseudotime_palantir(
     else:
         # Sign-invariant: pick cell with largest absolute value in first DC
         start_cell = ms_data.iloc[:, 0].abs().idxmax()
-        import logging
-
         logging.getLogger(__name__).warning(
             "No root cell specified; auto-selected '%s' from first "
             "diffusion component. Specify root_cells for "
@@ -551,8 +559,6 @@ def compute_dpt_trajectory(
             adata.uns["iroot"] = int(np.argmax(np.abs(dc1)))
         else:
             adata.uns["iroot"] = 0
-        import logging
-
         logging.getLogger(__name__).warning(
             "No root cell specified; auto-selected cell %d. "
             "Specify root_cells for reproducible results.",
@@ -570,8 +576,6 @@ def compute_dpt_trajectory(
     dpt_pseudotime = adata.obs["dpt_pseudotime"]
     nan_count = int(dpt_pseudotime.isna().sum())
     if nan_count > 0:
-        import logging
-
         logging.getLogger(__name__).warning(
             "%d cells have NaN pseudotime (unreachable from root). "
             "These are preserved as NaN; downstream tools may "
@@ -651,6 +655,7 @@ async def analyze_trajectory(
                         params.cellrank_kernel_weights[1],
                     ),
                     n_states=params.cellrank_n_states,
+                    stability_threshold=params.cellrank_stability_threshold,
                 )
             pseudotime_key = "pseudotime"
             method_used = "cellrank"

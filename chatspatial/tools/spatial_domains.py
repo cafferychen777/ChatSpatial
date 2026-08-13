@@ -25,6 +25,7 @@ from ..utils.adata_utils import (
     get_spatial_key,
     require_spatial_coords,
     store_analysis_metadata,
+    to_dense,
 )
 from ..utils.async_utils import run_sync, run_sync_with_timeout
 from ..utils.compute import ensure_neighbors, ensure_pca
@@ -47,21 +48,42 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _build_domain_suffix(
-    method: str,
-    resolution: float,
-    n_domains: int,
-) -> str:
+def _domain_count_control(params: SpatialDomainParameters) -> str | None:
+    """Name the parameter that actually decides how many domains a backend returns.
+
+    Resolution-driven backends cluster by granularity and cannot target an exact
+    count, so ``n_domains`` has no effect on them. Naming the real control lets
+    callers label outputs honestly and point the user at the knob that works.
+
+    Returns:
+        The controlling resolution parameter, or ``None`` when the backend
+        honours ``n_domains``.
+    """
+    if params.method in ("leiden", "louvain"):
+        return "resolution"
+    if params.method == "banksy":
+        return "banksy_cluster_resolution"
+    if params.method == "aestetik" and params.aestetik_clustering_method in (
+        "leiden",
+        "louvain",
+    ):
+        return "resolution"
+    return None
+
+
+def _build_domain_suffix(params: SpatialDomainParameters) -> str:
     """Build a parametric suffix for spatial domain output keys.
 
-    Encodes the parameter that most meaningfully distinguishes runs:
-    - leiden/louvain: resolution (e.g. ``leiden_res0_5``)
-    - other methods: n_domains (e.g. ``spagcn_n7``)
+    The suffix names the parameter that distinguishes one run from the next, so
+    it must be the parameter the backend actually obeys — encoding ``n_domains``
+    for a resolution-driven backend would put a number in the key that the
+    result does not honour.
     """
-    if method in ("leiden", "louvain"):
-        res_str = f"{resolution:.2f}".replace(".", "_")
-        return f"{method}_res{res_str}"
-    return f"{method}_n{n_domains}"
+    control = _domain_count_control(params)
+    if control is None:
+        return f"{params.method}_n{params.n_domains}"
+    res_str = f"{getattr(params, control):.2f}".replace(".", "_")
+    return f"{params.method}_res{res_str}"
 
 
 async def _resolve_expression_source(
@@ -232,6 +254,17 @@ async def identify_spatial_domains(
         # HVG selection is now handled above in Step 3, avoiding duplicate copy
 
         # Identify domains based on method
+        # A resolution-driven backend cannot hit an exact domain count. Say so
+        # rather than silently returning a different number than was asked for.
+        count_control = _domain_count_control(params)
+        if count_control is not None and "n_domains" in params.model_fields_set:
+            await ctx.warning(
+                f"{params.method} clusters by {count_control}="
+                f"{getattr(params, count_control)} and cannot target an exact "
+                f"domain count, so n_domains={params.n_domains} is ignored. "
+                f"Adjust {count_control} to change how many domains are found."
+            )
+
         if params.method == "spagcn":
             domain_labels, embeddings_key, statistics = await _identify_domains_spagcn(
                 adata_subset, params, ctx
@@ -273,9 +306,7 @@ async def identify_spatial_domains(
 
         # Store domain labels in the result candidate
         # Suffix encodes method + distinguishing param for coexistence
-        suffix = _build_domain_suffix(
-            params.method, params.resolution, params.n_domains
-        )
+        suffix = _build_domain_suffix(params)
         domain_key = f"spatial_domains_{suffix}"
         adata.obs[domain_key] = domain_labels
         ensure_categorical(adata, domain_key)
@@ -477,6 +508,12 @@ async def _identify_domains_spagcn(
                 raise DataError(
                     f"Spatial coordinates length ({len(x_array)}) doesn't match data ({adata.shape[0]})"
                 )
+
+            # SpaGCN 1.2.7 reads `adata.X.A`, an attribute scipy removed in
+            # 1.14; only its sparse branch does so, and its dense branch is
+            # equivalent. Densifying here also spares the two dense copies that
+            # branch would otherwise build (one for fit, one for transform).
+            adata.X = to_dense(adata.X)
 
             def _run_spagcn():
                 with suppress_output():

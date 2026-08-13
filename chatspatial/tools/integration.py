@@ -16,6 +16,7 @@ from ..models.analysis import IntegrationResult
 from ..models.data import IntegrationParameters
 from ..utils.adata_utils import check_is_integer_counts
 from ..utils.async_utils import run_sync
+from ..utils.compute import ensure_highly_variable_genes
 from ..utils.dependency_manager import require
 from ..utils.device_utils import get_accelerator
 from ..utils.exceptions import (
@@ -312,14 +313,20 @@ def _ensure_integration_hvgs(combined: ad.AnnData, batch_key: str) -> None:
         return
 
     logger.warning("%s, recalculating with batch correction", reason)
-    sc.pp.highly_variable_genes(
+    # Merging samples with different gene sets leaves genes that are all zero,
+    # which makes scanpy's mean-binned dispersion undefined.
+    if ensure_highly_variable_genes(
         combined,
+        n_top_genes=2000,
         min_mean=0.0125,
         max_mean=3,
         min_disp=0.5,
         batch_key=batch_key,
-        n_top_genes=2000,
-    )
+    ):
+        logger.warning(
+            "Scanpy HVG binning was unusable after the merge; "
+            "selected HVGs by finite variance instead."
+        )
 
 
 def _run_scvi_integration(

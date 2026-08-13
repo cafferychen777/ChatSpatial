@@ -1122,12 +1122,13 @@ def _install_fake_banksy_modules(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("method", "helper_name"),
+    ("method", "helper_name", "expected_suffix"),
     [
-        ("spagcn", "_identify_domains_spagcn"),
-        ("stagate", "_identify_domains_stagate"),
-        ("graphst", "_identify_domains_graphst"),
-        ("banksy", "_identify_domains_banksy"),
+        ("spagcn", "_identify_domains_spagcn", "spagcn_n7"),
+        ("stagate", "_identify_domains_stagate", "stagate_n7"),
+        ("graphst", "_identify_domains_graphst", "graphst_n7"),
+        # banksy clusters by resolution, so its key encodes that instead.
+        ("banksy", "_identify_domains_banksy", "banksy_res0_50"),
     ],
 )
 async def test_identify_spatial_domains_dispatches_non_clustering_methods(
@@ -1135,6 +1136,7 @@ async def test_identify_spatial_domains_dispatches_non_clustering_methods(
     monkeypatch: pytest.MonkeyPatch,
     method: str,
     helper_name: str,
+    expected_suffix: str,
 ):
     adata = minimal_spatial_adata.copy()
     ctx = DummyCtx(adata)
@@ -1157,8 +1159,8 @@ async def test_identify_spatial_domains_dispatches_non_clustering_methods(
 
     assert called["value"] is True
     assert out.method == method
-    # Non-clustering methods use n_domains suffix (default n_domains=7)
-    assert out.domain_key == f"spatial_domains_{method}_n7"
+    # The key encodes whichever parameter the backend actually obeys.
+    assert out.domain_key == f"spatial_domains_{expected_suffix}"
 
 
 @pytest.mark.asyncio
@@ -2346,3 +2348,101 @@ async def test_expression_source_stays_silent_on_normalized_data():
         is False
     )
     assert ctx.warnings == []
+
+
+@pytest.mark.asyncio
+async def test_spagcn_receives_a_dense_matrix(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """Regression: SpaGCN 1.2.7 reads `adata.X.A`, removed in scipy 1.14.
+
+    Only SpaGCN's sparse branch touches `.A`; its dense branch is equivalent.
+    Handing it a dense matrix keeps the backend on the path that still works.
+    """
+    adata = minimal_spatial_adata.copy()
+    adata.X = sp.csr_matrix(adata.X)
+    ctx = DummyCtx(adata)
+    seen: dict[str, bool] = {}
+
+    class _FakeSpg:
+        @staticmethod
+        def prefilter_genes(_adata, min_cells=3):
+            del _adata, min_cells
+
+        @staticmethod
+        def prefilter_specialgenes(_adata):
+            del _adata
+
+    monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSpg)
+    monkeypatch.setattr(
+        "chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None
+    )
+
+    import sys
+    import types
+
+    def _capture(ad_arg, *_args, **_kwargs):
+        seen["sparse"] = sp.issparse(ad_arg.X)
+        return ["0"] * ad_arg.n_obs
+
+    ez_mod = types.ModuleType("SpaGCN.ez_mode")
+    ez_mod.detect_spatial_domains_ez_mode = _capture
+    pkg = types.ModuleType("SpaGCN")
+    pkg.ez_mode = ez_mod
+    monkeypatch.setitem(sys.modules, "SpaGCN", pkg)
+    monkeypatch.setitem(sys.modules, "SpaGCN.ez_mode", ez_mod)
+
+    labels, _emb, _stats = await sd._identify_domains_spagcn(
+        adata, SpatialDomainParameters(method="spagcn", n_domains=3), ctx
+    )
+
+    assert seen["sparse"] is False
+    assert len(labels) == adata.n_obs
+
+
+@pytest.mark.asyncio
+async def test_resolution_driven_backend_says_n_domains_is_ignored(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """banksy clusters by resolution and cannot hit an exact domain count."""
+    adata = minimal_spatial_adata.copy()
+    ctx = DummyCtx(adata)
+
+    async def _fake_banksy(*_args, **_kwargs):
+        return ["0"] * adata.n_obs, None, {"method": "banksy"}
+
+    monkeypatch.setattr(sd, "_identify_domains_banksy", _fake_banksy)
+    monkeypatch.setattr(sd, "store_analysis_metadata", lambda *_a, **_k: None)
+    monkeypatch.setattr(sd, "export_analysis_result", lambda *_a, **_k: [])
+
+    await sd.identify_spatial_domains(
+        "d1",
+        ctx,
+        SpatialDomainParameters(method="banksy", n_domains=8, refine_domains=False),
+    )
+
+    ignored = [w for w in ctx.warnings if "n_domains=8 is ignored" in w]
+    assert len(ignored) == 1
+    assert "banksy_cluster_resolution" in ignored[0]
+
+
+@pytest.mark.asyncio
+async def test_no_ignored_parameter_warning_when_n_domains_is_untouched(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """Defaults must not produce noise — only an explicit value is worth flagging."""
+    adata = minimal_spatial_adata.copy()
+    ctx = DummyCtx(adata)
+
+    async def _fake_banksy(*_args, **_kwargs):
+        return ["0"] * adata.n_obs, None, {"method": "banksy"}
+
+    monkeypatch.setattr(sd, "_identify_domains_banksy", _fake_banksy)
+    monkeypatch.setattr(sd, "store_analysis_metadata", lambda *_a, **_k: None)
+    monkeypatch.setattr(sd, "export_analysis_result", lambda *_a, **_k: [])
+
+    await sd.identify_spatial_domains(
+        "d1", ctx, SpatialDomainParameters(method="banksy", refine_domains=False)
+    )
+
+    assert not [w for w in ctx.warnings if "is ignored" in w]

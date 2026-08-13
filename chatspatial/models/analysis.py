@@ -393,7 +393,10 @@ class EnrichmentResult(BaseAnalysisResult):
     # Basic information - always included in MCP response
     method: str  # Method used (pathway_gsea, pathway_ora, etc.)
     n_gene_sets: int  # Number of gene sets analyzed
-    n_significant: int  # Number of statistically significant gene sets (0 when no test)
+    # None when the method runs no significance test (ssGSEA and spatial
+    # enrichment score gene sets without producing p-values), which 0 would
+    # misreport as "tested, nothing significant".
+    n_significant: Optional[int] = None
 
     # Top results - always included (compact, just pathway names)
     top_gene_sets: list[str]  # Top enriched gene sets (max 10)

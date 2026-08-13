@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Literal, Optional
 
 import numpy as np
 import scanpy as sc
+import scipy.sparse
 
 from .adata_utils import ensure_categorical
 from .exceptions import DataError, DataNotFoundError
@@ -35,6 +36,56 @@ if TYPE_CHECKING:
 # =============================================================================
 # Core Computation Functions
 # =============================================================================
+
+
+def select_hvgs_by_variance(adata: "ad.AnnData", n_hvgs: int) -> None:
+    """Mark the genes with the highest finite variance as highly variable.
+
+    Variance is defined for any finite matrix, which makes this usable when
+    scanpy's mean-binned dispersion is not.
+    """
+    if scipy.sparse.issparse(adata.X):
+        means = np.asarray(adata.X.mean(axis=0)).ravel()
+        sq_means = np.asarray(adata.X.power(2).mean(axis=0)).ravel()
+        var = sq_means - np.square(means)
+    else:
+        var = np.var(np.asarray(adata.X), axis=0)
+    var = np.nan_to_num(var, nan=-np.inf, posinf=-np.inf, neginf=-np.inf)
+    n_select = min(max(int(n_hvgs), 1), adata.n_vars)
+    top_idx = np.argpartition(var, -n_select)[-n_select:]
+    mask = np.zeros(adata.n_vars, dtype=bool)
+    mask[top_idx] = True
+    adata.var["highly_variable"] = mask
+
+
+def ensure_highly_variable_genes(
+    adata: "ad.AnnData",
+    n_top_genes: int,
+    **scanpy_kwargs: object,
+) -> bool:
+    """Mark highly variable genes, falling back to variance ranking.
+
+    Scanpy bins genes by mean expression to estimate dispersion. Degenerate
+    inputs leave those bins unusable — genes that are all zero after merging
+    samples with different gene sets, or bins that collapse to one value — and
+    pandas then fails in whichever way it reaches first: a ``KeyError`` for NaN
+    bin edges, a ``ValueError`` for infinite ones. Both mean the same thing, so
+    the fallback is chosen on the failure itself rather than on its wording.
+
+    Args:
+        adata: Dataset to annotate in place.
+        n_top_genes: Number of genes to mark.
+        **scanpy_kwargs: Extra arguments forwarded to scanpy.
+
+    Returns:
+        True when the variance fallback was used instead of scanpy's binning.
+    """
+    try:
+        sc.pp.highly_variable_genes(adata, n_top_genes=n_top_genes, **scanpy_kwargs)
+        return False
+    except (KeyError, ValueError):
+        select_hvgs_by_variance(adata, n_top_genes)
+        return True
 
 
 def top_n_desc_indices(

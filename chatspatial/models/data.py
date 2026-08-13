@@ -988,6 +988,16 @@ class TrajectoryParameters(StrictParameters):
     cellrank_n_states: int = Field(
         default=5, gt=0, le=20, description="Number of macrostates for CellRank."
     )
+    cellrank_stability_threshold: float = Field(
+        default=0.96,
+        gt=0.0,
+        le=1.0,
+        description=(
+            "Minimum macrostate stability for a state to count as terminal "
+            "(CellRank only). Lower it when no macrostate is stable enough; "
+            "otherwise the run falls back to macrostate-based pseudotime."
+        ),
+    )
 
     # Palantir specific parameters
     palantir_n_diffusion_components: int = Field(

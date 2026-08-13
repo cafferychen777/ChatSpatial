@@ -566,7 +566,9 @@ def _install_fake_cellrank(
                 raise RuntimeError("macro failed")
             self.n_states = n_states
 
-        def predict_terminal_states(self, method: str = "stability"):
+        def predict_terminal_states(
+            self, method: str = "stability", stability_threshold: float = 0.96
+        ):
             _ = method
             cats = terminal_categories or []
             if cats:
@@ -1316,7 +1318,7 @@ def test_infer_spatial_trajectory_cellrank_velovi_missing_essential_data_raises(
         traj.infer_spatial_trajectory_cellrank(adata)
 
 
-def test_infer_spatial_trajectory_cellrank_predict_terminal_value_error_bubbles(
+def test_infer_spatial_trajectory_cellrank_falls_back_when_terminal_states_fail(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
@@ -1345,9 +1347,19 @@ def test_infer_spatial_trajectory_cellrank_predict_terminal_value_error_bubbles(
         def __add__(self, _other):
             return self
 
+    class _Memberships(np.ndarray):
+        def __new__(cls, n):
+            return np.zeros((n, 1), dtype=float).view(cls)
+
+        def __getitem__(self, key):
+            if isinstance(key, tuple):
+                return SimpleNamespace(X=np.asarray(self)[:, 0])
+            return super().__getitem__(key)
+
     class _GPCCA:
         def __init__(self, _kernel):
             self.macrostates = pd.Series(pd.Categorical(["M0"] * adata.n_obs))
+            self.macrostates_memberships = _Memberships(adata.n_obs)
 
         def compute_eigendecomposition(self):
             return None
@@ -1355,8 +1367,10 @@ def test_infer_spatial_trajectory_cellrank_predict_terminal_value_error_bubbles(
         def compute_macrostates(self, n_states: int):
             self.n_states = n_states
 
-        def predict_terminal_states(self, method: str = "stability"):
-            del method
+        def predict_terminal_states(
+            self, method: str = "stability", stability_threshold: float = 0.96
+        ):
+            del method, stability_threshold
             raise ValueError("unexpected state error")
 
     fake_cr = ModuleType("cellrank")
@@ -1368,8 +1382,11 @@ def test_infer_spatial_trajectory_cellrank_predict_terminal_value_error_bubbles(
     fake_cr.estimators = SimpleNamespace(GPCCA=_GPCCA)
     _patch_trajectory_dependency(monkeypatch, "cellrank", fake_cr)
 
-    with pytest.raises(ValueError, match="unexpected state error"):
-        traj.infer_spatial_trajectory_cellrank(adata, spatial_weight=0.0)
+    # Whatever the reason, a failed prediction leaves no terminal states, and
+    # the macrostate fallback below does not depend on why it failed. Matching
+    # on CellRank's wording used to turn a recoverable run into a hard failure.
+    out = traj.infer_spatial_trajectory_cellrank(adata, spatial_weight=0.0)
+    assert "pseudotime" in out.obs
     assert cleanup_called["v"] is True
 
 
@@ -1410,7 +1427,9 @@ def test_infer_spatial_trajectory_cellrank_wraps_fate_probability_failures(
         def compute_macrostates(self, n_states: int):
             self.n_states = n_states
 
-        def predict_terminal_states(self, method: str = "stability"):
+        def predict_terminal_states(
+            self, method: str = "stability", stability_threshold: float = 0.96
+        ):
             del method
             return None
 
@@ -1467,7 +1486,9 @@ def test_infer_spatial_trajectory_cellrank_raises_when_no_terminal_or_macrostate
         def compute_macrostates(self, n_states: int):
             self.n_states = n_states
 
-        def predict_terminal_states(self, method: str = "stability"):
+        def predict_terminal_states(
+            self, method: str = "stability", stability_threshold: float = 0.96
+        ):
             del method
             return None
 
@@ -1794,3 +1815,96 @@ async def test_analyze_trajectory_raises_when_method_returns_without_pseudotime(
             _VelCtx(adata),
             traj.TrajectoryParameters(method="dpt"),
         )
+
+
+def _cellrank_stub(adata, *, terminal_error=None, capture=None):
+    """Build a minimal CellRank stub whose GPCCA can fail on demand."""
+
+    class _Kernel:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def compute_transition_matrix(self):
+            return self
+
+        def __mul__(self, _other):
+            return self
+
+        def __rmul__(self, _other):
+            return self
+
+        def __add__(self, _other):
+            return self
+
+    class _Memberships(np.ndarray):
+        def __new__(cls, n):
+            return np.zeros((n, 1), dtype=float).view(cls)
+
+        def __getitem__(self, key):
+            if isinstance(key, tuple):
+                return SimpleNamespace(X=np.asarray(self)[:, 0])
+            return super().__getitem__(key)
+
+    class _GPCCA:
+        def __init__(self, _kernel):
+            self.macrostates = pd.Series(pd.Categorical(["M0"] * adata.n_obs))
+            self.macrostates_memberships = _Memberships(adata.n_obs)
+
+        def compute_eigendecomposition(self):
+            return None
+
+        def compute_macrostates(self, n_states: int):
+            self.n_states = n_states
+
+        def predict_terminal_states(
+            self, method: str = "stability", stability_threshold: float = 0.96
+        ):
+            if capture is not None:
+                capture["stability_threshold"] = stability_threshold
+                capture["method"] = method
+            if terminal_error is not None:
+                raise terminal_error
+
+    fake_cr = ModuleType("cellrank")
+    fake_cr.kernels = SimpleNamespace(
+        VelocityKernel=_Kernel, ConnectivityKernel=_Kernel, PrecomputedKernel=_Kernel
+    )
+    fake_cr.estimators = SimpleNamespace(GPCCA=_GPCCA)
+    return fake_cr
+
+
+def test_cellrank_non_value_errors_still_bubble(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """Only ValueError means "no terminal states"; other failures are real bugs."""
+    adata = minimal_spatial_adata.copy()
+    monkeypatch.setattr(traj, "ensure_cellrank_compat", lambda: (lambda: None))
+    monkeypatch.setattr(traj, "get_spatial_key", lambda _a: None)
+    _patch_trajectory_dependency(
+        monkeypatch,
+        "cellrank",
+        _cellrank_stub(adata, terminal_error=RuntimeError("upstream is broken")),
+    )
+
+    with pytest.raises(RuntimeError, match="upstream is broken"):
+        traj.infer_spatial_trajectory_cellrank(adata, spatial_weight=0.0)
+
+
+def test_cellrank_stability_threshold_reaches_the_backend(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """CellRank's own error tells users to lower this; it must be reachable."""
+    adata = minimal_spatial_adata.copy()
+    capture: dict[str, object] = {}
+    monkeypatch.setattr(traj, "ensure_cellrank_compat", lambda: (lambda: None))
+    monkeypatch.setattr(traj, "get_spatial_key", lambda _a: None)
+    _patch_trajectory_dependency(
+        monkeypatch, "cellrank", _cellrank_stub(adata, capture=capture)
+    )
+
+    traj.infer_spatial_trajectory_cellrank(
+        adata, spatial_weight=0.0, stability_threshold=0.5
+    )
+
+    assert capture["stability_threshold"] == 0.5
+    assert capture["method"] == "stability"

@@ -17,6 +17,10 @@ from ..utils.adata_utils import (
     sample_expression_values,
     standardize_adata,
 )
+from ..utils.compute import (
+    ensure_highly_variable_genes,
+    select_hvgs_by_variance,
+)
 from ..utils.dependency_manager import require, validate_r_environment
 from ..utils.exceptions import (
     ChatSpatialError,
@@ -25,22 +29,6 @@ from ..utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
-
-
-def _select_hvgs_by_variance(adata, n_hvgs: int) -> None:
-    """Select HVGs by finite per-gene variance when Scanpy binning is invalid."""
-    if scipy.sparse.issparse(adata.X):
-        means = np.asarray(adata.X.mean(axis=0)).ravel()
-        sq_means = np.asarray(adata.X.power(2).mean(axis=0)).ravel()
-        var = sq_means - np.square(means)
-    else:
-        var = np.var(np.asarray(adata.X), axis=0)
-    var = np.nan_to_num(var, nan=-np.inf, posinf=-np.inf, neginf=-np.inf)
-    n_select = min(max(int(n_hvgs), 1), adata.n_vars)
-    top_idx = np.argpartition(var, -n_select)[-n_select:]
-    mask = np.zeros(adata.n_vars, dtype=bool)
-    mask[top_idx] = True
-    adata.var["highly_variable"] = mask
 
 
 def _compute_safe_percent_top(n_genes: int) -> list[int] | None:
@@ -294,28 +282,22 @@ async def _select_and_subsample_genes(
     if not use_sct_hvgs:
         if adata.n_vars < 100:
             if requested_gene_count is not None and n_hvgs < adata.n_vars:
-                _select_hvgs_by_variance(adata, n_hvgs)
+                select_hvgs_by_variance(adata, n_hvgs)
             else:
                 adata.var["highly_variable"] = True
         else:
             try:
-                sc.pp.highly_variable_genes(adata, n_top_genes=n_hvgs)
-            except KeyError as exc:
-                if "nan" not in str(exc).lower():
-                    raise ProcessingError(
-                        f"HVG selection failed: {exc}. "
-                        f"Data: {adata.n_obs}×{adata.n_vars}, requested: {n_hvgs} HVGs."
-                    ) from exc
-                _select_hvgs_by_variance(adata, n_hvgs)
-                await ctx.warning(
-                    "Scanpy HVG binning produced NaN bins; "
-                    "selected HVGs by finite variance instead."
-                )
+                used_variance_fallback = ensure_highly_variable_genes(adata, n_hvgs)
             except Exception as exc:
                 raise ProcessingError(
                     f"HVG selection failed: {exc}. "
                     f"Data: {adata.n_obs}×{adata.n_vars}, requested: {n_hvgs} HVGs."
                 ) from exc
+            if used_variance_fallback:
+                await ctx.warning(
+                    "Scanpy HVG binning was unusable on this data; "
+                    "selected HVGs by finite variance instead."
+                )
 
     if params.remove_mito_genes and "mt" in adata.var.columns:
         adata.var.loc[adata.var["mt"], "highly_variable"] = False

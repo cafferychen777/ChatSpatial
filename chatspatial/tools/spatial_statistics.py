@@ -619,18 +619,10 @@ def _extract_result_summary(
         }
         summary["results_key"] = result.get("analysis_key")
 
-    elif analysis_type == "co_occurrence":
-        summary["n_features_analyzed"] = result.get("n_clusters", 0)
-        summary["n_significant"] = result.get("n_significant")
-        summary["top_features"] = result.get("top_features", [])[:10]
-        summary["summary_metrics"] = result.get("summary_metrics", {})
-        summary["results_key"] = result.get("analysis_key")
-
-    elif analysis_type == "ripley":
-        summary["n_features_analyzed"] = result.get("n_clusters", 0)
-        summary["results_key"] = result.get("analysis_key")
-
-    elif analysis_type == "centrality":
+    elif analysis_type in ("co_occurrence", "ripley", "centrality"):
+        # Cluster-keyed analyses share one response shape; each supplies what it
+        # actually computed and omits what it does not (n_significant stays None
+        # for the purely descriptive ones).
         summary["n_features_analyzed"] = result.get("n_clusters", 0)
         summary["n_significant"] = result.get("n_significant")
         summary["top_features"] = result.get("top_features", [])[:10]
@@ -691,6 +683,7 @@ def _extract_result_summary(
             }
 
     elif analysis_type == "network_properties":
+        summary["n_features_analyzed"] = int(result.get("n_nodes", 0))
         summary["results_key"] = result.get("analysis_key")
         summary["summary_metrics"] = {
             k: v
@@ -735,6 +728,37 @@ def _get_optimal_n_jobs(n_obs: int, requested_n_jobs: Optional[int] = None) -> i
 # ============================================================================
 # CORE ANALYSIS FUNCTIONS
 # ============================================================================
+
+
+def _rank_extremes(
+    scores: pd.Series,
+    *,
+    strongest: str,
+    limit: int = 10,
+) -> tuple[list[str], list[str]]:
+    """Split a ranked statistic into its strongest and weakest features.
+
+    A feature must never appear in both lists — it cannot be at once the
+    strongest and the weakest signal. The strongest end is therefore filled
+    first: with few features it holds the complete ranking and the weakest end
+    stays empty, because it could only repeat the same features in reverse.
+
+    Args:
+        scores: Per-feature statistic indexed by feature name.
+        strongest: Which end of the scale means the strongest signal —
+            ``"largest"`` for Moran's I, ``"smallest"`` for Geary's C.
+        limit: Maximum number of features per list.
+
+    Returns:
+        ``(strongest, weakest)`` feature names, strongest signal first in each.
+    """
+    n_strongest = min(limit, len(scores))
+    n_weakest = min(limit, len(scores) - n_strongest)
+
+    # One ordering feeds both ends, so ties cannot place a feature in both.
+    ordered = scores.sort_values(ascending=strongest == "smallest").index.tolist()
+    weakest = list(reversed(ordered[len(ordered) - n_weakest :])) if n_weakest else []
+    return ordered[:n_strongest], weakest
 
 
 def _analyze_morans_i(
@@ -798,24 +822,13 @@ def _analyze_morans_i(
             results_df["pval_norm_fdr"] < 0.05
         ].index.tolist()
 
-        # Calculate appropriate number of top genes to return
-        # To avoid returning identical lists, we take at most half of the analyzed genes
-        # This ensures top_highest and top_lowest are different gene sets
-        n_analyzed = len(results_df)
-        n_top = min(10, max(3, n_analyzed // 2))
-
-        # Ensure we never return more than half the genes to avoid duplicates
-        n_top = min(n_top, n_analyzed // 2) if n_analyzed >= 6 else 0
+        highest, lowest = _rank_extremes(results_df["I"], strongest="largest")
 
         return {
             "n_genes_analyzed": len(genes),
             "n_significant": len(significant_genes),
-            "top_highest_autocorrelation": (
-                results_df.nlargest(n_top, "I").index.tolist() if n_top > 0 else []
-            ),
-            "top_lowest_autocorrelation": (
-                results_df.nsmallest(n_top, "I").index.tolist() if n_top > 0 else []
-            ),
+            "top_highest_autocorrelation": highest,
+            "top_lowest_autocorrelation": lowest,
             "mean_morans_i": float(results_df["I"].mean()),
             "analysis_key": moran_key,
             "note": "top_highest/top_lowest refer to autocorrelation strength, not positive/negative correlation",
@@ -873,19 +886,13 @@ def _analyze_gearys_c(
             else:
                 significant_genes = []
 
-            n_analyzed = len(results_df)
-            n_top = min(10, max(3, n_analyzed // 2))
-            n_top = min(n_top, n_analyzed // 2) if n_analyzed >= 6 else n_analyzed
+            positive, weak = _rank_extremes(results_df["C"], strongest="smallest")
 
             return {
                 "n_genes_analyzed": len(genes),
                 "n_significant": len(significant_genes),
-                "top_positive_autocorrelation": results_df.nsmallest(
-                    n_top, "C"
-                ).index.tolist(),
-                "top_weak_autocorrelation": results_df.nlargest(
-                    n_top, "C"
-                ).index.tolist(),
+                "top_positive_autocorrelation": positive,
+                "top_weak_autocorrelation": weak,
                 "mean_gearys_c": float(results_df["C"].mean()),
                 "min_gearys_c": float(results_df["C"].min()),
                 "max_gearys_c": float(results_df["C"].max()),
@@ -1022,10 +1029,39 @@ def _analyze_ripleys_k(
         n_clusters = len(adata.obs[cluster_key].unique())
 
         analysis_key = f"{cluster_key}_ripley_L"
+
+        # squidpy compares each cluster against a simulated envelope and stores
+        # one p-value row per cluster category, in category order.
+        categories = [
+            str(c) for c in adata.obs[cluster_key].astype("category").cat.categories
+        ]
+        pvalues = np.asarray(adata.uns.get(analysis_key, {}).get("pvalues", []))
+
+        n_significant: int | None = None
+        top_features: list[str] = []
+        summary_metrics: dict[str, float] = {}
+        if pvalues.size and pvalues.shape[0] == len(categories):
+            # A cluster departs from spatial randomness if any distance bin does.
+            significant_bins = (pvalues < 0.05).sum(axis=1)
+            n_significant = int((significant_bins > 0).sum())
+            top_features = [
+                categories[i]
+                for i in np.argsort(-significant_bins, kind="stable")
+                if significant_bins[i] > 0
+            ]
+            summary_metrics = {
+                "n_distance_bins": float(pvalues.shape[1]),
+                "max_significant_bins": float(significant_bins.max()),
+                "mean_significant_bins": float(significant_bins.mean()),
+            }
+
         return {
             "analysis_completed": True,
             "analysis_key": analysis_key,
             "n_clusters": n_clusters,
+            "n_significant": n_significant,
+            "top_features": top_features,
+            "summary_metrics": summary_metrics,
         }
     except ChatSpatialError:
         raise

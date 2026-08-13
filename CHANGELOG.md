@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.3.5] - 2026-08-13 - Analysis Recovery and Result Completeness
+
+### Added
+
+- Added `cellrank_stability_threshold`, exposing the threshold CellRank's own
+  error message asks users to lower when no macrostate is stable enough to be
+  called terminal.
+
+### Fixed
+
+- Kept sample integration running when merged gene sets leave all-zero genes.
+  Scanpy's mean-binned dispersion is undefined on those, and integration
+  recomputed highly variable genes with no protection, so a merge of slices
+  with different gene sets aborted outright. Selection now falls back to
+  finite-variance ranking, which preprocessing already did for one of the two
+  ways this failure surfaces; both callers share the fallback, and it is chosen
+  on the failure rather than on its wording.
+- Recovered CellRank runs where no terminal state qualifies. The fallback to
+  macrostate-based pseudotime was gated on one hard-coded sentence from
+  CellRank, so a differently worded failure — the one real data actually
+  produces — turned a recoverable run into an error. Whether terminal states
+  exist afterwards is now the deciding test; failures that are not `ValueError`
+  still propagate, and the reason is logged.
+- Restored SpaGCN, the default spatial-domain method. SpaGCN 1.2.7 reads the
+  `.A` attribute scipy removed in 1.14, but only on its sparse branch; the
+  matrix is now densified before the call, which also spares the two dense
+  copies that branch built internally.
+- Stopped advertising a domain count that resolution-driven backends never
+  honour. BANKSY clusters by `banksy_cluster_resolution`, so its result key now
+  encodes that instead of `n_domains`, and asking for an explicit `n_domains`
+  on such a backend warns which parameter to adjust instead of silently
+  returning a different number of domains.
+- Surfaced Ripley's L results. The per-cluster p-values against the simulated
+  envelope were computed all along but never left `adata.uns`, so the response
+  reported only how many clusters were analysed. Co-occurrence, Ripley's, and
+  centrality now share one response shape.
+- Reported `n_significant` as absent rather than `0` for ssGSEA and spatial
+  enrichment, neither of which produces p-values.
+- Counted the graph's nodes as the features analysed by `network_properties`,
+  which previously reported zero.
+- Returned the ranked feature lists for Moran's I and Geary's C on short gene
+  lists. Both statistics derived their top/bottom lists from the same
+  copy-pasted expression, which had drifted into opposite errors: Moran's I
+  emptied both lists below six genes, losing the result entirely for anyone
+  analysing a handful of named genes, while Geary's C returned the identical
+  genes in both lists, the very overlap the expression existed to prevent. The
+  rule now lives in one place: the strongest end is filled first — holding the
+  complete ranking when the list is short — and the weakest end takes only what
+  the strongest did not.
+
 ## [v1.3.4] - 2026-08-13 - Analysis Semantics and Visualization Corrections
 
 ### Added

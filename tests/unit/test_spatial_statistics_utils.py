@@ -1031,8 +1031,18 @@ def test_analyze_morans_i_handles_small_gene_set_without_duplicate_rank_lists(
     )
     assert out["n_genes_analyzed"] == 4
     assert out["n_significant"] == 2  # gene_0 and gene_2 survive FDR
-    assert out["top_highest_autocorrelation"] == []
+    # Short gene lists put the complete ranking in the strongest end; the
+    # weakest end stays empty because it could only repeat those same genes.
+    assert out["top_highest_autocorrelation"] == [
+        "gene_0",
+        "gene_3",
+        "gene_1",
+        "gene_2",
+    ]
     assert out["top_lowest_autocorrelation"] == []
+    assert not set(out["top_highest_autocorrelation"]) & set(
+        out["top_lowest_autocorrelation"]
+    )
     assert out["analysis_key"] == "moranI"
 
 
@@ -1077,7 +1087,10 @@ def test_analyze_gearys_c_success_dataframe_path(
     assert out["n_genes_analyzed"] == 2
     assert out["n_significant"] == 1
     assert out["top_positive_autocorrelation"] == ["gene_0", "gene_1"]
-    assert out["top_weak_autocorrelation"] == ["gene_1", "gene_0"]
+    assert out["top_weak_autocorrelation"] == []
+    assert not set(out["top_positive_autocorrelation"]) & set(
+        out["top_weak_autocorrelation"]
+    )
     assert out["mean_gearys_c"] == pytest.approx(0.6)
     assert out["min_gearys_c"] == pytest.approx(0.2)
     assert out["max_gearys_c"] == pytest.approx(1.0)
@@ -1940,3 +1953,136 @@ def test_tested_analyses_still_report_their_significance_count():
         "moran",
     )
     assert summary["n_significant"] == 3
+
+
+class TestRankExtremes:
+    """Strongest and weakest ends of a ranking must never name the same feature.
+
+    The previous implementation enforced that by emptying both ends on short
+    gene lists (Moran's I) or by returning the identical genes in both (Geary's
+    C) — two opposite mistakes from the same copy-pasted expression.
+    """
+
+    @staticmethod
+    def _scores(n: int) -> pd.Series:
+        return pd.Series(
+            np.arange(n, dtype=float), index=[f"gene_{i}" for i in range(n)]
+        )
+
+    @pytest.mark.parametrize("n", [1, 2, 4, 5, 9, 10, 11, 15, 20, 21, 50])
+    @pytest.mark.parametrize("strongest", ["largest", "smallest"])
+    def test_ends_never_overlap_at_any_size(self, n: int, strongest: str):
+        strong, weak = ss._rank_extremes(self._scores(n), strongest=strongest)
+        assert not set(strong) & set(weak)
+        assert len(strong) <= 10 and len(weak) <= 10
+        assert len(strong) + len(weak) <= n
+
+    @pytest.mark.parametrize("n", [1, 2, 4, 5, 9, 10])
+    def test_short_rankings_are_returned_in_full(self, n: int):
+        """Regression: these used to come back empty, losing the whole result."""
+        strong, weak = ss._rank_extremes(self._scores(n), strongest="largest")
+        assert len(strong) == n
+        assert weak == []
+
+    def test_largest_means_strongest_for_morans_i(self):
+        strong, weak = ss._rank_extremes(self._scores(30), strongest="largest")
+        assert strong[0] == "gene_29"
+        assert weak[0] == "gene_0"
+
+    def test_smallest_means_strongest_for_gearys_c(self):
+        strong, weak = ss._rank_extremes(self._scores(30), strongest="smallest")
+        assert strong[0] == "gene_0"
+        assert weak[0] == "gene_29"
+
+    def test_weakest_end_fills_only_what_the_strongest_left(self):
+        strong, weak = ss._rank_extremes(self._scores(12), strongest="largest")
+        assert len(strong) == 10
+        assert weak == ["gene_0", "gene_1"]
+
+
+class TestRipleySurfacesItsResults:
+    """Ripley's L compares each cluster against a simulated envelope.
+
+    The p-values were computed all along but never left ``adata.uns``, so the
+    MCP response said only how many clusters were analysed.
+    """
+
+    @staticmethod
+    def _run(adata, pvalues, monkeypatch):
+        key = "group_ripley_L"
+
+        def _fake_ripley(a, cluster_key, **_kwargs):
+            a.uns[key] = {"pvalues": np.asarray(pvalues)}
+
+        monkeypatch.setattr(ss.sq.gr, "ripley", _fake_ripley)
+        return ss._analyze_ripleys_k(
+            adata,
+            SpatialStatisticsParameters(analysis_type="ripley", cluster_key="group"),
+            DummyCtx(adata),
+        )
+
+    def test_reports_which_clusters_depart_from_randomness(
+        self, minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+    ):
+        adata = minimal_spatial_adata.copy()
+        # Group A is significant in two distance bins, group B in none.
+        out = self._run(adata, [[0.01, 0.2, 0.03], [0.5, 0.6, 0.7]], monkeypatch)
+
+        assert out["n_significant"] == 1
+        assert out["top_features"] == ["A"]
+        assert out["summary_metrics"]["n_distance_bins"] == 3.0
+        assert out["summary_metrics"]["max_significant_bins"] == 2.0
+
+    def test_ranks_clusters_by_how_many_bins_are_significant(
+        self, minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+    ):
+        adata = minimal_spatial_adata.copy()
+        out = self._run(adata, [[0.01, 0.5, 0.5], [0.01, 0.02, 0.03]], monkeypatch)
+
+        assert out["top_features"] == ["B", "A"]
+        assert out["n_significant"] == 2
+
+    def test_missing_pvalues_degrade_to_no_claim(
+        self, minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+    ):
+        adata = minimal_spatial_adata.copy()
+
+        def _fake_ripley(a, cluster_key, **_kwargs):
+            a.uns["group_ripley_L"] = {}
+
+        monkeypatch.setattr(ss.sq.gr, "ripley", _fake_ripley)
+        out = ss._analyze_ripleys_k(
+            adata,
+            SpatialStatisticsParameters(analysis_type="ripley", cluster_key="group"),
+            DummyCtx(adata),
+        )
+
+        assert out["n_significant"] is None
+        assert out["top_features"] == []
+
+
+def test_cluster_keyed_analyses_share_one_response_shape():
+    """co-occurrence, ripley and centrality report through the same fields."""
+    payload = {
+        "n_clusters": 4,
+        "n_significant": 2,
+        "top_features": ["a", "b"],
+        "summary_metrics": {"x": 1.0},
+        "analysis_key": "k",
+    }
+    shapes = [
+        _extract_result_summary(dict(payload), t)
+        for t in ("co_occurrence", "ripley", "centrality")
+    ]
+    assert all(s == shapes[0] for s in shapes)
+    assert shapes[0]["n_features_analyzed"] == 4
+    assert shapes[0]["top_features"] == ["a", "b"]
+
+
+def test_network_properties_counts_the_nodes_it_analysed():
+    summary = _extract_result_summary(
+        {"n_nodes": 2681, "n_edges": 11112, "density": 0.003, "n_cells": 2681},
+        "network_properties",
+    )
+    assert summary["n_features_analyzed"] == 2681
+    assert summary["summary_metrics"]["n_edges"] == 11112
