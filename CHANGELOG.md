@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Reorganized optional dependencies around the method families ChatSpatial
-  actually invokes. `full` is now the exact union of the 14 composable Python
+  actually invokes. `full` is now the exact union of the 15 composable Python
   families, while annotation, enrichment, CNV, differential expression,
   registration, spatial genes, and every spatial-domain backend can also be
   installed independently.
@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Limited CellRank to Python 3.12 and newer, where the maintained release works
   directly with NumPy 2. Python 3.11 keeps Palantir trajectory support without
   carrying a process-wide monkeypatch for obsolete CellRank releases.
+- Updated the default FlashS backend to the compatible 0.2 release line after
+  numerical regression testing against the former 0.1.1 floor.
+- Replaced the upstream FastCCC package with a focused maintained distribution
+  that removes its unused HTML report stack and bundled generated data. FastCCC
+  and CellRank/pyGPCCA now install and run together without a Jinja2 override,
+  and FastCCC is included in `full`.
 
 ### Removed
 
@@ -47,6 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Python 3.11-3.14 resolution checks for every optional family and a clean
   wheel smoke test that performs real SpatialDE, GraphST, STAGATE, STalign, and
   CellRank GPCCA computations.
+- Added FastCCC upstream numerical regression, a real CellPhoneDB v5 analysis,
+  and a combined FastCCC/CellRank GPCCA environment test.
 
 ## [v1.3.7] - 2026-08-13 - Dependency Compatibility and Analysis Correctness
 

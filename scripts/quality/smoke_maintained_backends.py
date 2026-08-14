@@ -120,6 +120,30 @@ def smoke_cellrank() -> None:
     assert estimator.coarse_T.shape == (2, 2)
 
 
+def smoke_fastccc() -> None:
+    from fastccc.distrib import get_distribution_from_samples
+    from fastccc.score import calculate_cluster_mean
+
+    counts = pd.DataFrame(
+        [[1.0, 2.0], [3.0, 4.0], [9.0, 5.0]],
+        index=["a", "b", "c"],
+        columns=["L", "R"],
+    )
+    labels = pd.DataFrame(
+        {"cell_type": pd.Categorical(["sender", "sender", "receiver"])},
+        index=counts.index,
+    )
+    means = calculate_cluster_mean(counts, labels)
+    np.testing.assert_allclose(means.loc["sender"], [2.0, 3.0])
+    np.testing.assert_allclose(means.loc["receiver"], [9.0, 5.0])
+
+    distribution = get_distribution_from_samples(
+        np.asarray([0.0, 0.2, 0.4, 0.6, 0.8], dtype=float)
+    )
+    assert np.isclose(distribution.loc, 0.4)
+    assert np.isclose(distribution.scale, np.sqrt(0.08))
+
+
 def main() -> None:
     smoke_spatialde()
     smoke_graphst()
@@ -127,6 +151,7 @@ def main() -> None:
     smoke_stalign()
     smoke_paste()
     smoke_cellrank()
+    smoke_fastccc()
     print("Maintained optional backend smoke tests passed")
 
 

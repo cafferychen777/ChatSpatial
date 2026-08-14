@@ -29,7 +29,7 @@ def _requirements(items: list[str]) -> dict[str, list[Requirement]]:
 
 
 @pytest.mark.unit
-def test_dependency_families_keep_conflicting_backends_separate() -> None:
+def test_dependency_families_are_composable() -> None:
     """PyPI extras must remain independently resolvable."""
     project = _project_metadata()
     extras = project["optional-dependencies"]
@@ -53,8 +53,8 @@ def test_dependency_families_keep_conflicting_backends_separate() -> None:
     assert cellrank.marker.evaluate({"python_version": "3.12"})
     assert "pygam" not in trajectory
     assert "scipy" not in trajectory
-    assert "fastccc" not in full
-    assert "fastccc" not in communication
+    assert "fastccc-modern" in full
+    assert "fastccc-modern" not in communication
     assert "rpy2" not in full
     assert "anndata2ri" not in full
     assert {"rpy2", "anndata2ri"} <= r_backends.keys()
@@ -65,11 +65,9 @@ def test_dependency_families_keep_conflicting_backends_separate() -> None:
     assert liana.marker.evaluate({"python_version": "3.13"})
     assert not liana.marker.evaluate({"python_version": "3.14"})
     assert "ktplotspy" not in communication
-    requirement = fastccc["fastccc"][0]
-    assert requirement.specifier.contains("1.0.1")
-    assert requirement.marker is not None
-    assert requirement.marker.evaluate({"python_version": "3.12"})
-    assert not requirement.marker.evaluate({"python_version": "3.13"})
+    requirement = fastccc["fastccc-modern"][0]
+    assert requirement.specifier.contains("1.0.1.post1")
+    assert requirement.marker is None
 
 
 @pytest.mark.unit
@@ -80,8 +78,8 @@ def test_default_flashs_backend_is_a_core_dependency() -> None:
 
     assert "flashs" in core
     requirement = core["flashs"][0]
-    assert requirement.specifier.contains("0.1.1")
-    assert not requirement.specifier.contains("0.2.0")
+    assert requirement.specifier.contains("0.2.1")
+    assert not requirement.specifier.contains("0.3.0")
 
 
 @pytest.mark.unit
@@ -188,6 +186,7 @@ def test_full_is_exact_union_of_composable_method_families() -> None:
         "velocity",
         "trajectory",
         "cell-communication",
+        "fastccc",
         "integration",
         "spatial-stats",
         "deconvolution",
@@ -245,7 +244,7 @@ def test_dependency_registry_exactly_matches_runtime_lookups() -> None:
 
 @pytest.mark.unit
 def test_default_communication_backend_is_in_the_composable_extra() -> None:
-    """Default parameters must not select the isolated FastCCC backend."""
+    """Default parameters must select a backend in the communication extra."""
     params = CellCommunicationParameters(species="human", cell_type_key="cell_type")
 
     assert params.method == "liana"

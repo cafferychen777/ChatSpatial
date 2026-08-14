@@ -134,7 +134,7 @@ it faster and more reliably than `pip`.
 |--------|---------|----------|
 | **Standard** | `uv pip install chatspatial` | You want the MCP server, data loading, preprocessing, embeddings, visualization, and core analysis |
 | Method extras | `uv pip install 'chatspatial[cell-communication,velocity]'` | You need specific advanced method families |
-| Full | `uv pip install 'chatspatial[full]'` | You want the broadest mutually compatible Python method set on a workstation |
+| Full | `uv pip install 'chatspatial[full]'` | You want every composable Python method family on a workstation |
 
 <details>
 <summary>Alternative: pip</summary>
@@ -153,7 +153,7 @@ Install only the method families you plan to use:
 
 ```bash
 uv pip install 'chatspatial[cell-communication]'  # LIANA+ and CellPhoneDB
-uv pip install 'chatspatial[fastccc]'             # FastCCC (Python 3.11-3.12)
+uv pip install 'chatspatial[fastccc]'             # FastCCC (Python 3.11-3.14)
 uv pip install 'chatspatial[velocity]'            # scVelo
 uv pip install 'chatspatial[trajectory]'          # CellRank (3.12+), Palantir
 uv pip install 'chatspatial[deep-learning]'       # scVI, scANVI, VeloVI, DestVI backend
@@ -177,8 +177,8 @@ currently support Python through 3.13. Their extras remain
 installable on Python 3.14, but those individual backends are omitted until
 their upstream packages add 3.14 support. SpaGCN supports Python 3.14 through
 the maintained `spagcn-modern` distribution. GraphST, STAGATE, SpatialDE,
-PASTE, and STalign are installed from focused maintained PyPI distributions;
-no Git URL, local wheel, or source build command is required.
+PASTE, STalign, and FastCCC are installed from focused maintained PyPI
+distributions; no Git URL, local wheel, or source build command is required.
 
 ChatSpatial tools fail with targeted installation guidance if you call a method
 whose optional dependency is not installed.
@@ -191,11 +191,11 @@ and additional disk space. ChatSpatial downloads this cache with the bundled
 certificate authority and publishes it atomically so failed or concurrent
 downloads do not leave a partial cache file.
 
-FastCCC is isolated because it supports Python 3.11-3.12 and requires
-Jinja2 >= 3.1.6, while the PyPI release of pyGPCCA pulled by CellRank pins
-Jinja2 3.0.3. Install `fastccc` and `trajectory` in separate environments.
-The `cell-communication`, `full`, and `trajectory` extras can otherwise be
-combined normally.
+The maintained FastCCC distribution contains the statistical runtime used by
+ChatSpatial and omits FastCCC's optional HTML report layer. It therefore has no
+Jinja2 dependency and can be installed together with CellRank and pyGPCCA.
+`fastccc`, `trajectory`, `cell-communication`, and `full` can be combined in
+one environment.
 
 ### Shared repository environment
 

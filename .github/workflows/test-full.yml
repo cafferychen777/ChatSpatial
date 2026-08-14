@@ -45,6 +45,6 @@ jobs:
           python -c "import chatspatial; print(f'v{chatspatial.__version__}')"
           python -c "from chatspatial.server import mcp; print('MCP OK')"
           python -c "import scanpy, squidpy, leidenalg; print('Core OK')"
-          python -c "import SpaGCN, SpatialDE, STAGATE_pyG, GraphST, banksy, cellrank, liana; print('Method extras OK')"
+          python -c "import SpaGCN, SpatialDE, STAGATE_pyG, GraphST, banksy, cellrank, fastccc, liana; print('Method extras OK')"
           python -c "from STalign import STalign; print('Registration extras OK')"
           python -m chatspatial --help

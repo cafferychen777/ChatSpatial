@@ -50,14 +50,10 @@ jobs:
           for extra in \
             deep-learning velocity trajectory cell-communication integration \
             spatial-stats deconvolution annotation enrichment cnv differential \
-            registration spatial-genes spatial-domains full; do
+            registration spatial-genes spatial-domains fastccc full; do
             echo "Resolving chatspatial[$extra]"
             python -m pip install --dry-run --ignore-installed ".[${extra}]"
           done
-
-      - name: Resolve the isolated FastCCC stack
-        if: matrix.python-version == '3.11' || matrix.python-version == '3.12'
-        run: python -m pip install --dry-run --ignore-installed ".[fastccc]"
 
   r-backend-install:
     name: Install R bridge

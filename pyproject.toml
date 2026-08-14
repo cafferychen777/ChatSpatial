@@ -54,7 +54,7 @@ dependencies = [
     "squidpy>=1.6.0,<2.0",
 
     # Default Python-native spatial variable gene backend
-    "flashs>=0.1.1,<0.2",
+    "flashs>=0.2.1,<0.3",
     
     # Clustering and dimensionality reduction
     "umap-learn>=0.5.0",
@@ -82,8 +82,7 @@ velocity = [
     "scvelo>=0.2.5,<0.4",
 ]
 
-# Trajectory methods. FastCCC is isolated in its own extra because its Jinja2
-# requirement conflicts with the current PyPI release of pyGPCCA.
+# Trajectory methods. CellRank is available on Python 3.12 and newer.
 trajectory = [
     "cellrank>=2.3.2,<3.0; python_version >= '3.12'",
     "palantir>=1.0.0",
@@ -95,10 +94,10 @@ cell-communication = [
     "cellphonedb>=5.0.0,<6.0",
 ]
 
-# FastCCC supports Python 3.11-3.12 and currently conflicts with CellRank's
-# pyGPCCA dependency. Isolating it keeps every other method family composable.
+# Focused FastCCC statistical runtime. The maintained distribution omits the
+# unused HTML report layer, so it has no Jinja2 conflict with CellRank/pyGPCCA.
 fastccc = [
-    "fastccc>=1.0.1,<2.0; python_version < '3.13'",
+    "fastccc-modern>=1.0.1.post1,<1.1",
 ]
 
 # Batch integration methods that do not require the deep-learning stack
@@ -174,9 +173,9 @@ r-backends = [
     "anndata2ri>=1.3.0",
 ]
 
-# Broadest mutually compatible Python installation. FastCCC, R bridges,
-# AESTETIK, and RCTD remain isolated because they impose platform, system, or
-# dependency constraints that cannot be expressed as one portable environment.
+# Broadest mutually compatible Python installation. R bridges, AESTETIK, and
+# RCTD remain isolated because they impose platform, system, or dependency
+# constraints that cannot be expressed as one portable environment.
 full = [
     # Deep learning and dynamics
     "torch>=2.0.0,<3.0",
@@ -188,6 +187,7 @@ full = [
     # Cell communication
     "liana>=1.4.0,<2.0; python_version < '3.14'",
     "cellphonedb>=5.0.0,<6.0",
+    "fastccc-modern>=1.0.1.post1,<1.1",
 
     # Integration and spatial statistics
     "harmonypy>=0.0.9",
@@ -285,14 +285,6 @@ Issues = "https://github.com/cafferychen777/ChatSpatial/issues"
 
 [project.scripts]
 chatspatial = "chatspatial.__main__:main"
-
-[tool.uv]
-conflicts = [
-    [
-        { extra = "fastccc" },
-        { extra = "trajectory" },
-    ],
-]
 
 [tool.pytest.ini_options]
 minversion = "6.0"

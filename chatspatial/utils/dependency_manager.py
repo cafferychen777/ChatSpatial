@@ -249,7 +249,7 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     "fastccc": DependencyInfo(
         "fastccc",
         "pip install 'chatspatial[fastccc]'",
-        "Fast cell-cell communication analysis (Python 3.11-3.12)",
+        "Fast cell-cell communication analysis (Python 3.11-3.14)",
     ),
     # RNA Velocity
     "scvelo": DependencyInfo(
