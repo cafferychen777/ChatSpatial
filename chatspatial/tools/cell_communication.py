@@ -607,9 +607,16 @@ def _integrate_autocrine_detection(storage: CCCStorage, n_top: int) -> None:
             if pvalues is not None and pvalue_cols and len(pvalues) == len(results):
                 threshold = float(storage.statistics.get("pvalue_threshold", 0.05))
                 significant = (pvalues[pvalue_cols] <= threshold).any(axis=1)
-                mask = significant.to_numpy(dtype=bool)
+                # Pandas 3 may expose a read-only NumPy view under copy-on-write.
+                # We refine this mask below, so take explicit ownership of the
+                # mutable buffer instead of depending on pandas' view semantics.
+                mask = significant.to_numpy(dtype=bool, copy=True)
             else:
-                mask = (results[autocrine_cols] > 0).any(axis=1).to_numpy(dtype=bool)
+                mask = (
+                    (results[autocrine_cols] > 0)
+                    .any(axis=1)
+                    .to_numpy(dtype=bool, copy=True)
+                )
             # A loop is a significant pair that signals within one cell type,
             # so it also has to clear the backend's own multiple-testing call.
             # Deciding it here instead would duplicate that correction.
