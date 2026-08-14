@@ -25,7 +25,8 @@ unified 'genes' parameter for consistent gene selection across methods.
 from __future__ import annotations
 
 import warnings
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Optional, get_args
 
@@ -85,12 +86,13 @@ class _AnalysisConfig:
     needs_nonnegative_expression: bool = False
 
 
-async def _resolve_nonnegative_expression(
+@asynccontextmanager
+async def _nonnegative_expression(
     adata: "ad.AnnData",
     ctx: "ToolContext",
     analysis_type: str,
-) -> "ad.AnnData":
-    """Point a total-based statistic at expression rather than residuals.
+) -> "AsyncIterator[None]":
+    """Lend a total-based statistic expression instead of residuals.
 
     Getis-Ord Gi* divides a neighbourhood sum by the global sum of the
     variable, so it needs a variable with a true zero (Getis & Ord 1992).
@@ -100,24 +102,35 @@ async def _resolve_nonnegative_expression(
     on a lymph node, CCL21 and IGKC lost all of their hot spots and correlated
     at rho = -0.86 with the same statistic computed on counts.
 
+    The substitution lasts only as long as the statistic runs. This object is
+    published back as the dataset afterwards, so leaving counts in ``X`` would
+    silently undo the user's normalization for every later step — PCA on the
+    swapped matrix explained 0.99 of the variance instead of 0.30.
+
     Moran's I and Geary's C are unaffected: both work from deviations around
     the mean, which residuals carry perfectly well.
     """
     if not await resolve_expression_source(
         adata, ctx, feature=f"{analysis_type} analysis"
     ):
-        return adata
+        yield
+        return
 
-    shared = adata.var_names.intersection(adata.raw.var_names)
-    if len(shared) == 0:
+    missing = adata.var_names.difference(adata.raw.var_names)
+    if len(missing) > 0:
         raise DataError(
-            f"{analysis_type} needs non-negative expression, but adata.raw "
-            "shares no genes with the current matrix, so there is nothing to "
-            "read it from. Re-run preprocessing on this dataset."
+            f"{analysis_type} needs non-negative expression, but "
+            f"{len(missing)} of the {adata.n_vars} current genes are absent "
+            "from adata.raw, so there is no expression to read for them. "
+            "Re-run preprocessing on this dataset."
         )
-    resolved = adata[:, shared].copy()
-    resolved.X = adata.raw[:, shared].X
-    return resolved
+
+    original = adata.X
+    adata.X = adata.raw[:, adata.var_names].X
+    try:
+        yield
+    finally:
+        adata.X = original
 
 
 def _build_results_keys(
@@ -244,10 +257,6 @@ async def analyze_spatial_statistics(
         # Keep the complete workflow on a candidate until metadata and export
         # succeed so a failed statistic cannot leave a mixed old/new graph.
         adata = source_adata.copy()
-        if config.needs_nonnegative_expression:
-            adata = await _resolve_nonnegative_expression(
-                adata, ctx, params.analysis_type
-            )
         if config.needs_cluster:
             assert params.cluster_key is not None
             ensure_categorical(adata, params.cluster_key)
@@ -257,7 +266,11 @@ async def analyze_spatial_statistics(
         ensure_spatial_neighbors(
             adata, n_neighs=params.n_neighbors, spatial_key=detected_key
         )
-        result = config.handler(adata, params, ctx)
+        if config.needs_nonnegative_expression:
+            async with _nonnegative_expression(adata, ctx, params.analysis_type):
+                result = config.handler(adata, params, ctx)
+        else:
+            result = config.handler(adata, params, ctx)
 
         # Ensure result is a dictionary
         if not isinstance(result, dict):

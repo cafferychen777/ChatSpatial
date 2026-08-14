@@ -2,7 +2,7 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 type: software
 title: "ChatSpatial: Schema-Enforced Agentic Orchestration for Reproducible and Cross-Platform Spatial Transcriptomics"
-version: "1.5.0"
+version: "1.5.1"
 date-released: "2026-08-14"
 doi: "10.5281/zenodo.20647930"
 url: "https://github.com/cafferychen777/ChatSpatial"
@@ -43,7 +43,7 @@ preferred-citation:
       orcid: "https://orcid.org/0009-0009-9151-2901"
       affiliation: "Texas A&M University"
       email: "cafferychen777@tamu.edu"
-  version: "1.5.0"
+  version: "1.5.1"
   date-released: "2026-08-14"
   doi: "10.5281/zenodo.20647930"
   url: "https://github.com/cafferychen777/ChatSpatial"

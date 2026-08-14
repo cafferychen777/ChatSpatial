@@ -2315,28 +2315,47 @@ class TestNonNegativeExpressionForTotalBasedStatistics:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_residuals_are_replaced_by_the_counts_they_came_from(self):
+    async def test_residuals_are_replaced_only_while_the_statistic_runs(self):
+        """The lent matrix must not outlive the statistic.
+
+        This object is published back as the dataset, so counts left in X
+        would silently undo the user's normalization for every later step.
+        """
         adata = _residual_adata()
+        residuals = np.asarray(adata.X).copy()
         ctx = _WarnCtx()
 
-        resolved = await ss._resolve_nonnegative_expression(adata, ctx, "getis_ord")
+        async with ss._nonnegative_expression(adata, ctx, "getis_ord"):
+            lent = np.asarray(adata.X).copy()
 
-        assert float(np.asarray(resolved.X).min()) >= 0.0
-        np.testing.assert_allclose(
-            np.asarray(resolved.X), np.asarray(adata.raw.X), rtol=0, atol=0
-        )
+        assert lent.min() >= 0.0
+        np.testing.assert_allclose(lent, np.asarray(adata.raw.X))
+        np.testing.assert_allclose(np.asarray(adata.X), residuals)
         assert "getis_ord" in ctx.warnings[0]
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_the_matrix_is_restored_even_when_the_statistic_fails(self):
+        adata = _residual_adata()
+        residuals = np.asarray(adata.X).copy()
+
+        with pytest.raises(RuntimeError, match="statistic blew up"):
+            async with ss._nonnegative_expression(adata, _WarnCtx(), "getis_ord"):
+                raise RuntimeError("statistic blew up")
+
+        np.testing.assert_allclose(np.asarray(adata.X), residuals)
 
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_non_negative_matrices_are_left_alone(self):
         adata = _residual_adata()
         adata.X = np.asarray(adata.raw.X).copy()
-        ctx = _WarnCtx()
+        untouched = np.asarray(adata.X).copy()
 
-        resolved = await ss._resolve_nonnegative_expression(adata, ctx, "getis_ord")
+        async with ss._nonnegative_expression(adata, _WarnCtx(), "getis_ord"):
+            np.testing.assert_allclose(np.asarray(adata.X), untouched)
 
-        assert resolved is adata
+        np.testing.assert_allclose(np.asarray(adata.X), untouched)
 
     @pytest.mark.unit
     @pytest.mark.asyncio
@@ -2376,17 +2395,78 @@ class TestNonNegativeExpressionForTotalBasedStatistics:
         residual_values = np.asarray(adata.X)[:, 0].astype(float)
         assert residual_values.sum() < 0  # the denominator that inverts Gi*
 
-        resolved = await ss._resolve_nonnegative_expression(
-            adata, _WarnCtx(), "getis_ord"
-        )
-        resolved_values = np.asarray(resolved.X)[:, 0].astype(float)
-        assert resolved_values.sum() > 0
+        async with ss._nonnegative_expression(adata, _WarnCtx(), "getis_ord"):
+            lent_values = np.asarray(adata.X)[:, 0].astype(float)
+            assert lent_values.sum() > 0
+            lent_scores = gi_star(lent_values)
 
         # On expression the hot corner scores highest; on residuals the same
         # corner scores lowest, which is how a hot spot is reported as a cold one.
-        assert (
-            gi_star(resolved_values)[hot].min() > gi_star(resolved_values)[~hot].max()
-        )
-        assert (
-            gi_star(residual_values)[hot].max() < gi_star(residual_values)[~hot].min()
-        )
+        assert lent_scores[hot].min() > lent_scores[~hot].max()
+        residual_scores = gi_star(residual_values)
+        assert residual_scores[hot].max() < residual_scores[~hot].min()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_published_dataset_keeps_its_normalization_after_a_lent_matrix(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Regression: the lent counts were published as the dataset.
+
+    Getis-Ord borrows expression because Gi* needs a true zero, but the object
+    it borrows from is what the tool stores back. Shipping the swap left counts
+    in X, so the next PCA explained 0.99 of the variance instead of 0.30 and
+    every later step silently ran on unnormalized data.
+    """
+    import anndata as ad
+
+    rng = np.random.default_rng(0)
+    adata = ad.AnnData(rng.poisson(4, size=(24, 2)).astype(np.float32))
+    adata.var_names = ["gene_a", "gene_b"]
+    adata.obsm["spatial"] = np.array([[float(i % 6), float(i // 6)] for i in range(24)])
+    adata.raw = adata.copy()
+    adata.X = np.asarray(adata.X) - np.asarray(adata.X).mean(axis=0)
+    residuals = np.asarray(adata.X).copy()
+
+    seen: dict[str, object] = {}
+
+    def _handler(borrowed, _params, _ctx):
+        # The statistic sees expression...
+        seen["min"] = float(np.asarray(borrowed.X).min())
+        borrowed.obs["gene_a_getis_ord_z"] = np.zeros(borrowed.n_obs)
+        return {"genes_analyzed": ["gene_a"], "summary_metrics": {}}
+
+    monkeypatch.setitem(
+        ss._ANALYSIS_REGISTRY,
+        "getis_ord",
+        ss._AnalysisConfig(
+            handler=_handler,
+            needs_cluster=False,
+            metadata_keys={"obs": []},
+            needs_nonnegative_expression=True,
+        ),
+    )
+
+    published: dict[str, object] = {}
+
+    class _Ctx(_WarnCtx):
+        async def get_adata(self, _data_id):
+            return adata
+
+        async def set_adata(self, _data_id, value):
+            published["adata"] = value
+
+        async def report_progress(self, *_args, **_kwargs):
+            return None
+
+    await ss.analyze_spatial_statistics(
+        "d", _Ctx(), SpatialStatisticsParameters(analysis_type="getis_ord")
+    )
+
+    assert seen["min"] >= 0.0  # ...the statistic saw expression
+    stored = published["adata"]
+    np.testing.assert_allclose(
+        np.asarray(stored.X), residuals
+    )  # ...the dataset kept its own
+    assert "gene_a_getis_ord_z" in stored.obs  # ...and the results survived

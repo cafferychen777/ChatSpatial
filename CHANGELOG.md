@@ -5,6 +5,20 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.5.1] - 2026-08-14 - Keep the Borrowed Matrix Borrowed
+
+### Fixed
+
+- Getis-Ord Gi* published the expression it borrowed as the dataset. v1.5.0
+  gave the statistic counts because Gi* needs a variable with a true zero, but
+  the object it read from is the one the tool stores back, so counts replaced
+  the user's normalized matrix for every later step: the next PCA explained
+  0.99 of the variance instead of 0.30, and clustering, embeddings and every
+  downstream statistic silently ran on unnormalized data. The substitution now
+  lasts only while the statistic runs and the matrix is restored afterwards,
+  including when the statistic raises. Gi* still reads expression and still
+  reports the same hot spots.
+
 ## [v1.5.0] - 2026-08-14 - Matching Statistics to Their Input Matrix
 
 Every fix in this release has one shape: a statistic was reading a matrix it is
