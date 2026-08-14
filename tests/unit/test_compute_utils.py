@@ -301,6 +301,38 @@ class TestEnsureHighlyVariableGenes:
         assert seen["n_top_genes"] == 7
         assert seen["batch_key"] == "batch"
 
+    def test_pearson_residual_flavor_uses_the_experimental_implementation(
+        self, minimal_spatial_adata, monkeypatch
+    ):
+        """Only the experimental entry point accepts this flavor.
+
+        The stable one rejects it with a ValueError that the degenerate-input
+        fallback would swallow, answering with plain variance ranking instead.
+        """
+        adata = minimal_spatial_adata.copy()
+        adata.layers["counts"] = adata.X.copy()
+        seen: dict[str, object] = {}
+
+        def _stable(*_args, **_kwargs):
+            raise ValueError('`flavor` needs to be "seurat" or "cell_ranger"')
+
+        def _experimental(a, **kwargs):
+            seen.update(kwargs)
+            a.var["highly_variable"] = True
+
+        monkeypatch.setattr(compute.sc.pp, "highly_variable_genes", _stable)
+        monkeypatch.setattr(
+            compute.sc.experimental.pp, "highly_variable_genes", _experimental
+        )
+
+        used_fallback = compute.ensure_highly_variable_genes(
+            adata, n_top_genes=5, flavor="pearson_residuals", layer="counts"
+        )
+
+        assert used_fallback is False
+        assert seen["flavor"] == "pearson_residuals"
+        assert seen["layer"] == "counts"
+
 
 def test_select_hvgs_by_variance_picks_the_most_variable(minimal_spatial_adata):
     adata = minimal_spatial_adata.copy()

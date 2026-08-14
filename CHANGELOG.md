@@ -5,6 +5,81 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.5.0] - 2026-08-14 - Matching Statistics to Their Input Matrix
+
+Every fix in this release has one shape: a statistic was reading a matrix it is
+not defined on. ChatSpatial normalizes with Pearson residuals by default and
+keeps counts in `adata.raw`, while scanpy, squidpy and gseapy assume `adata.X`
+holds log-normalized expression and `adata.raw` holds it too. Gene selection,
+hot spot detection, marker ranking and per-cell scoring each inherited that
+mismatch. Results from earlier versions will change; the changes are listed
+with the evidence that decided them.
+
+### Fixed
+
+- Highly variable gene selection contradicted the default normalization. Scanpy
+  ranks genes by binning them on mean expression and comparing dispersion
+  within each bin, which presupposes log-normalized counts. Pearson residuals —
+  the default normalization — are signed and centred near zero, so their mean
+  carries no expression level and the binning ranked noise: on a human lymph
+  node the selected genes were `NUP54`, `TAX1BP3` and `EIF2B3`, and only 10% of
+  the set matched the genes the matching statistic selects. Pearson-residual
+  normalization now selects genes by residual variance computed from the counts
+  layer (Lause et al. 2021), which returns the expected `IGKC`, `IGHG`, `FDCSP`,
+  `CCL21` and `CR2`, and raises the variance explained by the first 30 principal
+  components from 0.08 to 0.30. Log normalization keeps scanpy's binning, which
+  is correct for it.
+- Getis-Ord Gi* reported hot spots as cold ones. Gi* divides a neighbourhood
+  sum by the global sum of the variable, so it needs a variable with a true
+  zero (Getis & Ord 1992), but it read `adata.X` — Pearson residuals under the
+  default normalization. Those are centred, so the denominator sits near zero
+  and is as often negative as positive, and a negative denominator flips the
+  sign of every z-score: on a human lymph node `CCL21` and `IGKC` reported zero
+  hot spots where the counts give 67 and 135, correlating at rho = -0.86 with
+  the correct statistic. Gi* now reads non-negative expression, recovering it
+  from `adata.raw` and saying so. Moran's I, Geary's C and the local variants
+  are unaffected — they work from deviations around the mean, which residuals
+  carry correctly — and are left on `adata.X`.
+- Marker detection ranked raw counts, which are not comparable between cells.
+  ChatSpatial keeps counts in `adata.raw` because deconvolution, velocity and
+  cell communication need them, but scanpy reads `adata.raw` by default
+  assuming it holds log-normalized expression — and said so on every call ("It
+  seems you use rank_genes_groups on the raw count data"). The rank tests
+  therefore answered sequencing depth as readily as biology: on two groups
+  drawn from one expression profile and differing only in depth, where the
+  truth is zero differential genes, every gene in the panel came back
+  significant. Reported `logfoldchanges` were `log2(expm1(mean_count))`,
+  reaching 85.8 and `inf` on a human lymph node and 126.7 on that control.
+  All three ranking call sites now build a log-normalized view of the counts,
+  keeping the complete gene set: the control drops from 100% of genes called to
+  7.4%, and lymph node fold changes land at 0.6-1.8. Marker lists shift — by
+  roughly a tenth of the top 50 where depth is uniform across clusters, more
+  where it is not — and the shift removes depth-driven calls.
+  `statistics['expression_source']` records which matrix was read. Count-model
+  paths are unaffected: `pydeseq2` and `compare_conditions` still require
+  integer counts, because they model the count-generating process and correct
+  for depth with size factors internally.
+- ssGSEA scored cells from `adata.X`, so under the default normalization it
+  ranked genes by how far each departs from its own mean rather than by how
+  much of it is present; it now reads log-normalized expression, keeping the
+  current gene scope so per-cell scoring does not slow down. The ORA fallback
+  that ranks genes by coefficient of variation divided by that same centred
+  mean, and now reads expression as well.
+- FlashS accepted a normalized matrix in silence, while SpatialDE and SPARK-X
+  refuse anything but counts. Residuals still give FlashS a defined test, but a
+  different one: the same 300 genes went from 300 hits on counts to 106 on
+  residuals with no gene in common at the top. It now names the matrix it read
+  whenever that matrix is not counts.
+- bbknn recorded no results at all. It corrects the neighbour graph instead of
+  producing an embedding, so its provenance entry was empty and the reported
+  `embedding_key` was null, leaving nothing to say the integration had run. It
+  now records `obsp['connectivities']`, `obsp['distances']` and
+  `uns['neighbors']`.
+- The Louvain-to-Leiden fallback warning pointed at `obs['spatial_leiden']`, an
+  internal key the result never exposes — the stored columns are named after the
+  requested method. It now reports what actually changed: the algorithm, which
+  `statistics['method']` records.
+
 ## [v1.4.0] - 2026-08-14 - Analysis Correctness and Maintained Runtimes
 
 ### Added

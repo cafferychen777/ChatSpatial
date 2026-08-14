@@ -2274,3 +2274,104 @@ class TestSymmetricPairRanking:
         matrix = np.array([[0.0, 1.0], [1.0, 0.0]])
 
         assert ss._rank_symmetric_pairs(matrix, ["only_one"]) == ["0-1"]
+
+
+class _WarnCtx:
+    def __init__(self):
+        self.warnings: list[str] = []
+
+    async def warning(self, msg: str) -> None:
+        self.warnings.append(msg)
+
+    async def info(self, msg: str) -> None:
+        pass
+
+
+def _residual_adata(with_raw: bool = True):
+    """A matrix holding residuals, with the counts it was derived from."""
+    import anndata as ad
+
+    counts = np.array([[5.0, 1.0], [7.0, 0.0], [3.0, 2.0]], dtype=np.float32)
+    adata = ad.AnnData(counts.copy())
+    adata.var_names = ["gene_a", "gene_b"]
+    if with_raw:
+        adata.raw = adata.copy()
+    # Centre the columns, as variance-stabilizing normalization does.
+    adata.X = counts - counts.mean(axis=0)
+    return adata
+
+
+class TestNonNegativeExpressionForTotalBasedStatistics:
+    """Getis-Ord Gi* divides by the global total, so a sign flip inverts it."""
+
+    @pytest.mark.unit
+    def test_only_total_based_statistics_request_expression(self):
+        """Moran's I and Geary's C work from deviations, which residuals carry."""
+        registry = ss._ANALYSIS_REGISTRY
+
+        assert registry["getis_ord"].needs_nonnegative_expression is True
+        for analysis_type in ("moran", "local_moran", "geary", "bivariate_moran"):
+            assert registry[analysis_type].needs_nonnegative_expression is False
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_residuals_are_replaced_by_the_counts_they_came_from(self):
+        adata = _residual_adata()
+        ctx = _WarnCtx()
+
+        resolved = await ss._resolve_nonnegative_expression(adata, ctx, "getis_ord")
+
+        assert float(np.asarray(resolved.X).min()) >= 0.0
+        np.testing.assert_allclose(
+            np.asarray(resolved.X), np.asarray(adata.raw.X), rtol=0, atol=0
+        )
+        assert "getis_ord" in ctx.warnings[0]
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_non_negative_matrices_are_left_alone(self):
+        adata = _residual_adata()
+        adata.X = np.asarray(adata.raw.X).copy()
+        ctx = _WarnCtx()
+
+        resolved = await ss._resolve_nonnegative_expression(adata, ctx, "getis_ord")
+
+        assert resolved is adata
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_hotspots_survive_the_sign_of_the_residual_total(self):
+        """The regression itself: a negative total flips every z-score.
+
+        Reported on a lymph node as CCL21 losing all 67 of its hot spots.
+        """
+        import anndata as ad
+        from esda.getisord import G_Local
+        from libpysal import weights
+
+        rng = np.random.default_rng(0)
+        coords = np.array([[x, y] for x in range(10) for y in range(10)], dtype=float)
+        counts = rng.poisson(2, size=(100, 1)).astype(np.float32)
+        hot = (coords[:, 0] < 3) & (coords[:, 1] < 3)
+        counts[hot, 0] += 40  # a corner hot spot
+
+        adata = ad.AnnData(counts.copy())
+        adata.var_names = ["gene_a"]
+        adata.obsm["spatial"] = coords
+        adata.raw = adata.copy()
+        adata.X = counts - counts.mean(axis=0)
+        assert float(np.asarray(adata.X).sum()) < 1e-6  # centred: a null total
+
+        w = weights.KNN.from_array(coords, k=8)
+        w.transform = "r"
+        resolved = await ss._resolve_nonnegative_expression(
+            adata, _WarnCtx(), "getis_ord"
+        )
+
+        z_resolved = G_Local(
+            np.asarray(resolved.X)[:, 0].astype(float), w, transform="R", star=True
+        ).Zs
+        z_counts = G_Local(counts[:, 0].astype(float), w, transform="R", star=True).Zs
+
+        np.testing.assert_allclose(z_resolved, z_counts)
+        assert (z_resolved > 1.96).sum() > 0

@@ -45,6 +45,7 @@ from ..utils.adata_utils import (
     ensure_categorical,
     get_spatial_key,
     require_spatial_coords,
+    resolve_expression_source,
     select_genes_for_analysis,
     store_analysis_metadata,
     to_dense,
@@ -54,6 +55,7 @@ from ..utils.adata_utils import (
 from ..utils.compute import ensure_spatial_neighbors
 from ..utils.exceptions import (
     ChatSpatialError,
+    DataError,
     ParameterError,
     ProcessingError,
 )
@@ -78,6 +80,44 @@ class _AnalysisConfig:
     handler: _AnalysisHandler
     needs_cluster: bool
     metadata_keys: dict[str, list[str]]
+    # Statistics that divide by a total, rather than by a spread around the
+    # mean, are only defined on a non-negative variable with a true zero.
+    needs_nonnegative_expression: bool = False
+
+
+async def _resolve_nonnegative_expression(
+    adata: "ad.AnnData",
+    ctx: "ToolContext",
+    analysis_type: str,
+) -> "ad.AnnData":
+    """Point a total-based statistic at expression rather than residuals.
+
+    Getis-Ord Gi* divides a neighbourhood sum by the global sum of the
+    variable, so it needs a variable with a true zero (Getis & Ord 1992).
+    Pearson residuals are centred instead: their global sum sits near zero and
+    is as often negative as positive, and a negative denominator flips the
+    sign of every z-score. The tool then reports a hot spot as a cold one —
+    on a lymph node, CCL21 and IGKC lost all of their hot spots and correlated
+    at rho = -0.86 with the same statistic computed on counts.
+
+    Moran's I and Geary's C are unaffected: both work from deviations around
+    the mean, which residuals carry perfectly well.
+    """
+    if not await resolve_expression_source(
+        adata, ctx, feature=f"{analysis_type} analysis"
+    ):
+        return adata
+
+    shared = adata.var_names.intersection(adata.raw.var_names)
+    if len(shared) == 0:
+        raise DataError(
+            f"{analysis_type} needs non-negative expression, but adata.raw "
+            "shares no genes with the current matrix, so there is nothing to "
+            "read it from. Re-run preprocessing on this dataset."
+        )
+    resolved = adata[:, shared].copy()
+    resolved.X = adata.raw[:, shared].X
+    return resolved
 
 
 def _build_results_keys(
@@ -204,6 +244,10 @@ async def analyze_spatial_statistics(
         # Keep the complete workflow on a candidate until metadata and export
         # succeed so a failed statistic cannot leave a mixed old/new graph.
         adata = source_adata.copy()
+        if config.needs_nonnegative_expression:
+            adata = await _resolve_nonnegative_expression(
+                adata, ctx, params.analysis_type
+            )
         if config.needs_cluster:
             assert params.cluster_key is not None
             ensure_categorical(adata, params.cluster_key)
@@ -2085,6 +2129,7 @@ _ANALYSIS_REGISTRY: dict[str, _AnalysisConfig] = {
         handler=_analyze_getis_ord,
         needs_cluster=False,
         metadata_keys={"obs": []},  # Dynamic: {gene}_getis_ord_z/p
+        needs_nonnegative_expression=True,
     ),
     "bivariate_moran": _AnalysisConfig(
         handler=_analyze_bivariate_moran,

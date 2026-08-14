@@ -593,9 +593,13 @@ async def _identify_domains_clustering(
                 # able to tell what actually produced the domains.
                 method_used = "leiden"
                 key_added = f"spatial_{method_used}"
+                # The caller names the stored columns after the *requested*
+                # method, so pointing at this internal key would send the user
+                # to a column the result never exposes.
                 await ctx.warning(
                     f"Louvain not available: {e}. Used Leiden clustering instead; "
-                    f"the domains are reported as leiden in obs['{key_added}']."
+                    "the result keys keep the requested 'louvain' name, and "
+                    "statistics['method'] records leiden as what actually ran."
                 )
                 sc.tl.leiden(adata, resolution=params.resolution, key_added=key_added)
 

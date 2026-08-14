@@ -71,7 +71,7 @@ Install Docker Desktop or Docker Engine, confirm `docker --version` works, then 
 Check the image name and network access:
 
 ```bash
-docker pull ghcr.io/cafferychen777/chatspatial:v1.4.0
+docker pull ghcr.io/cafferychen777/chatspatial:v1.5.0
 ```
 
 ### MCP tools do not appear when using Docker
@@ -207,7 +207,7 @@ uv pip install 'chatspatial[full]'
 | Import errors | Reproduce in a fresh environment with `uv pip install 'chatspatial[full]'`, then run `uv pip check` |
 | `resolution-too-deep` | Use `uv` instead of `pip` |
 | Client not connecting | Run the configured `uvx` command in a terminal, then restart the client |
-| Docker pull fails | Run `docker pull ghcr.io/cafferychen777/chatspatial:v1.4.0` and check network access |
+| Docker pull fails | Run `docker pull ghcr.io/cafferychen777/chatspatial:v1.5.0` and check network access |
 | Docker dataset not found | Mount the host data directory and prompt with `/data/...` |
 | Path errors | Use absolute paths |
 | Analysis fails immediately | Run preprocessing first |

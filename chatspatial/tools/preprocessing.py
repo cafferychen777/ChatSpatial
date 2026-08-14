@@ -321,8 +321,19 @@ async def _select_and_subsample_genes(
             else:
                 adata.var["highly_variable"] = True
         else:
+            # Scanpy's default mean-dispersion binning reads adata.X as
+            # log-normalized expression. Pearson residuals are neither: they
+            # are signed, centred near zero, and their mean carries no
+            # expression level, so the binning ranks noise. Residual variance
+            # computed from the counts is the variability measure that belongs
+            # to this normalization (Lause et al. 2021).
+            hvg_kwargs: dict[str, Any] = {}
+            if params.normalization == "pearson_residuals" and "counts" in adata.layers:
+                hvg_kwargs = {"flavor": "pearson_residuals", "layer": "counts"}
             try:
-                used_variance_fallback = ensure_highly_variable_genes(adata, n_hvgs)
+                used_variance_fallback = ensure_highly_variable_genes(
+                    adata, n_hvgs, **hvg_kwargs
+                )
             except Exception as exc:
                 raise ProcessingError(
                     f"HVG selection failed: {exc}. "

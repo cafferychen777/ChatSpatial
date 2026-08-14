@@ -31,6 +31,7 @@ from ..config import get_cache_dir
 from ..models.analysis import AnnotationResult
 from ..models.data import AnnotationParameters
 from ..utils.adata_utils import (
+    build_log_normalized_view,
     ensure_categorical,
     ensure_counts_layer,
     ensure_unique_var_names_async,
@@ -1158,9 +1159,11 @@ async def _annotate_with_mllmcelltype(
     cluster_key = params.cluster_label
     validate_obs_column(adata, cluster_key, "Cluster")
 
-    # Find differentially expressed genes for each cluster
-
-    sc.tl.rank_genes_groups(adata, cluster_key, method="wilcoxon")
+    # Find differentially expressed genes for each cluster.
+    # Scanpy would otherwise read adata.raw, which holds counts here, leaving
+    # the ranks confounded by sequencing depth.
+    ranked, _de_source = build_log_normalized_view(adata)
+    sc.tl.rank_genes_groups(ranked, cluster_key, method="wilcoxon", use_raw=False)
 
     # Extract top marker genes for each cluster
     marker_genes_dict = {}
@@ -1168,7 +1171,7 @@ async def _annotate_with_mllmcelltype(
 
     for cluster in adata.obs[cluster_key].unique():
         # Get top genes for this cluster
-        gene_names = adata.uns["rank_genes_groups"]["names"][str(cluster)][:n_genes]
+        gene_names = ranked.uns["rank_genes_groups"]["names"][str(cluster)][:n_genes]
         marker_genes_dict[f"Cluster_{cluster}"] = list(gene_names)
 
     # Prepare parameters for mllmcelltype

@@ -1704,6 +1704,60 @@ def to_dense(X: Any, copy: bool = False) -> np.ndarray:
     return np.array(X, copy=copy)
 
 
+def build_log_normalized_view(
+    adata: "ad.AnnData",
+    *,
+    complete_genes: bool = True,
+) -> tuple["ad.AnnData", str]:
+    """Return a log-normalized copy of the counts for rank-based statistics.
+
+    ChatSpatial keeps counts in ``adata.raw`` because deconvolution, velocity
+    and cell communication all need them. Scanpy assumes the opposite: every
+    function whose ``use_raw`` defaults to True — ``rank_genes_groups`` among
+    them — reads ``adata.raw`` expecting log-normalized expression. Handing it
+    counts leaves the ranks confounded by sequencing depth and makes the fold
+    change ``log2(expm1(mean_count))``, which reached 85.8 and ``inf`` on a
+    human lymph node. Scanpy says so on every call: "It seems you use
+    rank_genes_groups on the raw count data."
+
+    Data that is not integer counts is passed through untouched rather than
+    transformed a second time.
+
+    Args:
+        adata: Dataset to read expression from.
+        complete_genes: Read the pre-filtering gene set, so markers outside the
+            highly variable selection stay reachable. Set False to keep the
+            current gene scope, which per-cell scoring needs for its runtime.
+
+    Returns:
+        The view to analyze, and the name of the source it was built from.
+    """
+    import anndata as ad_module
+    import scanpy as sc_module
+
+    source = get_raw_data_source(adata, prefer_complete_genes=complete_genes)
+    # numba, which backs scanpy's rank tests, has no float16 kernels.
+    matrix = source.X.copy()
+    if getattr(matrix, "dtype", None) == np.float16:
+        matrix = matrix.astype(np.float32)
+    view = ad_module.AnnData(
+        X=matrix,
+        obs=adata.obs.copy(),
+        var=pd.DataFrame(index=pd.Index(source.var_names, dtype=str)),
+    )
+    if not source.is_integer_counts:
+        # Negative values have no fold change: scanpy takes ``expm1`` of the
+        # group means and divides, which is NaN once a mean goes negative. Say
+        # so in the label rather than publishing unexplained NaNs.
+        if source.has_negatives:
+            return view, f"{source.source} (negative values, fold changes undefined)"
+        return view, source.source
+
+    sc_module.pp.normalize_total(view, target_sum=1e4)
+    sc_module.pp.log1p(view)
+    return view, f"log1p-normalized {source.source}"
+
+
 def get_gene_expression(
     adata: "ad.AnnData",
     gene: str,

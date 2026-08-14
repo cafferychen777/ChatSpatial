@@ -69,7 +69,7 @@ def _make_de_adata() -> AnnData:
 
 def _fake_rank_genes_groups_factory(names_by_group: dict[str, list[str]]):
     def _fake_rank_genes_groups(
-        adata, groupby, method, n_genes, reference, groups=None
+        adata, groupby, method, n_genes, reference, groups=None, **_kwargs
     ):
         del groupby, method, reference, groups
         fields = [(g, "U64") for g in names_by_group]
@@ -574,7 +574,7 @@ async def test_differential_all_groups_converts_float16_after_filtering(
     ctx = DummyCtx(adata)
     captured: dict[str, np.dtype] = {}
 
-    def _fake_rank(adata, groupby, method, n_genes, reference, groups=None):
+    def _fake_rank(adata, groupby, method, n_genes, reference, groups=None, **_kwargs):
         del groupby, method, reference, groups
         captured["dtype"] = adata.X.dtype
         names = np.zeros((n_genes,), dtype=[("A", "U64"), ("B", "U64")])
@@ -631,7 +631,7 @@ async def test_differential_specific_group_uses_fallback_name_column_and_float16
     ctx = DummyCtx(adata)
     captured: dict[str, np.dtype] = {}
 
-    def _fake_rank(adata, groupby, groups, reference, method, n_genes):
+    def _fake_rank(adata, groupby, groups, reference, method, n_genes, **_kwargs):
         del groupby, groups, reference, method
         captured["dtype"] = adata.X.dtype
         names = np.zeros((n_genes,), dtype=[("fallback", "U64")])
@@ -1014,3 +1014,58 @@ async def test_all_groups_markers_are_independent_of_row_order(
     assert result_b.top_genes_by_group == expected
     # Deterministic key order regardless of row order.
     assert list(result_a.top_genes_by_group) == list(result_b.top_genes_by_group)
+
+
+@pytest.mark.unit
+def test_depth_difference_alone_does_not_produce_differential_genes():
+    """Negative control for the matrix differential expression reads.
+
+    Two groups drawn from one expression profile, differing only in how deeply
+    each cell was sequenced. The truth is zero differential genes. Counts are
+    not comparable across cells, so ranking them answers the depth difference:
+    before the DE input was depth-corrected this called every gene in the panel.
+    """
+    import anndata as ad
+    import scanpy as sc
+
+    from chatspatial.utils.adata_utils import build_log_normalized_view
+
+    rng = np.random.default_rng(0)
+    n_cells, n_genes = 200, 200
+    profile = rng.gamma(2.0, 1.0, size=n_genes)
+    profile /= profile.sum()
+
+    group = np.array(["shallow"] * (n_cells // 2) + ["deep"] * (n_cells // 2))
+    depth = np.where(group == "deep", 20000, 4000)
+    counts = np.vstack([rng.multinomial(d, profile) for d in depth]).astype(np.float32)
+
+    adata = ad.AnnData(counts)
+    adata.var_names = [f"g{i}" for i in range(n_genes)]
+    adata.obs["group"] = group
+    adata.raw = adata.copy()  # ChatSpatial stores counts here, scanpy expects logs
+
+    def _n_called(matrix, use_raw):
+        sc.tl.rank_genes_groups(
+            matrix,
+            "group",
+            groups=["deep"],
+            reference="shallow",
+            method="wilcoxon",
+            use_raw=use_raw,
+        )
+        called = sc.get.rank_genes_groups_df(matrix, group="deep")
+        return int((called["pvals_adj"] < 0.05).sum()), called["logfoldchanges"]
+
+    on_counts, counts_fc = _n_called(adata.copy(), None)
+
+    view, source = build_log_normalized_view(adata)
+    view.obs["group"] = adata.obs["group"].to_numpy()
+    on_expression, expression_fc = _n_called(view, False)
+
+    assert "log1p" in source
+    # Reading counts answers the confound rather than the biology.
+    assert on_counts == n_genes
+    assert on_expression < n_genes // 4
+    # And the fold change stops being log2(expm1(mean count)).
+    assert np.nanmax(np.abs(counts_fc.replace([np.inf, -np.inf], np.nan))) > 20
+    assert np.nanmax(np.abs(expression_fc.replace([np.inf, -np.inf], np.nan))) < 5

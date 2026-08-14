@@ -542,7 +542,10 @@ def _integration_results_keys(
         key = "X_pca_harmony" if "X_pca_harmony" in combined.obsm else "X_harmony"
         return {"obsm": [key]}
     if method == "bbknn":
-        return {}
+        # bbknn corrects the neighbour graph instead of producing an embedding,
+        # so obsp is where its output lives. Reporting nothing left the
+        # provenance record claiming the integration produced no result at all.
+        return {"obsp": ["connectivities", "distances"], "uns": ["neighbors"]}
     if method == "scanorama":
         return {"obsm": ["X_scanorama"]}
     return {"obsm": ["X_pca"]}

@@ -993,3 +993,69 @@ class TestHighlyVariableGeneRanking:
         top_hvg, _top_expressed = au.get_gene_profile(adata)
 
         assert top_hvg[:2] == ["chr8_mid", "chr20_late"]
+
+
+class TestLogNormalizedView:
+    """ChatSpatial stores counts in adata.raw; scanpy assumes log expression.
+
+    Every scanpy statistic whose ``use_raw`` defaults to True therefore reads
+    counts, which leaves rank tests confounded by sequencing depth and makes
+    the fold change ``log2(expm1(mean_count))``.
+    """
+
+    @staticmethod
+    def _counts_adata(with_raw: bool = True, dtype=np.float32):
+        import anndata as ad
+
+        counts = np.array(
+            [[10.0, 0.0, 5.0], [200.0, 4.0, 100.0], [1.0, 0.0, 1.0]], dtype=dtype
+        )
+        adata = ad.AnnData(counts.copy())
+        adata.var_names = ["gene_a", "gene_b", "gene_c"]
+        if with_raw:
+            adata.raw = adata.copy()
+        adata.X = counts - counts.mean(axis=0)  # residual-like
+        return adata
+
+    @pytest.mark.unit
+    def test_counts_are_depth_normalized_and_logarithmized(self):
+        adata = self._counts_adata()
+
+        view, source = au.build_log_normalized_view(adata)
+
+        values = np.asarray(view.X)
+        assert values.min() >= 0.0
+        assert values.max() < 10.0  # log scale, not raw counts
+        assert "log1p" in source
+        # Depth correction: the second cell has 20x the library of the third,
+        # so equal counts must not read as equal expression.
+        assert not np.isclose(values[1, 0], values[2, 0])
+
+    @pytest.mark.unit
+    def test_float16_is_upcast_for_numba(self):
+        adata = self._counts_adata(dtype=np.float16)
+
+        view, _ = au.build_log_normalized_view(adata)
+
+        assert view.X.dtype == np.float32
+
+    @pytest.mark.unit
+    def test_negative_values_are_reported_as_undefined_rather_than_transformed(self):
+        adata = self._counts_adata(with_raw=False)
+        adata.layers.pop("counts", None)
+
+        view, source = au.build_log_normalized_view(adata)
+
+        assert "fold changes undefined" in source
+        assert float(np.asarray(view.X).min()) < 0  # passed through, not re-logged
+
+    @pytest.mark.unit
+    def test_gene_scope_is_selectable(self):
+        adata = self._counts_adata()
+        adata = adata[:, ["gene_a", "gene_b"]].copy()
+
+        complete, _ = au.build_log_normalized_view(adata, complete_genes=True)
+        current, _ = au.build_log_normalized_view(adata, complete_genes=False)
+
+        assert complete.n_vars == 3
+        assert current.n_vars == 2

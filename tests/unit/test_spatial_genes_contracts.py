@@ -283,6 +283,81 @@ async def test_spatialde_success_stores_var_outputs_and_metadata(
 
 
 @pytest.mark.asyncio
+async def test_flashs_names_the_matrix_when_it_is_not_counts(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """SpatialDE and SPARK-X refuse anything but counts; FlashS accepts it.
+
+    Residuals still give FlashS a defined test, but a different one: the same
+    300 genes went from 300 hits on counts to 106 on residuals, sharing no top
+    gene. Two runs must not look interchangeable.
+    """
+    adata = minimal_spatial_adata.copy()
+
+    class _FakeResult:
+        def __init__(self, genes: list[str]):
+            n = len(genes)
+            self.gene_names = genes
+            self.pvalues = np.linspace(0.001, 0.8, n)
+            self.qvalues = np.linspace(0.01, 0.9, n)
+            self.statistics = np.linspace(1.0, 2.0, n)
+            self.effect_size = np.linspace(0.5, 1.5, n)
+            self.pvalues_binary = np.linspace(0.002, 0.7, n)
+            self.pvalues_rank = np.linspace(0.003, 0.6, n)
+            self.n_expressed = np.arange(10, 10 + n)
+            self.tested_mask = np.ones(n, dtype=bool)
+            self.n_tested = n
+            self.n_significant = 1
+
+    class _FakeFlashS:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def fit_test(self, coords, X, gene_names):
+            del coords, X
+            return _FakeResult(gene_names)
+
+    fake_flashs = ModuleType("flashs")
+    fake_flashs.FlashS = _FakeFlashS
+    monkeypatch.setitem(sys.modules, "flashs", fake_flashs)
+    monkeypatch.setattr(sg, "require", _required_module)
+    monkeypatch.setattr(
+        sg,
+        "get_raw_data_source",
+        lambda _adata, **_kw: SimpleNamespace(
+            X=_adata.X,
+            var_names=_adata.var_names,
+            source="current",
+            is_integer_counts=False,
+            has_negatives=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.adata_utils.store_analysis_metadata",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.results_export.export_analysis_result",
+        lambda *_args, **_kwargs: [],
+    )
+
+    ctx = DummyCtx()
+    await sg._identify_spatial_genes_flashs(
+        "d_flashs_residual",
+        adata,
+        SpatialVariableGenesParameters(
+            method="flashs", spatial_key="spatial", test_only_hvg=False
+        ),
+        ctx,
+    )
+
+    said = " ".join(getattr(ctx, "warnings", []))
+    assert "not counts" in said
+    assert "negative values" in said
+    assert "current" in said
+
+
+@pytest.mark.asyncio
 async def test_flashs_success_stores_var_outputs_and_metadata(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
@@ -324,6 +399,8 @@ async def test_flashs_success_stores_var_outputs_and_metadata(
             X=_adata.X,
             var_names=_adata.var_names,
             source="current",
+            is_integer_counts=True,
+            has_negatives=False,
         ),
     )
     monkeypatch.setattr(
@@ -774,6 +851,8 @@ async def test_flashs_reindexs_to_adata_var_and_defaults_tested_mask(
             X=_adata.X[:, :3],
             var_names=pd.Index(["gene_1", "gene_0", "not_in_var"]),
             source="current",
+            is_integer_counts=True,
+            has_negatives=False,
         ),
     )
     monkeypatch.setattr(
@@ -1163,7 +1242,11 @@ async def test_flashs_returns_effect_size_ranked_genes(
         sg,
         "get_raw_data_source",
         lambda _adata, **_kw: SimpleNamespace(
-            X=_adata.X, var_names=_adata.var_names, source="current"
+            X=_adata.X,
+            var_names=_adata.var_names,
+            source="current",
+            is_integer_counts=True,
+            has_negatives=False,
         ),
     )
     monkeypatch.setattr(
@@ -1321,7 +1404,11 @@ async def test_flashs_tests_only_highly_variable_genes(
         sg,
         "get_raw_data_source",
         lambda _adata, **_kw: SimpleNamespace(
-            X=_adata.X, var_names=_adata.var_names, source="current"
+            X=_adata.X,
+            var_names=_adata.var_names,
+            source="current",
+            is_integer_counts=True,
+            has_negatives=False,
         ),
     )
     monkeypatch.setattr(

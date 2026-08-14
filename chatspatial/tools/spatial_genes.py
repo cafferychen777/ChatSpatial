@@ -595,6 +595,19 @@ async def _identify_spatial_genes_flashs(
     X = raw_result.X
     gene_names = [str(gene) for gene in raw_result.var_names]
 
+    # SpatialDE and SPARK-X refuse anything but counts. FlashS accepts a
+    # continuous variable, so residuals still produce a defined test — but a
+    # different one: on a lymph node the same 300 genes went from 300 hits on
+    # counts to 106 on residuals, with no gene in common at the top. Say which
+    # matrix answered rather than letting the two runs look interchangeable.
+    if not raw_result.is_integer_counts:
+        await ctx.warning(
+            f"FlashS is testing '{raw_result.source}', which is not counts"
+            + (" and contains negative values" if raw_result.has_negatives else "")
+            + ". The ranking describes that matrix; store counts in "
+            "layers['counts'] or adata.raw to test expression instead."
+        )
+
     coords = require_spatial_coords(adata, spatial_key=params.spatial_key)[:, :2]
 
     # Shared gene universe: mitochondrial, ribosomal, HVG-only, and runtime cap.

@@ -637,7 +637,12 @@ def test_integrate_multiple_samples_bbknn_dispatches_module_call(
         "n_obs": adata.n_obs,
     }
     assert captured["analysis_name"] == "integration_bbknn"
-    assert captured["results_keys"] == {}
+    # bbknn writes a corrected neighbour graph rather than an embedding, and
+    # the provenance entry has to name it or it reads as "produced nothing".
+    assert captured["results_keys"] == {
+        "obsp": ["connectivities", "distances"],
+        "uns": ["neighbors"],
+    }
 
 
 def test_integrate_multiple_samples_scanorama_wrapper_path_uses_x_scanorama(
@@ -1398,3 +1403,31 @@ def test_integration_hvg_recalculation_survives_unusable_bins(
 
     assert "highly_variable" in combined.var
     assert int(combined.var["highly_variable"].sum()) > 0
+
+
+@pytest.mark.unit
+def test_bbknn_reports_the_graph_it_corrects():
+    """bbknn produces no embedding, so obsp is the only record of its output.
+
+    Reporting nothing left the provenance entry claiming the integration
+    produced no result at all.
+    """
+    combined = AnnData(np.zeros((3, 2), dtype=np.float32))
+
+    keys = integration_mod._integration_results_keys(combined, "bbknn")
+
+    assert keys["obsp"] == ["connectivities", "distances"]
+    assert keys["uns"] == ["neighbors"]
+
+
+@pytest.mark.unit
+def test_embedding_methods_still_report_their_embedding():
+    combined = AnnData(np.zeros((3, 2), dtype=np.float32))
+    combined.obsm["X_pca_harmony"] = np.zeros((3, 2), dtype=np.float32)
+
+    assert integration_mod._integration_results_keys(combined, "harmony") == {
+        "obsm": ["X_pca_harmony"]
+    }
+    assert integration_mod._integration_results_keys(combined, "scanorama") == {
+        "obsm": ["X_scanorama"]
+    }

@@ -75,6 +75,12 @@ def ensure_highly_variable_genes(
     same thing, so the fallback is chosen on the failure itself rather than on
     its wording.
 
+    ``flavor="pearson_residuals"`` is routed to scanpy's experimental
+    implementation, the only one that accepts it. Dispatching on the flavor
+    before the call matters: the stable implementation rejects the name with a
+    ``ValueError``, which the fallback below would otherwise swallow and
+    silently answer with plain variance ranking.
+
     Args:
         adata: Dataset to annotate in place.
         n_top_genes: Number of genes to mark.
@@ -83,8 +89,13 @@ def ensure_highly_variable_genes(
     Returns:
         True when the variance fallback was used instead of scanpy's binning.
     """
+    select_genes = (
+        sc.experimental.pp.highly_variable_genes
+        if scanpy_kwargs.get("flavor") == "pearson_residuals"
+        else sc.pp.highly_variable_genes
+    )
     try:
-        sc.pp.highly_variable_genes(adata, n_top_genes=n_top_genes, **scanpy_kwargs)
+        select_genes(adata, n_top_genes=n_top_genes, **scanpy_kwargs)
         return False
     except (KeyError, ValueError, IndexError):
         select_hvgs_by_variance(adata, n_top_genes)

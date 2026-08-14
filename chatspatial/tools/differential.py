@@ -11,6 +11,7 @@ from ..models.data import DifferentialExpressionParameters
 from ..spatial_mcp_adapter import ToolContext
 from ..utils import validate_obs_column
 from ..utils.adata_utils import (
+    build_log_normalized_view,
     check_is_integer_counts,
     get_raw_data_source,
     shallow_copy_adata,
@@ -118,6 +119,9 @@ async def differential_expression(
         if needs_dtype_fix:
             adata_filtered.X = adata_filtered.X.astype(np.float32)
 
+        # Scanpy would otherwise read adata.raw, which holds counts here.
+        adata_filtered, de_source = build_log_normalized_view(adata_filtered)
+
         # Run rank_genes_groups on filtered data
         sc.tl.rank_genes_groups(
             adata_filtered,
@@ -125,6 +129,7 @@ async def differential_expression(
             method=method,
             n_genes=n_top_genes,
             reference="rest",
+            use_raw=False,
         )
 
         # Get all groups (from filtered data)
@@ -173,6 +178,7 @@ async def differential_expression(
                 "groups": list(map(str, groups)),
                 "n_cells_analyzed": adata_filtered.n_obs,
                 "n_genes_analyzed": adata_filtered.n_vars,
+                "expression_source": de_source,
             },
         )
 
@@ -222,6 +228,9 @@ async def differential_expression(
     if needs_dtype_fix:
         temp_adata.X = temp_adata.X.astype(np.float32)
 
+    # Scanpy would otherwise read adata.raw, which holds counts here.
+    temp_adata, de_source = build_log_normalized_view(temp_adata)
+
     # Run rank_genes_groups
     sc.tl.rank_genes_groups(
         temp_adata,
@@ -230,6 +239,7 @@ async def differential_expression(
         reference="rest" if use_rest_as_reference else group2,
         method=method,
         n_genes=n_top_genes,
+        use_raw=False,
     )
 
     # Extract results
@@ -421,6 +431,7 @@ async def differential_expression(
             "n_cells_group1": int(n_cells_group1),
             "n_cells_group2": int(n_cells_group2),
             "n_genes_analyzed": temp_adata.n_vars,
+            "expression_source": de_source,
             "mean_log2fc": float(mean_log2fc) if mean_log2fc is not None else None,
             "median_pvalue": (
                 float(median_pvalue) if median_pvalue is not None else None

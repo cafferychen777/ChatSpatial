@@ -17,6 +17,7 @@ from scipy import stats
 
 from ..models.analysis import EnrichmentResult
 from ..utils.adata_utils import (
+    build_log_normalized_view,
     get_raw_data_source,
     storage_safe_key,
     store_analysis_metadata,
@@ -1073,8 +1074,13 @@ def perform_ora(
             else:
                 # Use top variable genes (based on Coefficient of Variation)
                 # CV = σ/μ is more appropriate than raw variance
-                mean = np.array(adata.X.mean(axis=0)).flatten()
-                std = _compute_std_sparse_compatible(adata.X, axis=0, ddof=1)
+                # CV divides by the mean, which variance-stabilizing
+                # normalization centres on zero: on residuals this ratio is
+                # dominated by whichever gene happens to sit closest to its
+                # own mean. Read expression instead.
+                cv_source = get_raw_data_source(adata, prefer_complete_genes=False)
+                mean = np.array(cv_source.X.mean(axis=0)).flatten()
+                std = _compute_std_sparse_compatible(cv_source.X, axis=0, ddof=1)
 
                 # Compute CV (avoid division by zero)
                 cv = np.zeros_like(mean)
@@ -1082,7 +1088,7 @@ def perform_ora(
                 cv[nonzero_mask] = std[nonzero_mask] / np.abs(mean[nonzero_mask])
 
                 top_indices = top_n_desc_indices(cv, 500, sanitize_nonfinite=True)
-                gene_list = adata.var_names[top_indices].tolist()
+                gene_list = pd.Index(cv_source.var_names)[top_indices].tolist()
 
     # Background genes
     # Use get_raw_data_source (single source of truth) to get complete gene set
@@ -1269,12 +1275,24 @@ def perform_ssgsea(
 
     gp = _get_gseapy(ctx)
 
+    # ssGSEA ranks the genes within each cell (Barbie et al. 2009), so it needs
+    # expression. Under variance-stabilizing normalization adata.X holds
+    # residuals, which rank a gene by how far it departs from its own mean
+    # rather than by how much of it is there. Keep the current gene scope: this
+    # scores every cell, so widening to the pre-filtering gene set would
+    # multiply the runtime.
+    expression, _expression_source = build_log_normalized_view(
+        adata, complete_genes=False
+    )
+
     # Run ssGSEA (with batch processing for large datasets)
     try:
         if n_samples <= BATCH_SIZE:
             # Small dataset: process all at once (original behavior)
             expr_df = pd.DataFrame(
-                to_dense(adata.X).T, index=adata.var_names, columns=adata.obs_names
+                to_dense(expression.X).T,
+                index=expression.var_names,
+                columns=expression.obs_names,
             )
             res = gp.ssgsea(
                 data=expr_df,
@@ -1296,11 +1314,11 @@ def perform_ssgsea(
                 batch_indices = list(range(batch_start, batch_end))
 
                 # Extract batch - only convert this batch to dense
-                batch_X = to_dense(adata.X[batch_indices, :])
+                batch_X = to_dense(expression.X[batch_indices, :])
                 batch_df = pd.DataFrame(
                     batch_X.T,
-                    index=adata.var_names,
-                    columns=adata.obs_names[batch_indices],
+                    index=expression.var_names,
+                    columns=expression.obs_names[batch_indices],
                 )
 
                 batch_res = gp.ssgsea(
