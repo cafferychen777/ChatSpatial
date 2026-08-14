@@ -111,6 +111,9 @@ jobs:
       - name: Verify the published manifest
         run: |
           tag=$(jq -r '.tags[0]' <<<'${{ steps.meta.outputs.json }}')
+          # buildx also attaches provenance and SBOM entries, which carry the
+          # platform "unknown/unknown". The question is whether both
+          # architectures are served, not whether anything else rides along.
           docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' \
-            | jq -e '[.manifests[].platform | "\(.os)/\(.architecture)"] | sort
-                     == ["linux/amd64","linux/arm64"]'
+            | jq -e '[.manifests[].platform | "\(.os)/\(.architecture)"] as $p
+                     | ($p | index("linux/amd64")) and ($p | index("linux/arm64"))'
