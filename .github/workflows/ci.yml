@@ -54,6 +54,30 @@ jobs:
         if: matrix.python-version == '3.11' || matrix.python-version == '3.12'
         run: python -m pip install --dry-run --ignore-installed ".[fastccc]"
 
+  r-backend-install:
+    name: Install R bridge
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+
+      - uses: r-lib/actions/setup-r@d3c5be51b12e724e68f33216ca3c148b66d5f0b6 # v2
+        with:
+          r-version: "4.5"
+
+      - name: Install and import the R bridge
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[r-backends]"
+          python -c "import anndata2ri, rpy2.robjects; print(rpy2.robjects.r('R.version.string')[0])"
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

@@ -132,6 +132,14 @@ rctd-python = [
     "rctd-py>=0.3.7,<0.4",
 ]
 
+# Bridges for methods implemented in R. Kept out of [full] because rpy2 must
+# inspect and link against a system R installation while it is being installed;
+# the required R packages are managed separately from Python package metadata.
+r-backends = [
+    "rpy2>=3.6.7,<3.7",
+    "anndata2ri>=1.3.0",
+]
+
 # Broadest mutually compatible PyPI installation. FastCCC lives in its own
 # extra because of the upstream pyGPCCA/FastCCC conflict.
 full = [
@@ -182,12 +190,6 @@ full = [
     "celldex>=0.3.0; sys_platform != 'win32'",  # Reference datasets for SingleR
     "mllmcelltype>=0.1.0",  # LLM-based cell type annotation
 
-    # ========== R Interface (for specific methods) ==========
-    # rpy2 must be built against the active R installation. Versions 3.5-3.6
-    # provide the request-local evaluation contexts used by the R backends.
-    "rpy2>=3.5.0,<3.7",  # Required for RCTD, SPOTlight, CellChat, SCTransform, etc.
-    "anndata2ri>=1.3.0",  # Sparse matrix support for R deconvolution (85.9% memory savings)
-    
     # ========== Extended Spatial Analysis ==========
     "networkx>=2.6.0",  # Network analysis for spatial graphs
     
@@ -218,7 +220,7 @@ full = [
 # Note: SCTransform now uses R's sctransform package via rpy2 (more stable than pySCTransform)
 # Requirements: R with sctransform package installed
 # Install R package: R -e 'install.packages("sctransform")'
-# rpy2 is already included in the [full] optional dependencies
+# Install the [r-backends] extra after installing R.
 
 # Spatial domain methods. The maintained SpaGCN distribution uses igraph's
 # built-in Leiden implementation and does not require the obsolete louvain
@@ -270,6 +272,14 @@ Issues = "https://github.com/cafferychen777/ChatSpatial/issues"
 
 [project.scripts]
 chatspatial = "chatspatial.__main__:main"
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "fastccc" },
+        { extra = "trajectory" },
+    ],
+]
 
 [tool.pytest.ini_options]
 minversion = "6.0"

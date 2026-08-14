@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolve to stale releases on Python 3.14; unused PySAL and PETSc meta-stacks
   were removed; direct core imports are now declared explicitly; and LIANA is
   the default communication backend so the default works after a full install.
+- Split the R bridge into an explicit `r-backends` extra. The Python-only
+  `full` installation can now be resolved on a clean machine without a system R
+  executable, while R-backed methods retain a tested installation path that
+  links the current rpy2 release against a supported R 4.5 or newer installation.
 - Kept datasets writable after enrichment analysis. Gene set names became
   `uns` keys and obs columns, and HDF5 reserves "/" as its path separator, so
   one run against MSigDB Hallmark -- which ships "PI3K/AKT/mTOR Signaling" --

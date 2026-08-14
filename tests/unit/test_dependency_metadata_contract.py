@@ -38,6 +38,7 @@ def test_dependency_families_keep_conflicting_backends_separate() -> None:
     trajectory = _requirements(extras["trajectory"])
     communication = _requirements(extras["cell-communication"])
     fastccc = _requirements(extras["fastccc"])
+    r_backends = _requirements(extras["r-backends"])
 
     assert "jinja2" not in core
     assert "cellrank" not in full
@@ -47,6 +48,10 @@ def test_dependency_families_keep_conflicting_backends_separate() -> None:
     assert {"cellrank", "palantir", "pygam", "scipy"} <= trajectory.keys()
     assert "fastccc" not in full
     assert "fastccc" not in communication
+    assert "rpy2" not in full
+    assert "anndata2ri" not in full
+    assert {"rpy2", "anndata2ri"} <= r_backends.keys()
+    assert r_backends["rpy2"][0].specifier.contains("3.6.7")
     liana = communication["liana"][0]
     assert liana.specifier.contains("1.4.0")
     assert liana.marker is not None
@@ -137,6 +142,8 @@ def test_install_guidance_uses_compatible_optional_families() -> None:
         "banksy": "spatial-domains",
         "aestetik": "aestetik",
         "fastccc": "fastccc",
+        "rpy2": "r-backends",
+        "anndata2ri": "r-backends",
     }
 
     for dependency, extra in expected_extras.items():

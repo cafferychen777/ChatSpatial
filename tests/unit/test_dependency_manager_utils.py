@@ -468,6 +468,7 @@ def test_broken_import_offers_the_repair_not_the_install_command(
 
     message = str(exc.value)
     assert "R RHOME" in message
+    assert "--no-binary rpy2,rpy2-rinterface" in message
     assert "Install or repair: pip install rpy2\n" not in message
 
 
@@ -480,7 +481,7 @@ def test_missing_package_still_offers_the_install_command(
     with pytest.raises(DependencyError) as exc:
         dm.require("rpy2", feature="R-based methods")
 
-    assert "Install: pip install rpy2" in str(exc.value)
+    assert "Install: pip install 'chatspatial[r-backends]'" in str(exc.value)
 
 
 def test_require_wraps_non_import_loader_failures(

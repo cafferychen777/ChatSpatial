@@ -176,7 +176,7 @@ class PreprocessingParameters(StrictParameters):
     )
 
     # SCTransform preprocessing parameters (requires R + sctransform package via rpy2)
-    # Installation: R -e 'install.packages("sctransform")' && pip install rpy2
+    # Installation: install R's sctransform package and ChatSpatial's r-backends extra.
     sct_var_features_n: int = Field(
         default=3000,
         ge=100,

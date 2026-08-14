@@ -215,18 +215,19 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     # R Interface
     "rpy2": DependencyInfo(
         "rpy2",
-        "pip install rpy2",
+        "pip install 'chatspatial[r-backends]'",
         "R-Python interface (requires R installation)",
         repair_cmd=(
             "rpy2 links against the R it was built for; a missing symbol means "
             "a different R is being loaded. Check `R RHOME` and "
             "`echo $R_HOME` agree, then rebuild against that R: "
-            'pip install --force-reinstall --no-binary rpy2 "rpy2"'
+            "pip install --force-reinstall "
+            '--no-binary rpy2,rpy2-rinterface "rpy2>=3.6.7,<3.7"'
         ),
     ),
     "anndata2ri": DependencyInfo(
         "anndata2ri",
-        "pip install anndata2ri",
+        "pip install 'chatspatial[r-backends]'",
         "AnnData to R SingleCellExperiment conversion",
     ),
     # Cell Communication

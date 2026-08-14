@@ -134,7 +134,7 @@ it faster and more reliably than `pip`.
 |--------|---------|----------|
 | **Standard** | `uv pip install chatspatial` | You want the MCP server, data loading, preprocessing, embeddings, visualization, and core analysis |
 | Method extras | `uv pip install 'chatspatial[cell-communication,velocity]'` | You need specific advanced method families |
-| Full | `uv pip install 'chatspatial[full]'` | You want the broadest mutually compatible PyPI method set on a workstation. **Requires R ≥ 4.4 on PATH** (see below) |
+| Full | `uv pip install 'chatspatial[full]'` | You want the broadest mutually compatible Python method set on a workstation |
 
 <details>
 <summary>Alternative: pip</summary>
@@ -160,6 +160,7 @@ uv pip install 'chatspatial[deep-learning]'       # scVI, scANVI, VeloVI, DestVI
 uv pip install 'chatspatial[integration]'         # Harmony, BBKNN, Scanorama
 uv pip install 'chatspatial[deconvolution]'       # FlashDeconv, Cell2location
 uv pip install 'chatspatial[rctd-python]'         # PyTorch RCTD backend (rctd-py)
+uv pip install 'chatspatial[r-backends]'          # Python bridges for R-based methods
 uv pip install 'chatspatial[spatial-stats]'       # PySAL/ESDA extensions
 uv pip install 'chatspatial[spatial-domains]'     # SpaGCN and BANKSY
 ```
@@ -272,12 +273,21 @@ uv pip install 'chatspatial[full]'
 
 ### R-based methods
 
-The `[full]` extra includes `rpy2`, which **requires R to be available on your `PATH` at install time** (it compiles against your R installation). On HPC systems where R is provided via modules, run `module load R` (or equivalent) before installing. If you only need Python-based methods, the standard install (`uv pip install chatspatial`) does not require R.
+The `[r-backends]` extra includes `rpy2`, which **requires R 4.5 or newer to be
+available on your `PATH` at install time** because it links against that R installation.
+R bridges are deliberately excluded from `[full]`: installing the Python bridge
+does not install the R implementations used by RCTD, SPOTlight, CellChat,
+SCTransform, or other R-backed methods. On HPC systems where R is provided via
+modules, run `module load R` (or equivalent) first.
+
+```bash
+uv pip install 'chatspatial[r-backends]'
+```
 
 Once R is available, install the R packages used by ChatSpatial:
 
 ```bash
-# Install R 4.4+
+# Install R 4.5+
 Rscript install_r_dependencies.R
 ```
 
