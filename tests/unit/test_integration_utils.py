@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import warnings
 from types import ModuleType, SimpleNamespace
 
@@ -1431,3 +1432,29 @@ def test_embedding_methods_still_report_their_embedding():
     assert integration_mod._integration_results_keys(combined, "scanorama") == {
         "obsm": ["X_scanorama"]
     }
+
+
+@pytest.mark.unit
+def test_integration_records_whether_counts_survived():
+    """Deconvolution, velocity, cell communication and Getis-Ord all read counts.
+
+    Their absence decides what the integrated dataset can still be used for,
+    and it was written only to a Python logger the client never sees.
+    """
+    with_counts = AnnData(np.zeros((3, 2), dtype=np.float32))
+    with_counts.layers["counts"] = np.zeros((3, 2), dtype=np.float32)
+    without = AnnData(np.zeros((3, 2), dtype=np.float32))
+
+    for combined, expected in ((with_counts, True), (without, False)):
+        combined.uns[integration_mod.INTEGRATION_HAS_COUNTS_KEY] = not (
+            combined.raw is None and "counts" not in combined.layers
+        )
+        assert combined.uns[integration_mod.INTEGRATION_HAS_COUNTS_KEY] is expected
+
+    source = inspect.getsource(integration_mod.integrate_multiple_samples)
+    assert "INTEGRATION_HAS_COUNTS_KEY" in source
+    assert "Downstream analyses requiring raw counts may be limited" not in source
+
+    caller = inspect.getsource(integration_mod.integrate_samples)
+    assert "INTEGRATION_HAS_COUNTS_KEY" in caller
+    assert "await ctx.warning" in caller

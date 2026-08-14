@@ -2867,3 +2867,28 @@ async def test_analyze_communication_fastccc_cauchy_reads_percentages_when_prese
     )
 
     assert out.method_data["percentages"] is not None
+
+
+@pytest.mark.unit
+def test_cellchat_reads_the_matrix_its_own_contract_asks_for():
+    """createCellChat documents "a normalized (NOT count) data matrix".
+
+    Nothing downstream normalizes — identifyOverExpressedGenes runs
+    presto::wilcoxauc straight off object@data.signaling — and computeCommunProb
+    divides by max(data) before a Hill function with a fixed Kh = 0.5. Counts
+    put the divisor on one extreme gene and leave every ligand-receptor product
+    orders of magnitude below Kh, so the saturation the model exists to express
+    never engages: on a lymph node the median interaction probability moved from
+    1.3e-07 to 4.9e-05 and TGFB1 went from absent to the top interaction.
+    """
+    import inspect
+
+    from chatspatial.tools import cell_communication as cc
+
+    source = inspect.getsource(cc._analyze_communication_cellchat_r)
+
+    assert "build_log_normalized_view(" in source
+    # The old path prepared counts and warned in the inverted direction: it
+    # flagged the input as suspect exactly when it was already normalized.
+    assert "get_raw_data_source" not in source
+    assert "double-normalization" not in source

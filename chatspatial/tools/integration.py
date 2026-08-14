@@ -39,6 +39,10 @@ from ..utils.results_export import export_analysis_result
 
 logger = logging.getLogger(__name__)
 
+# Whether the integrated dataset still carries counts for the tools that need
+# them (deconvolution, velocity, cell communication, Getis-Ord).
+INTEGRATION_HAS_COUNTS_KEY = "integration_has_counts"
+
 _ORIGINAL_OBS_NAME_KEY = "_chatspatial_original_obs_name"
 
 
@@ -622,12 +626,12 @@ def integrate_multiple_samples(
     # rely on get_raw_data_source() treating .raw as the highest-priority count source.
     # If .raw or layers["counts"] was set during preprocessing, it's already present;
     # if not, integration should not fabricate one from normalized data.
-    if combined.raw is None and "counts" not in combined.layers:
-        logger.warning(
-            "No raw counts found (adata.raw or layers['counts']). "
-            "Downstream analyses requiring raw counts may be limited. "
-            "Ensure preprocess_data() was run before integration."
-        )
+    # Deconvolution, velocity, cell communication and Getis-Ord all read counts,
+    # so their absence decides what the integrated dataset can still be used
+    # for. Record it: the caller is the one that can say so.
+    combined.uns[INTEGRATION_HAS_COUNTS_KEY] = not (
+        combined.raw is None and "counts" not in combined.layers
+    )
 
     # ========================================================================
     # EARLY BRANCH FOR scVI-TOOLS METHODS
@@ -947,6 +951,15 @@ async def integrate_samples(
         params=params,
         sample_keys=data_ids,
     )
+
+    if not combined_adata.uns.get(INTEGRATION_HAS_COUNTS_KEY, True):
+        await ctx.warning(
+            "The integrated dataset carries no counts (neither adata.raw nor "
+            "layers['counts']), because none of the inputs did. Deconvolution, "
+            "velocity, cell communication and Getis-Ord all read counts and "
+            "will fall back to the integrated matrix or refuse to run. Run "
+            "preprocess_data on each sample before integrating to keep them."
+        )
 
     # Rescale spatial coordinates if requested and available
     # Note: Spatial rescaling is optional - BBKNN, Harmony, MNN, Scanorama

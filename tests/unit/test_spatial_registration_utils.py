@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import sys
 import types
 
@@ -929,3 +930,25 @@ async def test_register_mcp_recovers_expression_for_stalign_from_raw(
     assert sources is not None
     assert all(float(np.asarray(a.X).min()) >= 0 for a in sources)
     assert any("adata.raw" in warning for warning in ctx.warnings)
+
+
+@pytest.mark.unit
+def test_stalign_records_the_gene_count_behind_its_intensity_image():
+    """The image is the per-spot sum over the shared genes.
+
+    A thin intersection samples tissue density rather than describing it, and
+    that was written only to a Python logger the aligning client never sees.
+    """
+    from chatspatial.tools import spatial_registration as sr
+
+    assert sr.STALIGN_COMMON_GENES_KEY == "stalign_common_genes"
+    assert sr.STALIGN_MIN_INFORMATIVE_GENES == 100
+
+    source = inspect.getsource(sr._register_stalign)
+    assert "STALIGN_COMMON_GENES_KEY" in source
+    # The count has to reach the caller, not a logger.
+    assert 'logger.warning(f"Only' not in source
+
+    wrapper = inspect.getsource(sr.register_spatial_slices_mcp)
+    assert "STALIGN_MIN_INFORMATIVE_GENES" in wrapper
+    assert "await ctx.warning" in wrapper

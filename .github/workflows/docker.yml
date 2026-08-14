@@ -10,14 +10,33 @@ concurrency:
   group: docker-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/chatspatial
+
 jobs:
-  docker:
-    name: Build and publish Docker image
-    runs-on: ubuntu-latest
+  # One runner per architecture. Building both platforms on an amd64 runner
+  # meant the arm64 half ran under QEMU, which dominated the release: 1205s of
+  # a 1617s pipeline. arm64 runners are free for public repositories, so each
+  # architecture is built natively and the two are joined into one manifest.
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
-      packages: write # Publish the verified release image to GHCR.
-
+      packages: write # Push the per-architecture layer to GHCR by digest.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    outputs:
+      digest-amd64: ${{ steps.expose.outputs.digest-amd64 }}
+      digest-arm64: ${{ steps.expose.outputs.digest-arm64 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -34,21 +53,64 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          # Layers survive between releases, so a release that only changes
+          # Python source reuses the compiled dependency layer.
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,scope=${{ matrix.arch }},mode=max
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Expose the digest for this architecture
+        id: expose
+        run: echo "digest-${{ matrix.arch }}=${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+  manifest:
+    name: Publish multi-architecture manifest
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # Create the tagged manifest that references both digests.
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ghcr.io/${{ github.repository_owner }}/chatspatial
+          images: ${{ env.IMAGE }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
             type=ref,event=tag
             type=sha,prefix=sha-
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+      - name: Create and push the manifest
+        env:
+          AMD64: ${{ needs.build.outputs.digest-amd64 }}
+          ARM64: ${{ needs.build.outputs.digest-arm64 }}
+        run: |
+          test -n "$AMD64" && test -n "$ARM64"
+          tags=$(jq -r '.tags | map("--tag " + .) | join(" ")' <<<'${{ steps.meta.outputs.json }}')
+          # shellcheck disable=SC2086
+          docker buildx imagetools create $tags \
+            "${IMAGE}@${AMD64}" "${IMAGE}@${ARM64}"
+
+      - name: Verify the published manifest
+        run: |
+          tag=$(jq -r '.tags[0]' <<<'${{ steps.meta.outputs.json }}')
+          docker buildx imagetools inspect "$tag" --format '{{json .Manifest}}' \
+            | jq -e '[.manifests[].platform | "\(.os)/\(.architecture)"] | sort
+                     == ["linux/amd64","linux/arm64"]'

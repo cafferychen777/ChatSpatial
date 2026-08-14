@@ -5,6 +5,80 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.5.2] - 2026-08-14 - Contracts, Effective Values, and a Cheaper Pipeline
+
+### Fixed
+
+- CellChat was given raw counts, which its own contract forbids. `createCellChat`
+  documents its input as "a normalized (NOT count) data matrix", and nothing
+  downstream normalizes: `identifyOverExpressedGenes` runs `presto::wilcoxauc`
+  straight off `object@data.signaling`. The scale is not cosmetic —
+  `computeCommunProb` divides by `max(data)` and feeds a Hill function with a
+  fixed half-saturation `Kh = 0.5`. On counts that divisor is a single extreme
+  gene (IGKC at 8,745 on a human lymph node), leaving 100% of ligand-receptor
+  products more than an order of magnitude below `Kh`, so the saturation the
+  mass-action model exists to express never engages. Measured on that lymph
+  node: the median interaction probability moved from 1.3e-07 to 4.9e-05, and
+  the top interaction changed identity — TGFB1 was absent from the top ten on
+  counts and is first on normalized input. CellChat now receives the
+  log-normalized view, which matches its own
+  `normalizeData(scale.factor = 10000, do.log = TRUE)`. The old code carried the
+  opposite belief in a comment and warned in the inverted direction, flagging
+  the input as suspect exactly when it was already correct.
+  `statistics['expression_source']` records what was read.
+- Three warnings that change how a result must be read reached only a Python
+  logger, which no MCP client sees. STalign now reports how many genes its
+  intensity image was summed from when that number is small enough to make the
+  image a sample of tissue density rather than a picture of it; integration
+  reports when the combined dataset carries no counts, naming the analyses that
+  will be limited. Both facts are recorded on the object and surfaced by the
+  async caller, the same route velocity and CellRank already use.
+
+### Changed
+
+- The release pipeline spent 1205 of its 1617 seconds building the Docker
+  image, because both architectures were built on an amd64 runner and the
+  arm64 half therefore ran under QEMU. Each architecture is now built natively
+  — arm64 runners are free for public repositories — and joined into one
+  manifest, with a layer cache that survives between releases. The Dockerfile
+  copied the source before installing, so every edit to a single `.py` file
+  rebuilt the whole compiled dependency tree; dependencies now resolve from the
+  metadata alone, in a layer the source cannot invalidate.
+- Linting had two definitions that disagreed on scope: CI checked `chatspatial`
+  and `reproducibility/scripts`, the release gate checked `chatspatial`, `tests`
+  and `scripts`, so a formatting error in `tests/` passed CI and one in
+  `reproducibility/scripts/` passed the gate. Both now call
+  `scripts/quality/check_lint.sh`, which covers all four, and CI installs the
+  linters from the `dev` extra instead of repeating their pins.
+- Every GitHub action is pinned to a commit SHA, and every workflow declares
+  its permissions; `pages.yml` and `test-full.yml` were the two that did not.
+
+- Neighbourhood enrichment ranked pairs built on groups that have no
+  neighbourhood. A group whose members share no spatial edge cannot co-locate
+  with anything: every edge it has leaves it, so its z-scores rest on a handful
+  of boundary edges. STAGATE returned a 2-spot domain with zero internal edges
+  on a human lymph node, and pairs involving it then led the reported ranking
+  with no sign that they meant something different from the genuine domains.
+  Group-based spatial statistics now name such groups and their sizes. The
+  criterion is read from the graph, not chosen: no internal edge, no
+  neighbourhood, whatever the group size.
+- CellRank reported a macrostate pseudotime as though it were a fate ordering.
+  When no macrostate is stable enough to be terminal, CellRank falls back to
+  macrostate membership — a different quantity, with no fate probabilities —
+  and that was announced only through a Python logger the client never sees,
+  while the result still read `method='cellrank'`. The fallback is now recorded
+  and reported with the threshold that caused it and the way out. Verified on
+  the dentate gyrus: terminal states are found at the default threshold and the
+  warning stays silent, and it fires at a threshold of 1.0.
+- Trajectory analysis reported the spatial kernel weight that was asked for
+  rather than the one that shaped the transition matrix. `palantir` and `dpt`
+  build no spatial kernel at all, and CellRank drops the weight to zero when
+  spatial coordinates are missing or degenerate, so a result could claim
+  `spatial_weight=0.5` for a trajectory no spatial kernel had touched. The
+  effective weight is now recorded and reported, and an explicit request that
+  cannot be honoured is called out — the default is not a request, so it stays
+  silent.
+
 ## [v1.5.1] - 2026-08-14 - Keep the Borrowed Matrix Borrowed
 
 ### Fixed

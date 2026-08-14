@@ -2061,3 +2061,159 @@ async def test_analyze_trajectory_reports_palantir_without_terminal_states(
     assert any("no terminal states" in warning for warning in ctx.warnings)
     # Provenance must not claim a key that was never written.
     assert captured["results_keys"]["obsm"] == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_trajectory_reports_the_spatial_weight_that_actually_applied(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """palantir and dpt build no spatial kernel, so 0.5 never reached them.
+
+    The result carried the requested weight regardless, which reads as though
+    a spatial kernel had shaped the trajectory.
+    """
+    adata = minimal_spatial_adata.copy()
+
+    def _fake_palantir(a, **_kwargs):
+        a.obs["palantir_pseudotime"] = np.linspace(0, 1, a.n_obs)
+        a.uns[traj.TRAJECTORY_ROOT_KEY] = str(a.obs_names[0])
+        return a
+
+    monkeypatch.setattr(traj, "infer_pseudotime_palantir", _fake_palantir)
+    monkeypatch.setattr(
+        "chatspatial.utils.adata_utils.store_analysis_metadata",
+        lambda _adata, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.results_export.export_analysis_result",
+        lambda *_a, **_k: [],
+    )
+
+    ctx = _VelCtx(adata)
+    result = await traj.analyze_trajectory(
+        "d",
+        ctx,
+        traj.TrajectoryParameters(
+            method="palantir",
+            root_cells=[str(adata.obs_names[0])],
+            spatial_weight=0.5,
+        ),
+    )
+
+    assert result.spatial_weight == 0.0
+    said = " ".join(ctx.warnings)
+    assert "spatial_weight=0.5 was requested" in said
+    assert "builds no spatial kernel" in said
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_an_unset_spatial_weight_is_not_reported_as_unhonoured(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """The default is not a request, so it must not produce a warning."""
+    adata = minimal_spatial_adata.copy()
+
+    def _fake_palantir(a, **_kwargs):
+        a.obs["palantir_pseudotime"] = np.linspace(0, 1, a.n_obs)
+        a.uns[traj.TRAJECTORY_ROOT_KEY] = str(a.obs_names[0])
+        return a
+
+    monkeypatch.setattr(traj, "infer_pseudotime_palantir", _fake_palantir)
+    monkeypatch.setattr(
+        "chatspatial.utils.adata_utils.store_analysis_metadata",
+        lambda _adata, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.results_export.export_analysis_result",
+        lambda *_a, **_k: [],
+    )
+
+    ctx = _VelCtx(adata)
+    result = await traj.analyze_trajectory(
+        "d",
+        ctx,
+        traj.TrajectoryParameters(
+            method="palantir", root_cells=[str(adata.obs_names[0])]
+        ),
+    )
+
+    assert result.spatial_weight == 0.0
+    assert not [w for w in ctx.warnings if "spatial_weight" in w]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_cellrank_says_when_pseudotime_came_from_macrostates(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """Without terminal states the pseudotime is a different quantity.
+
+    CellRank falls back to macrostate membership instead of a fate ordering.
+    That was reported only through a Python logger, which never reaches the
+    client: the result claimed method='cellrank' with nothing to distinguish it.
+    """
+    adata = minimal_spatial_adata.copy()
+
+    def _fake_cellrank(a, **_kwargs):
+        a.obs["pseudotime"] = np.linspace(0, 1, a.n_obs)
+        a.uns[traj.TRAJECTORY_TERMINAL_STATES_KEY] = False
+        a.uns[traj.TRAJECTORY_SPATIAL_WEIGHT_KEY] = 0.5
+        return a
+
+    monkeypatch.setattr(traj, "infer_spatial_trajectory_cellrank", _fake_cellrank)
+    monkeypatch.setattr(
+        "chatspatial.utils.adata_utils.store_analysis_metadata",
+        lambda _adata, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.results_export.export_analysis_result",
+        lambda *_a, **_k: [],
+    )
+    adata.uns["velocity_method"] = "scvelo_stochastic"
+    adata.layers["velocity"] = np.zeros_like(np.asarray(adata.X))
+
+    ctx = _VelCtx(adata)
+    result = await traj.analyze_trajectory(
+        "d", ctx, traj.TrajectoryParameters(method="cellrank")
+    )
+
+    assert result.method == "cellrank"
+    said = " ".join(ctx.warnings)
+    assert "no terminal states" in said
+    assert "macrostate membership" in said
+    assert "cellrank_stability_threshold" in said
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_cellrank_stays_quiet_when_terminal_states_exist(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+
+    def _fake_cellrank(a, **_kwargs):
+        a.obs["pseudotime"] = np.linspace(0, 1, a.n_obs)
+        a.uns[traj.TRAJECTORY_TERMINAL_STATES_KEY] = True
+        a.uns[traj.TRAJECTORY_SPATIAL_WEIGHT_KEY] = 0.5
+        return a
+
+    monkeypatch.setattr(traj, "infer_spatial_trajectory_cellrank", _fake_cellrank)
+    monkeypatch.setattr(
+        "chatspatial.utils.adata_utils.store_analysis_metadata",
+        lambda _adata, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.results_export.export_analysis_result",
+        lambda *_a, **_k: [],
+    )
+    adata.uns["velocity_method"] = "scvelo_stochastic"
+    adata.layers["velocity"] = np.zeros_like(np.asarray(adata.X))
+
+    ctx = _VelCtx(adata)
+    await traj.analyze_trajectory(
+        "d", ctx, traj.TrajectoryParameters(method="cellrank")
+    )
+
+    assert not [w for w in ctx.warnings if "terminal states" in w]

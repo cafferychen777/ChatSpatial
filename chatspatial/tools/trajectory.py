@@ -43,6 +43,14 @@ from ..utils.mcp_utils import suppress_output
 # Every method resolves one starting cell, and that choice sets the direction
 # of the whole pseudotime, so it is recorded in one place regardless of method.
 TRAJECTORY_ROOT_KEY = "trajectory_root_cell"
+# The spatial kernel weight that actually shaped the transition matrix, which
+# is not always the one asked for: it drops to zero without spatial
+# coordinates, and palantir and dpt never build a spatial kernel at all.
+TRAJECTORY_SPATIAL_WEIGHT_KEY = "trajectory_spatial_weight"
+# Whether CellRank found terminal states. Without them the pseudotime comes
+# from macrostate membership instead of fate probabilities — a different
+# quantity, which the caller has to be able to say out loud.
+TRAJECTORY_TERMINAL_STATES_KEY = "trajectory_terminal_states_found"
 
 
 def _build_trajectory_key(params: "TrajectoryParameters") -> str:
@@ -193,6 +201,7 @@ def infer_spatial_trajectory_cellrank(
                 "Spatial coordinates are nearly identical; disabling spatial kernel."
             )
             # Fall back to non-spatial kernel combination
+            spatial_weight = 0.0
             combined_kernel = vk_weight * vk + ck_weight * ck
         else:
             spatial_sim = np.exp(-spatial_dist / dist_mean)
@@ -206,6 +215,8 @@ def infer_spatial_trajectory_cellrank(
             ) + spatial_weight * sk
     else:
         combined_kernel = vk_weight * vk + ck_weight * ck
+
+    adata.uns[TRAJECTORY_SPATIAL_WEIGHT_KEY] = float(spatial_weight)
 
     # GPCCA analysis
     g = cr.estimators.GPCCA(combined_kernel)
@@ -246,6 +257,8 @@ def infer_spatial_trajectory_cellrank(
         and g.terminal_states is not None
         and len(g.terminal_states.cat.categories) > 0
     )
+
+    adata.uns[TRAJECTORY_TERMINAL_STATES_KEY] = bool(has_terminal_states)
 
     if has_terminal_states:
         try:
@@ -711,6 +724,17 @@ async def analyze_trajectory(
             "unreachable from the root. They are kept as NaN rather than filled."
         )
 
+    if method_used == "cellrank" and not adata.uns.get(
+        TRAJECTORY_TERMINAL_STATES_KEY, True
+    ):
+        await ctx.warning(
+            "CellRank selected no terminal states at "
+            f"cellrank_stability_threshold={params.cellrank_stability_threshold}, "
+            "so the pseudotime is macrostate membership rather than a fate "
+            "ordering, and fate probabilities are unavailable. Lower the "
+            "threshold to admit less stable macrostates as terminal."
+        )
+
     if method_used == "palantir" and "palantir_branch_probs" not in adata.obsm:
         await ctx.warning(
             "Palantir identified no terminal states, so pseudotime is reported "
@@ -785,13 +809,33 @@ async def analyze_trajectory(
     # Export results for reproducibility
     export_analysis_result(adata, data_id, analysis_key)
 
+    # Report the weight that shaped the transition matrix, not the one asked
+    # for: palantir and dpt build no spatial kernel, and CellRank drops the
+    # weight to zero when the coordinates are missing or degenerate.
+    effective_spatial_weight = float(adata.uns.get(TRAJECTORY_SPATIAL_WEIGHT_KEY, 0.0))
+    # Only an explicit request can go unhonoured; the default is not a request,
+    # and palantir and dpt would otherwise warn on every run.
+    if (
+        "spatial_weight" in params.model_fields_set
+        and effective_spatial_weight != params.spatial_weight
+    ):
+        await ctx.warning(
+            f"spatial_weight={params.spatial_weight} was requested but "
+            f"{method_used} applied {effective_spatial_weight}: "
+            + (
+                f"{method_used} builds no spatial kernel."
+                if method_used != "cellrank"
+                else "the spatial coordinates are missing or degenerate."
+            )
+        )
+
     result = TrajectoryResult(
         data_id=data_id,
         pseudotime_computed=True,
         velocity_computed=velocity_available,
         pseudotime_key=pseudotime_key,
         method=method_used,
-        spatial_weight=params.spatial_weight,
+        spatial_weight=effective_spatial_weight,
     )
     await ctx.set_adata(data_id, adata)
     return result

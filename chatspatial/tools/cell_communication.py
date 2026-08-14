@@ -53,6 +53,7 @@ from ..models.analysis import CellCommunicationResult
 from ..models.data import CellCommunicationParameters
 from ..utils import validate_obs_column
 from ..utils.adata_utils import (
+    build_log_normalized_view,
     check_is_integer_counts,
     get_raw_data_source,
     get_spatial_key,
@@ -1609,23 +1610,19 @@ def _analyze_communication_cellchat_r(
         spatial_key = get_spatial_key(adata)
         has_spatial = spatial_key is not None
 
-        # CellChat internally normalizes via identifyOverExpressedGenes,
-        # so raw counts are the correct input (avoids double-normalization).
-        # Use get_raw_data_source (single source of truth) for complete gene coverage.
-        raw_result = get_raw_data_source(adata, prefer_complete_genes=True)
-
-        if not raw_result.is_integer_counts:
-            logger.warning(
-                "CellChat input from '%s' is not raw counts. "
-                "CellChat normalizes internally — non-count data may cause "
-                "double-normalization. Results should be interpreted with caution.",
-                raw_result.source,
-            )
-        if raw_result.has_negatives:
-            logger.warning(
-                "Negative values detected in expression data. "
-                "Clamping to zero for CellChat compatibility."
-            )
+        # createCellChat documents its input as "a normalized (NOT count) data
+        # matrix", and nothing downstream normalizes: identifyOverExpressedGenes
+        # runs presto::wilcoxauc straight off object@data.signaling. The scale
+        # matters because computeCommunProb divides by max(data) and then feeds
+        # a Hill function with a fixed half-saturation Kh = 0.5. On counts the
+        # divisor is one extreme gene (IGKC at 8745 on a lymph node), which
+        # leaves every ligand-receptor product four orders of magnitude below
+        # Kh — the saturation the mass-action model exists to express never
+        # engages. CellChat's own normalizeData(scale.factor = 10000,
+        # do.log = TRUE) is exactly the view built here.
+        expression, expression_source = build_log_normalized_view(
+            adata, complete_genes=True
+        )
 
         r_env = validate_r_environment(
             ctx,
@@ -1665,7 +1662,7 @@ def _analyze_communication_cellchat_r(
             cellchat_genes = set(cellchat_genes_r)
 
             # Filter to genes present in both data and CellChatDB
-            common_genes = raw_result.var_names.intersection(cellchat_genes)
+            common_genes = expression.var_names.intersection(cellchat_genes)
 
             if len(common_genes) == 0:
                 raise DataCompatibilityError(
@@ -1674,10 +1671,12 @@ def _analyze_communication_cellchat_r(
                 )
 
             # Create expression matrix with only CellChatDB genes (memory efficient)
-            gene_indices = [raw_result.var_names.get_loc(g) for g in common_genes]
-            expr_data = to_dense(raw_result.X[:, gene_indices]).T
-            # Clamp negatives (scaled/centered data can have negatives)
-            if raw_result.has_negatives:
+            gene_indices = [expression.var_names.get_loc(g) for g in common_genes]
+            expr_data = to_dense(expression.X[:, gene_indices]).T
+            # A matrix that was already normalized is passed through untouched
+            # by the view, so it can still carry the negatives of a
+            # variance-stabilizing transform. CellChat has no meaning for them.
+            if expr_data.min() < 0:
                 expr_data = np.maximum(expr_data, 0)
             expr_matrix = pd.DataFrame(
                 expr_data,
@@ -1960,6 +1959,7 @@ def _analyze_communication_cellchat_r(
                 "min_cells": params.cellchat_min_cells,
                 "spatial_mode": has_spatial and params.cellchat_distance_use,
                 "analysis_time_seconds": analysis_time,
+                "expression_source": expression_source,
                 "top_pathways": top_pathways[:5] if top_pathways else [],
             },
             method_data={

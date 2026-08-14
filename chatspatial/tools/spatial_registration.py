@@ -38,6 +38,13 @@ from ..utils.results_export import export_analysis_result
 
 logger = logging.getLogger(__name__)
 
+# Number of genes whose summed expression became the STalign intensity image.
+STALIGN_COMMON_GENES_KEY = "stalign_common_genes"
+# Below this the intensity is a noisy sample of tissue density rather than a
+# picture of it. A practitioner heuristic, not a derived threshold, so it is
+# reported rather than enforced.
+STALIGN_MIN_INFORMATIVE_GENES = 100
+
 # =============================================================================
 # Validation Helpers
 # =============================================================================
@@ -446,8 +453,12 @@ def _register_stalign(
                 "Expression-based STalign registration requires "
                 "shared gene space; check gene naming conventions."
             )
-        if len(common_genes) < 100:
-            logger.warning(f"Only {len(common_genes)} common genes found")
+        # The intensity STalign rasterizes is the per-spot sum over these
+        # genes, so a thin intersection makes the image a noisy sample of
+        # tissue density rather than a picture of it. Record the count for the
+        # caller: a logger line never reaches the client that asked to align.
+        source.uns[STALIGN_COMMON_GENES_KEY] = int(len(common_genes))
+        target.uns[STALIGN_COMMON_GENES_KEY] = int(len(common_genes))
 
         # Compute sum intensity (sparse-aware)
         source_expr = source_expr_adata[:, common_genes].X
@@ -673,6 +684,17 @@ async def register_spatial_slices_mcp(
             ctx=ctx,
             expression_sources=expression_sources,
         )
+
+        n_common = registered[0].uns.get(STALIGN_COMMON_GENES_KEY)
+        if n_common is not None and n_common < STALIGN_MIN_INFORMATIVE_GENES:
+            await ctx.warning(
+                f"STalign built its intensity image from {n_common} genes shared "
+                "by the two slices. The image is the per-spot sum over those "
+                "genes, so a thin intersection samples tissue density rather "
+                "than describing it, and the alignment is correspondingly less "
+                "reliable. Check that both slices use the same gene naming, or "
+                "set stalign_use_expression=False to align on coordinates alone."
+            )
 
         # Copy registered coordinates into isolated publication candidates.
         if "spatial_registered" in registered[0].obsm:

@@ -125,14 +125,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install linters
-        run: pip install "ruff==0.14.11" "black==25.12.0" "isort==7.0.0"
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
-      - name: Check formatting
-        run: |
-          black --check chatspatial/ reproducibility/scripts/
-          isort --check-only chatspatial/ reproducibility/scripts/
-          ruff check chatspatial/ reproducibility/scripts/
+      # The linter versions are pinned once, in the dev extra. Repeating them
+      # here let the two drift apart silently.
+      - name: Install linters
+        run: uv pip install -e ".[dev]" --system
+
+      - name: Lint
+        run: scripts/quality/check_lint.sh
 
   test:
     name: Python ${{ matrix.python-version }}

@@ -133,6 +133,50 @@ async def _nonnegative_expression(
         adata.X = original
 
 
+async def _warn_about_groups_without_a_neighbourhood(
+    adata: "ad.AnnData",
+    ctx: "ToolContext",
+    cluster_key: str,
+) -> None:
+    """Name the groups that the spatial graph never connects to themselves.
+
+    Neighbourhood enrichment, co-occurrence and Ripley all ask how often a
+    group sits next to itself or next to another. A group whose members share
+    no edge has no neighbourhood to measure: every edge it has leaves it, so
+    its z-scores rest on a handful of boundary edges and rank alongside
+    genuine domains without any sign that they mean something different. On a
+    lymph node, STAGATE returned a 2-spot domain with zero internal edges
+    whose pairs then led the enrichment ranking.
+
+    The criterion is read from the graph rather than chosen: a group with no
+    internal edge is not a spatial domain, whatever its size.
+    """
+    connectivities = adata.obsp.get("spatial_connectivities")
+    if connectivities is None:
+        return
+
+    labels = adata.obs[cluster_key].to_numpy()
+    isolated: list[tuple[str, int]] = []
+    for group in pd.unique(labels):
+        members = labels == group
+        size = int(members.sum())
+        if size == 0:
+            continue
+        if connectivities[members][:, members].sum() == 0:
+            isolated.append((str(group), size))
+
+    if not isolated:
+        return
+
+    described = ", ".join(f"'{group}' ({size} spots)" for group, size in isolated)
+    await ctx.warning(
+        f"{len(isolated)} group(s) in '{cluster_key}' share no spatial edge with "
+        f"themselves: {described}. They have no neighbourhood, so any enrichment "
+        "reported for them comes from a handful of boundary edges rather than "
+        "from co-location."
+    )
+
+
 def _build_results_keys(
     analysis_type: str,
     genes: Optional[list[str]],
@@ -266,6 +310,12 @@ async def analyze_spatial_statistics(
         ensure_spatial_neighbors(
             adata, n_neighs=params.n_neighbors, spatial_key=detected_key
         )
+        if config.needs_cluster:
+            assert params.cluster_key is not None
+            await _warn_about_groups_without_a_neighbourhood(
+                adata, ctx, params.cluster_key
+            )
+
         if config.needs_nonnegative_expression:
             async with _nonnegative_expression(adata, ctx, params.analysis_type):
                 result = config.handler(adata, params, ctx)

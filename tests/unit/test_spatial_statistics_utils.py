@@ -2470,3 +2470,59 @@ async def test_published_dataset_keeps_its_normalization_after_a_lent_matrix(
         np.asarray(stored.X), residuals
     )  # ...the dataset kept its own
     assert "gene_a_getis_ord_z" in stored.obs  # ...and the results survived
+
+
+class TestGroupsWithoutANeighbourhood:
+    """A group whose members share no edge has nothing to be enriched with."""
+
+    @staticmethod
+    def _adata_with_graph(labels, edges):
+        import anndata as ad
+        import scipy.sparse as sp
+
+        n = len(labels)
+        adata = ad.AnnData(np.zeros((n, 2), dtype=np.float32))
+        adata.obs["domain"] = pd.Categorical([str(x) for x in labels])
+        graph = sp.lil_matrix((n, n), dtype=float)
+        for i, j in edges:
+            graph[i, j] = 1.0
+            graph[j, i] = 1.0
+        adata.obsp["spatial_connectivities"] = graph.tocsr()
+        return adata
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_an_isolated_group_is_named_with_its_size(self):
+        """STAGATE returned a 2-spot domain whose pairs led the ranking."""
+        # Group 'b' has two members and both of their edges leave the group.
+        adata = self._adata_with_graph(
+            ["a", "a", "a", "b", "b"], [(0, 1), (1, 2), (0, 3), (2, 4)]
+        )
+        ctx = _WarnCtx()
+
+        await ss._warn_about_groups_without_a_neighbourhood(adata, ctx, "domain")
+
+        assert len(ctx.warnings) == 1
+        assert "'b' (2 spots)" in ctx.warnings[0]
+        assert "'a'" not in ctx.warnings[0]
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_connected_groups_are_not_reported(self):
+        adata = self._adata_with_graph(["a", "a", "b", "b"], [(0, 1), (2, 3), (1, 2)])
+        ctx = _WarnCtx()
+
+        await ss._warn_about_groups_without_a_neighbourhood(adata, ctx, "domain")
+
+        assert ctx.warnings == []
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_a_missing_graph_is_not_an_error(self):
+        adata = self._adata_with_graph(["a", "b"], [])
+        del adata.obsp["spatial_connectivities"]
+        ctx = _WarnCtx()
+
+        await ss._warn_about_groups_without_a_neighbourhood(adata, ctx, "domain")
+
+        assert ctx.warnings == []

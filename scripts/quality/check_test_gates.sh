@@ -3,14 +3,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
-echo "[gate] Checking formatting"
-black --check chatspatial tests scripts
-isort --check-only chatspatial tests scripts
-
-echo "[gate] Running Ruff"
-ruff check chatspatial tests
-ruff check scripts
-ruff check chatspatial --select C901
+scripts/quality/check_lint.sh
 
 echo "[gate] Running mypy"
 mypy chatspatial
