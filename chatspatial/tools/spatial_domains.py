@@ -765,21 +765,6 @@ async def _identify_domains_stagate(
     """
     torch = require("torch", ctx, feature="STAGATE spatial domain identification")
 
-    # Check PyTorch version compatibility with torch_sparse/torch_geometric
-    # torch_sparse wheels are only available up to PyTorch 2.8.0
-    # See: https://data.pyg.org/whl/
-    torch_version = tuple(int(x) for x in torch.__version__.split(".")[:2])
-    if torch_version > (2, 8):
-        raise ProcessingError(
-            f"STAGATE requires PyTorch <= 2.8.0, but found {torch.__version__}. "
-            f"torch_sparse/torch_geometric wheels are not available for PyTorch {torch.__version__}. "
-            f"Solutions:\n"
-            f"  1. Use 'leiden' or 'spagcn' method instead (no PyG dependency)\n"
-            f"  2. Downgrade PyTorch: pip install torch==2.8.0\n"
-            f"  3. Wait for PyG to support PyTorch {torch.__version__}\n"
-            f"See: https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html"
-        )
-
     STAGATE_pyG = require(
         "STAGATE_pyG", ctx, feature="STAGATE spatial domain identification"
     )
@@ -859,7 +844,7 @@ async def _identify_domains_stagate(
             "clustering_method": clustering_method,
             "rad_cutoff": rad_cutoff,
             "device": str(device),
-            "framework": "PyTorch Geometric",
+            "framework": "PyTorch Geometric (tensor edge index)",
         }
 
         return domain_labels, embeddings_key, statistics

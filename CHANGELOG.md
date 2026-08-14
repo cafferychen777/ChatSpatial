@@ -5,6 +5,49 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.3.8] - 2026-08-14 - Optional Dependency Architecture
+
+### Changed
+
+- Reorganized optional dependencies around the method families ChatSpatial
+  actually invokes. `full` is now the exact union of the 14 composable Python
+  families, while annotation, enrichment, CNV, differential expression,
+  registration, spatial genes, and every spatial-domain backend can also be
+  installed independently.
+- Removed direct declarations for packages that are unused or supplied
+  transitively, including ktplotspy, mudata, spatialdata, scikit-gstat,
+  statannotations, adjustText, splot, dask, and pygam.
+- Replaced the upstream GraphST, STAGATE, and STalign installation paths with
+  maintained PyPI distributions containing only their supported runtime code.
+  STAGATE no longer requires the compiled torch-sparse extension, and STalign
+  no longer imports download, browser, plotting, or experimental 3D stacks for
+  pairwise 2D registration.
+- Replaced the unmaintained paste-bio release with paste-modern, which delegates
+  fused Gromov-Wasserstein optimization to POT's supported public API. Removed
+  ChatSpatial's process-wide PASTE/POT function replacement.
+- Removed ChatSpatial's obsolete PyTorch 2.8 ceiling for STAGATE now that the
+  maintained backend uses ordinary PyTorch tensors instead of torch-sparse.
+- Integrated SpatialDE's two preprocessing operations into spatialde-modern and
+  removed the separate NaiveDE runtime distribution.
+- Limited CellRank to Python 3.12 and newer, where the maintained release works
+  directly with NumPy 2. Python 3.11 keeps Palantir trajectory support without
+  carrying a process-wide monkeypatch for obsolete CellRank releases.
+
+### Removed
+
+- Deleted the obsolete NumPy, SciPy, SpatialDE, SpaGCN, and CellRank
+  compatibility layer and its patch-focused tests. Maintained backend releases
+  now define the supported compatibility boundary directly.
+
+### Testing
+
+- Added dependency contracts that require the runtime registry to match every
+  literal dependency lookup exactly and require `full` to match the union of
+  its method families.
+- Added Python 3.11-3.14 resolution checks for every optional family and a clean
+  wheel smoke test that performs real SpatialDE, GraphST, STAGATE, STalign, and
+  CellRank GPCCA computations.
+
 ## [v1.3.7] - 2026-08-13 - Dependency Compatibility and Analysis Correctness
 
 ### Fixed

@@ -359,8 +359,8 @@ async def _identify_spatial_genes_spatialde(
     Official Preprocessing Workflow (Implemented):
         This implementation follows the official SpatialDE best practices:
         1. Filter low-expression genes (total_counts >= 3)
-        2. Variance stabilization (NaiveDE.stabilize)
-        3. Regress out library size effects (NaiveDE.regress_out)
+        2. Variance stabilization (SpatialDE.stabilize)
+        3. Regress out library size effects (SpatialDE.regress_out)
         4. Run SpatialDE spatial covariance test
         5. Apply FDR correction (Storey q-value)
 
@@ -397,7 +397,7 @@ async def _identify_spatial_genes_spatialde(
             - Spatial correlation length scale per gene
 
     Requirements:
-        - SpatialDE package with NaiveDE module
+        - spatialde-modern package
         - 2D spatial coordinates
         - Raw count data (not normalized)
 
@@ -407,7 +407,6 @@ async def _identify_spatial_genes_spatialde(
         Official tutorial: https://github.com/Teichlab/SpatialDE
     """
     spatialde = require("spatialde", ctx, feature="SpatialDE spatial gene analysis")
-    naivede = require("naivede", ctx, feature="SpatialDE spatial gene analysis")
     spatialde_util = require_module(
         "spatialde",
         "SpatialDE.util",
@@ -423,7 +422,7 @@ async def _identify_spatial_genes_spatialde(
     )
 
     # Get raw count data for SpatialDE preprocessing
-    # SpatialDE's official workflow (NaiveDE.stabilize + regress_out) requires
+    # SpatialDE's official workflow (stabilize + regress_out) requires
     # raw counts. Require integer counts to prevent running on normalized data.
     raw_result = get_raw_data_source(
         adata, prefer_complete_genes=True, require_integer_counts=True
@@ -493,10 +492,10 @@ async def _identify_spatial_genes_spatialde(
 
     # Apply official SpatialDE preprocessing workflow
     # Step 1: Variance stabilization
-    norm_expr = naivede.stabilize(counts.T).T
+    norm_expr = spatialde.stabilize(counts.T).T
 
     # Step 2: Regress out library size effects
-    resid_expr = naivede.regress_out(
+    resid_expr = spatialde.regress_out(
         total_counts, norm_expr.T, "np.log(total_counts)"
     ).T
 
@@ -536,7 +535,7 @@ async def _identify_spatial_genes_spatialde(
         analysis_name="spatial_genes_spatialde",
         method="spatialde_official_workflow",
         parameters={
-            "preprocessing": "NaiveDE.stabilize + NaiveDE.regress_out",
+            "preprocessing": "SpatialDE.stabilize + SpatialDE.regress_out",
             "gene_filter_threshold": 3,
             "n_genes_tested": n_genes,
             "n_spots": n_spots,

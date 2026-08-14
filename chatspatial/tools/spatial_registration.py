@@ -5,7 +5,6 @@ Aligns and registers multiple spatial transcriptomics slices using
 optimal transport (PASTE) or diffeomorphic mapping (STalign).
 """
 
-import inspect
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
@@ -41,128 +40,6 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # Validation Helpers
 # =============================================================================
-
-
-def _patch_paste_line_search_for_pot(
-    pst: Any,
-    *,
-    ot_module: Any | None = None,
-) -> None:
-    """Patch paste-bio line-search callbacks for POT versions that pass df_G."""
-    paste_module = getattr(pst.pairwise_align, "__globals__", {})
-    solver = paste_module.get("solve_gromov_linesearch")
-    if solver is None:
-        return
-
-    solver_params = inspect.signature(solver).parameters
-    if "df_G" in solver_params:
-        return
-
-    original = paste_module.get("my_fused_gromov_wasserstein")
-    if original is None or getattr(original, "_chatspatial_pot_compat", False):
-        return
-    ot = (
-        ot_module
-        if ot_module is not None
-        else require("ot", feature="PASTE compatibility layer")
-    )
-
-    def compatible_my_fused_gromov_wasserstein(
-        M,
-        C1,
-        C2,
-        p,
-        q,
-        G_init=None,
-        loss_fun="square_loss",
-        alpha=0.5,
-        armijo=False,
-        log=False,
-        numItermax=200,
-        tol_rel=1e-9,
-        tol_abs=1e-9,
-        use_gpu=False,
-        **kwargs,
-    ):
-        p, q = ot.utils.list_to_array(p, q)
-        nx = ot.backend.get_backend(p, q, C1, C2, M)
-        if G_init is None:
-            G0 = p[:, None] * q[None, :]
-        else:
-            G0 = (1 / nx.sum(G_init)) * G_init
-            if use_gpu:
-                G0 = G0.cuda()
-        constC, hC1, hC2 = ot.gromov.init_matrix(C1, C2, p, q, loss_fun)
-
-        def f(G):
-            return ot.gromov.gwloss(constC, hC1, hC2, G)
-
-        def df(G):
-            return ot.gromov.gwggrad(constC, hC1, hC2, G)
-
-        armijo_local = True if loss_fun == "kl_loss" else armijo
-
-        if armijo_local:
-
-            def line_search(cost, G, deltaG, Mi, cost_G, df_G=None, **ls_kwargs):
-                del df_G
-                return ot.optim.line_search_armijo(
-                    cost, G, deltaG, Mi, cost_G, nx=nx, **ls_kwargs
-                )
-
-        else:
-
-            def line_search(cost, G, deltaG, Mi, cost_G, df_G=None, **ls_kwargs):
-                del cost, Mi, df_G
-                return solver(
-                    G,
-                    deltaG,
-                    cost_G,
-                    C1,
-                    C2,
-                    M=0.0,
-                    reg=1.0,
-                    nx=nx,
-                    **ls_kwargs,
-                )
-
-        if log:
-            res, log_dict = ot.optim.cg(
-                p,
-                q,
-                (1 - alpha) * M,
-                alpha,
-                f,
-                df,
-                G0,
-                line_search,
-                log=True,
-                numItermax=numItermax,
-                stopThr=tol_rel,
-                stopThr2=tol_abs,
-                **kwargs,
-            )
-            fgw_dist = log_dict["loss"][-1]
-            log_dict["fgw_dist"] = fgw_dist
-            return res, log_dict
-
-        return ot.optim.cg(
-            p,
-            q,
-            (1 - alpha) * M,
-            alpha,
-            f,
-            df,
-            G0,
-            line_search,
-            numItermax=numItermax,
-            stopThr=tol_rel,
-            stopThr2=tol_abs,
-            **kwargs,
-        )
-
-    compatible_my_fused_gromov_wasserstein.__dict__["_chatspatial_pot_compat"] = True
-    paste_module["my_fused_gromov_wasserstein"] = compatible_my_fused_gromov_wasserstein
 
 
 def _validate_spatial_coords(adata_list: list["ad.AnnData"]) -> str:
@@ -441,8 +318,6 @@ def _register_paste(
 
     if pst is None:
         pst = require("paste", feature="PASTE spatial registration")
-    _patch_paste_line_search_for_pot(pst)
-
     # Unified preparation: gene subset + normalize + ensure obsm["spatial"]
     slices = _prepare_paste_slices(registered, common_genes, spatial_key)
     backend = get_ot_backend(params.use_gpu)

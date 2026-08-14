@@ -83,7 +83,7 @@ Codex, use `/mcp`; in Claude Code, run `claude mcp list`.
 Use an exact version when a reproducible runtime matters:
 
 ```bash
-uvx --from 'chatspatial==1.3.7' chatspatial server
+uvx --from 'chatspatial==1.3.8' chatspatial server
 ```
 
 Without a pin, `uvx` resolves the current PyPI release and reuses its cached
@@ -155,20 +155,30 @@ Install only the method families you plan to use:
 uv pip install 'chatspatial[cell-communication]'  # LIANA+ and CellPhoneDB
 uv pip install 'chatspatial[fastccc]'             # FastCCC (Python 3.11-3.12)
 uv pip install 'chatspatial[velocity]'            # scVelo
-uv pip install 'chatspatial[trajectory]'          # CellRank, Palantir
+uv pip install 'chatspatial[trajectory]'          # CellRank (3.12+), Palantir
 uv pip install 'chatspatial[deep-learning]'       # scVI, scANVI, VeloVI, DestVI backend
 uv pip install 'chatspatial[integration]'         # Harmony, BBKNN, Scanorama
 uv pip install 'chatspatial[deconvolution]'       # FlashDeconv, Cell2location
+uv pip install 'chatspatial[annotation]'          # Tangram, SingleR, mLLMCellType
+uv pip install 'chatspatial[enrichment]'          # GSEA and enrichment maps
+uv pip install 'chatspatial[cnv]'                 # infercnvpy
+uv pip install 'chatspatial[differential]'        # PyDESeq2
+uv pip install 'chatspatial[registration]'        # PASTE and STalign
+uv pip install 'chatspatial[spatial-genes]'       # SpatialDE
 uv pip install 'chatspatial[rctd-python]'         # PyTorch RCTD backend (rctd-py)
 uv pip install 'chatspatial[r-backends]'          # Python bridges for R-based methods
 uv pip install 'chatspatial[spatial-stats]'       # PySAL/ESDA extensions
-uv pip install 'chatspatial[spatial-domains]'     # SpaGCN and BANKSY
+uv pip install 'chatspatial[spatial-domains]'     # GraphST, STAGATE, SpaGCN, BANKSY
 ```
 
-LIANA and BANKSY currently support Python through 3.13. Their extras remain
+CellRank is installed on Python 3.12 and newer; Python 3.11 receives Palantir
+without the obsolete CellRank 2.0 compatibility patch. LIANA and BANKSY
+currently support Python through 3.13. Their extras remain
 installable on Python 3.14, but those individual backends are omitted until
 their upstream packages add 3.14 support. SpaGCN supports Python 3.14 through
-the maintained `spagcn-modern` distribution.
+the maintained `spagcn-modern` distribution. GraphST, STAGATE, SpatialDE,
+PASTE, and STalign are installed from focused maintained PyPI distributions;
+no Git URL, local wheel, or source build command is required.
 
 ChatSpatial tools fail with targeted installation guidance if you call a method
 whose optional dependency is not installed.
@@ -194,7 +204,7 @@ optional method families directly from the project metadata:
 
 ```bash
 python -m pip install \
-  -e '.[full,trajectory,cell-communication,spatial-domains,dev]'
+  -e '.[full,dev]'
 ```
 
 ---
@@ -290,15 +300,6 @@ Once R is available, install the R packages used by ChatSpatial:
 # Install R 4.5+
 Rscript install_r_dependencies.R
 ```
-
-### STAGATE
-
-```bash
-git clone https://github.com/QIFEIDKN/STAGATE_pyG.git
-cd STAGATE_pyG && python setup.py install
-```
-
----
 
 ## Next Steps
 

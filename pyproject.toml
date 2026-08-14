@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chatspatial"
-version = "1.3.7"
+version = "1.3.8"
 description = "ChatSpatial: Natural language-driven spatial transcriptomics analysis via Model Context Protocol (MCP) integration"
 readme = "README.md"
 license = "MIT"
@@ -75,7 +75,6 @@ dependencies = [
 deep-learning = [
     "torch>=2.0.0,<3.0",
     "scvi-tools>=1.0.0,<2.0",
-    "mudata>=0.2.0",
 ]
 
 # RNA velocity methods
@@ -86,18 +85,14 @@ velocity = [
 # Trajectory methods. FastCCC is isolated in its own extra because its Jinja2
 # requirement conflicts with the current PyPI release of pyGPCCA.
 trajectory = [
-    "cellrank>=2.0.0,<2.3; python_version < '3.12'",
     "cellrank>=2.3.2,<3.0; python_version >= '3.12'",
     "palantir>=1.0.0",
-    "scipy>=1.14.1,<1.17",
-    "pygam>=0.12.0,<0.13",
 ]
 
 # Cell-cell communication methods
 cell-communication = [
     "liana>=1.4.0,<2.0; python_version < '3.14'",
     "cellphonedb>=5.0.0,<6.0",
-    "ktplotspy>=0.3.5,<0.4",
 ]
 
 # FastCCC supports Python 3.11-3.12 and currently conflicts with CellRank's
@@ -126,6 +121,45 @@ deconvolution = [
     "cell2location>=0.1.4",
 ]
 
+# Cell type annotation and spatial mapping methods.
+annotation = [
+    "tangram-sc>=1.0.0",
+    "singler>=0.4.0; sys_platform != 'win32'",
+    "singlecellexperiment>=0.4.0; sys_platform != 'win32'",
+    "celldex>=0.3.0; sys_platform != 'win32'",
+    "mllmcelltype>=0.1.0",
+]
+
+# Gene-set enrichment and enrichment-map visualization.
+enrichment = [
+    "gseapy>=1.0.0",
+    "enrichmap>=0.1.0",
+    "requests>=2.31.0,<3.0",
+]
+
+# Copy-number inference.
+cnv = [
+    "infercnvpy>=0.4.0",
+]
+
+# Pseudobulk differential expression.
+differential = [
+    "pydeseq2>=0.4.0",
+]
+
+# Pairwise and multi-slice spatial registration.
+registration = [
+    "torch>=2.0.0,<3.0",
+    "POT>=0.9.0",
+    "paste-modern>=1.4.0.post1,<1.5",
+    "stalign-modern>=1.0.post1,<1.1",
+]
+
+# Optional statistically rigorous spatial-variable-gene backend.
+spatial-genes = [
+    "spatialde-modern>=1.1.3.post2,<1.2",
+]
+
 # PyTorch port of RCTD. Kept separate because it downloads a large likelihood
 # table on first use and has a faster release cadence than the core package.
 rctd-python = [
@@ -140,80 +174,56 @@ r-backends = [
     "anndata2ri>=1.3.0",
 ]
 
-# Broadest mutually compatible PyPI installation. FastCCC lives in its own
-# extra because of the upstream pyGPCCA/FastCCC conflict.
+# Broadest mutually compatible Python installation. FastCCC, R bridges,
+# AESTETIK, and RCTD remain isolated because they impose platform, system, or
+# dependency constraints that cannot be expressed as one portable environment.
 full = [
-    # ========== High-Frequency Method Extras ==========
+    # Deep learning and dynamics
+    "torch>=2.0.0,<3.0",
     "scvi-tools>=1.0.0,<2.0",
-    "mudata>=0.2.0",
     "scvelo>=0.2.5,<0.4",
+    "cellrank>=2.3.2,<3.0; python_version >= '3.12'",
+    "palantir>=1.0.0",
+
+    # Cell communication
     "liana>=1.4.0,<2.0; python_version < '3.14'",
     "cellphonedb>=5.0.0,<6.0",
-    "ktplotspy>=0.3.5,<0.4",
+
+    # Integration and spatial statistics
     "harmonypy>=0.0.9",
     "bbknn>=1.5.0",
-    "flashdeconv>=0.1.0",
+    "scanorama>=1.7.0",
     "esda>=2.4.0",
     "libpysal>=4.6.0",
+    "networkx>=2.6.0",
 
-    # ========== Gene Set Enrichment ==========
-    "gseapy>=1.0.0",  # Rust extension — no macOS x86_64 wheel on PyPI
+    # Deconvolution and annotation
+    "flashdeconv>=0.1.0",
+    "cell2location>=0.1.4",
+    "tangram-sc>=1.0.0",
+    "singler>=0.4.0; sys_platform != 'win32'",
+    "singlecellexperiment>=0.4.0; sys_platform != 'win32'",
+    "celldex>=0.3.0; sys_platform != 'win32'",
+    "mllmcelltype>=0.1.0",
 
-    # ========== Deep Learning Frameworks ==========
-    "torch>=2.0.0,<3.0",  # Required for many advanced methods
+    # Enrichment, CNV, and differential expression
+    "gseapy>=1.0.0",
+    "enrichmap>=0.1.0",
+    "requests>=2.31.0,<3.0",
+    "infercnvpy>=0.4.0",
+    "pydeseq2>=0.4.0",
 
-    # ========== Spatial Domain Identification ==========
-    "GraphST>=1.1.0",  # Graph self-supervised contrastive learning (no louvain dependency)
-    # SpaGCN and BANKSY live in [spatial-domains] so their graph stack can use
-    # a coherent igraph/leidenalg compatibility range.
+    # Spatial domains and variable genes
+    "graphst-modern>=1.1.1.post3,<1.2",
+    "stagate-modern>=1.0.0.post1,<1.1",
+    "spagcn-modern>=1.2.7.post2,<1.3",
+    "pybanksy>=1.3.5,<2.0; python_version < '3.14'",
+    "spatialde-modern>=1.1.3.post2,<1.2",
 
-    # ========== Advanced Deconvolution ==========
-    "cell2location>=0.1.4",  # Bayesian deconvolution (0.1.4+ fixes scvi-tools one_hot compatibility)
-    
-    # ========== Advanced Trajectory Analysis ==========
-    "palantir>=1.0.0",  # Probabilistic trajectory inference
-    
-    # ========== Additional Integration Methods ==========
-    "scanorama>=1.7.0",  # Cross-dataset integration
-    
-    # ========== Spatial Variable Genes ==========
-    "spatialde-modern>=1.1.3.post1,<1.2",  # Maintained SpatialDE distribution
-    "scikit-misc>=0.5.0",  # Required for Seurat v3 HVG selection (used by GraphST)
-    
-    # ========== Advanced Cell Type Annotation ==========
-    "tangram-sc>=1.0.0",  # Spatial mapping of cell types
-
-    # SingleR requires C++ dependencies (mattress, knncolle) that fail on Windows
-    # Error: MinGW "too many sections" compilation error (Windows PE format limitation)
-    "singler>=0.4.0; sys_platform != 'win32'",  # SingleR Python implementation
-    "singlecellexperiment>=0.4.0; sys_platform != 'win32'",  # Required for SingleR
-    "celldex>=0.3.0; sys_platform != 'win32'",  # Reference datasets for SingleR
-    "mllmcelltype>=0.1.0",  # LLM-based cell type annotation
-
-    # ========== Extended Spatial Analysis ==========
-    "networkx>=2.6.0",  # Network analysis for spatial graphs
-    
-    # ========== Spatial Registration ==========
-    "POT>=0.9.0",  # Python optimal transport
-    # "STalign>=1.0.0",  # Spatial alignment tool (install from GitHub, not on PyPI)
-    "paste-bio>=1.0.0",  # PASTE spatial registration
-
-    # ========== CNV Analysis ==========
-    "infercnvpy>=0.4.0",  # Copy number variation inference from spatial transcriptomics
-    # Note: Numbat CNV analysis also supported via rpy2 (requires R package: install.packages('numbat'))
-
-    # ========== Advanced Differential Expression ==========
-    "pydeseq2>=0.4.0",  # Python DESeq2 for pseudobulk differential expression
-
-    # ========== Spatial Enrichment Extensions ==========
-    "enrichmap",  # Enrichment map visualization (Python >=3.10)
-    "statannotations>=0.2.0",  # Statistical annotations for plots
-    "scikit-gstat>=1.0.0",  # Geostatistical analysis
-    "adjustText>=0.8.0",  # Automatic label placement
-    "splot>=1.1.0",  # Spatial plotting
-    
-    # ========== Emerging Technologies ==========
-    "spatialdata>=0.2.0",  # Emerging spatial data format standard
+    # Spatial registration
+    "POT>=0.9.0",
+    "paste-modern>=1.4.0.post1,<1.5",
+    "stalign-modern>=1.0.post1,<1.1",
 ]
 
 # SCTransform normalization (variance-stabilizing transformation)
@@ -226,6 +236,9 @@ full = [
 # built-in Leiden implementation and does not require the obsolete louvain
 # extension. BANKSY does not yet publish Python 3.14-compatible metadata.
 spatial-domains = [
+    "torch>=2.0.0,<3.0",
+    "graphst-modern>=1.1.1.post3,<1.2",
+    "stagate-modern>=1.0.0.post1,<1.1",
     "spagcn-modern>=1.2.7.post2,<1.3",
     "pybanksy>=1.3.5,<2.0; python_version < '3.14'",
 ]

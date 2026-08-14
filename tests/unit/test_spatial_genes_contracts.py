@@ -24,7 +24,6 @@ def _required_module(name: str, *_args, **_kwargs):
     """Return the fake backend installed by each test."""
     module_name = {
         "spatialde": "SpatialDE",
-        "naivede": "NaiveDE",
     }.get(name, name)
     return sys.modules.get(module_name, object())
 
@@ -204,11 +203,6 @@ async def test_spatialde_imports_without_legacy_compatibility_patch(
 ):
     events: list[str] = []
 
-    monkeypatch.setattr(
-        "chatspatial.utils.compat.ensure_spatialde_compat",
-        lambda: (_ for _ in ()).throw(AssertionError("legacy patch was called")),
-    )
-
     def _stop_after_first_import(name: str, *_args, **_kwargs):
         events.append(name)
         raise DependencyError("stop after import order check")
@@ -233,28 +227,21 @@ async def test_spatialde_success_stores_var_outputs_and_metadata(
     adata = minimal_spatial_adata.copy()
     captured: dict[str, object] = {}
 
-    fake_naivede = ModuleType("NaiveDE")
-    fake_naivede.stabilize = lambda x: x
-    fake_naivede.regress_out = lambda _tc, expr_t, _formula: expr_t
-
     fake_spatialde = ModuleType("SpatialDE")
+    fake_spatialde.stabilize = lambda x: x
+    fake_spatialde.regress_out = lambda _tc, expr_t, _formula: expr_t
     fake_spatialde.run = lambda _coords, _expr: pd.DataFrame(
         {"g": ["gene_0", "gene_1"], "pval": [0.001, 0.02], "l": [1.2, 0.8]}
     )
     fake_spatialde_util = ModuleType("SpatialDE.util")
     fake_spatialde_util.qvalue = lambda pvals, pi0=None: np.array([0.01, 0.04])
 
-    monkeypatch.setitem(__import__("sys").modules, "NaiveDE", fake_naivede)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE", fake_spatialde)
     monkeypatch.setitem(
         __import__("sys").modules, "SpatialDE.util", fake_spatialde_util
     )
 
     monkeypatch.setattr(sg, "require", _required_module)
-    monkeypatch.setattr(
-        "chatspatial.utils.compat.ensure_spatialde_compat",
-        lambda *_args, **_kwargs: None,
-    )
     monkeypatch.setattr(
         sg,
         "get_raw_data_source",
@@ -495,28 +482,21 @@ async def test_spatialde_warns_for_large_gene_set_runtime(
     adata.var_names = [f"gene_{i}" for i in range(adata.n_vars)]
     adata.obsm["spatial"] = np.asarray(base.obsm["spatial"]).copy()
 
-    fake_naivede = ModuleType("NaiveDE")
-    fake_naivede.stabilize = lambda x: x
-    fake_naivede.regress_out = lambda _tc, expr_t, _formula: expr_t
-
     fake_spatialde = ModuleType("SpatialDE")
+    fake_spatialde.stabilize = lambda x: x
+    fake_spatialde.regress_out = lambda _tc, expr_t, _formula: expr_t
     fake_spatialde.run = lambda _coords, _expr: pd.DataFrame(
         {"g": ["gene_0", "gene_1"], "pval": [0.001, 0.02], "l": [1.0, 0.5]}
     )
     fake_spatialde_util = ModuleType("SpatialDE.util")
     fake_spatialde_util.qvalue = lambda pvals, pi0=None: np.array([0.01, 0.04])
 
-    monkeypatch.setitem(__import__("sys").modules, "NaiveDE", fake_naivede)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE", fake_spatialde)
     monkeypatch.setitem(
         __import__("sys").modules, "SpatialDE.util", fake_spatialde_util
     )
 
     monkeypatch.setattr(sg, "require", _required_module)
-    monkeypatch.setattr(
-        "chatspatial.utils.compat.ensure_spatialde_compat",
-        lambda *_args, **_kwargs: None,
-    )
     monkeypatch.setattr(
         sg,
         "get_raw_data_source",
@@ -556,10 +536,6 @@ async def test_spatialde_tests_only_hvgs_and_passes_pi0_to_qvalue(
     adata.var["highly_variable"] = [True, False, True, True, False, True]
     captured: dict[str, object] = {}
 
-    fake_naivede = ModuleType("NaiveDE")
-    fake_naivede.stabilize = lambda x: x
-    fake_naivede.regress_out = lambda _tc, expr_t, _formula: expr_t
-
     def _fake_run(_coords, expr):
         captured["genes_in_run"] = list(expr.columns)
         genes = list(expr.columns)
@@ -572,6 +548,8 @@ async def test_spatialde_tests_only_hvgs_and_passes_pi0_to_qvalue(
         )
 
     fake_spatialde = ModuleType("SpatialDE")
+    fake_spatialde.stabilize = lambda x: x
+    fake_spatialde.regress_out = lambda _tc, expr_t, _formula: expr_t
     fake_spatialde.run = _fake_run
     fake_spatialde_util = ModuleType("SpatialDE.util")
 
@@ -581,17 +559,12 @@ async def test_spatialde_tests_only_hvgs_and_passes_pi0_to_qvalue(
 
     fake_spatialde_util.qvalue = _fake_qvalue
 
-    monkeypatch.setitem(__import__("sys").modules, "NaiveDE", fake_naivede)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE", fake_spatialde)
     monkeypatch.setitem(
         __import__("sys").modules, "SpatialDE.util", fake_spatialde_util
     )
 
     monkeypatch.setattr(sg, "require", _required_module)
-    monkeypatch.setattr(
-        "chatspatial.utils.compat.ensure_spatialde_compat",
-        lambda *_args, **_kwargs: None,
-    )
     monkeypatch.setattr(
         sg,
         "get_raw_data_source",
@@ -638,10 +611,6 @@ async def test_spatialde_caps_tested_genes_by_expression(
     )
     captured: dict[str, object] = {}
 
-    fake_naivede = ModuleType("NaiveDE")
-    fake_naivede.stabilize = lambda x: x
-    fake_naivede.regress_out = lambda _tc, expr_t, _formula: expr_t
-
     def _fake_run(_coords, expr):
         captured["genes_in_run"] = list(expr.columns)
         genes = list(expr.columns)
@@ -654,20 +623,17 @@ async def test_spatialde_caps_tested_genes_by_expression(
         )
 
     fake_spatialde = ModuleType("SpatialDE")
+    fake_spatialde.stabilize = lambda x: x
+    fake_spatialde.regress_out = lambda _tc, expr_t, _formula: expr_t
     fake_spatialde.run = _fake_run
     fake_spatialde_util = ModuleType("SpatialDE.util")
     fake_spatialde_util.qvalue = lambda pvals, pi0=None: np.asarray([0.01, 0.02, 0.2])
 
-    monkeypatch.setitem(__import__("sys").modules, "NaiveDE", fake_naivede)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE", fake_spatialde)
     monkeypatch.setitem(
         __import__("sys").modules, "SpatialDE.util", fake_spatialde_util
     )
     monkeypatch.setattr(sg, "require", _required_module)
-    monkeypatch.setattr(
-        "chatspatial.utils.compat.ensure_spatialde_compat",
-        lambda *_args, **_kwargs: None,
-    )
     monkeypatch.setattr(
         sg,
         "get_raw_data_source",
@@ -712,10 +678,6 @@ async def test_spatialde_caps_tested_genes_without_hvg_column(
     adata.X = np.tile(np.asarray([[7, 6, 1, 0]], dtype=np.float32), (adata.n_obs, 1))
     captured: dict[str, object] = {}
 
-    fake_naivede = ModuleType("NaiveDE")
-    fake_naivede.stabilize = lambda x: x
-    fake_naivede.regress_out = lambda _tc, expr_t, _formula: expr_t
-
     def _fake_run(_coords, expr):
         captured["genes_in_run"] = list(expr.columns)
         genes = list(expr.columns)
@@ -728,20 +690,17 @@ async def test_spatialde_caps_tested_genes_without_hvg_column(
         )
 
     fake_spatialde = ModuleType("SpatialDE")
+    fake_spatialde.stabilize = lambda x: x
+    fake_spatialde.regress_out = lambda _tc, expr_t, _formula: expr_t
     fake_spatialde.run = _fake_run
     fake_spatialde_util = ModuleType("SpatialDE.util")
     fake_spatialde_util.qvalue = lambda pvals, pi0=None: np.asarray([0.01, 0.04])
 
-    monkeypatch.setitem(__import__("sys").modules, "NaiveDE", fake_naivede)
     monkeypatch.setitem(__import__("sys").modules, "SpatialDE", fake_spatialde)
     monkeypatch.setitem(
         __import__("sys").modules, "SpatialDE.util", fake_spatialde_util
     )
     monkeypatch.setattr(sg, "require", _required_module)
-    monkeypatch.setattr(
-        "chatspatial.utils.compat.ensure_spatialde_compat",
-        lambda *_args, **_kwargs: None,
-    )
     monkeypatch.setattr(
         sg,
         "get_raw_data_source",
@@ -1404,10 +1363,6 @@ async def test_spatialde_n_top_genes_limits_output_not_input(
     )
     captured: dict[str, object] = {}
 
-    fake_naivede = ModuleType("NaiveDE")
-    fake_naivede.stabilize = lambda x: x
-    fake_naivede.regress_out = lambda _tc, expr_t, _formula: expr_t
-
     def _fake_run(_coords, expr):
         captured["genes_in_run"] = list(expr.columns)
         genes = list(expr.columns)
@@ -1420,20 +1375,17 @@ async def test_spatialde_n_top_genes_limits_output_not_input(
         )
 
     fake_spatialde = ModuleType("SpatialDE")
+    fake_spatialde.stabilize = lambda x: x
+    fake_spatialde.regress_out = lambda _tc, expr_t, _formula: expr_t
     fake_spatialde.run = _fake_run
     fake_spatialde_util = ModuleType("SpatialDE.util")
     fake_spatialde_util.qvalue = lambda pvals, pi0=None: np.asarray(
         [0.01, 0.02, 0.03, 0.6]
     )[: len(pvals)]
 
-    monkeypatch.setitem(sys.modules, "NaiveDE", fake_naivede)
     monkeypatch.setitem(sys.modules, "SpatialDE", fake_spatialde)
     monkeypatch.setitem(sys.modules, "SpatialDE.util", fake_spatialde_util)
     monkeypatch.setattr(sg, "require", _required_module)
-    monkeypatch.setattr(
-        "chatspatial.utils.compat.ensure_spatialde_compat",
-        lambda *_args, **_kwargs: None,
-    )
     monkeypatch.setattr(
         sg,
         "get_raw_data_source",

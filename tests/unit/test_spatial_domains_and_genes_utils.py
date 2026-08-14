@@ -553,11 +553,6 @@ async def test_spagcn_imports_without_legacy_compatibility_patch(
 ):
     events: list[str] = []
 
-    monkeypatch.setattr(
-        "chatspatial.utils.compat.ensure_spagcn_compat",
-        lambda: (_ for _ in ()).throw(AssertionError("legacy patch was called")),
-    )
-
     def _stop_after_import(name: str, *_args, **_kwargs):
         events.append(name)
         raise DependencyError("stop after import order check")
@@ -591,9 +586,6 @@ async def test_identify_domains_spagcn_success_with_dummy_histology_fallback(
             del _adata
 
     monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSpg)
-    monkeypatch.setattr(
-        "chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None
-    )
 
     import sys
     import types
@@ -636,9 +628,6 @@ async def test_identify_domains_spagcn_timeout_is_wrapped(
             del _adata
 
     monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSpg)
-    monkeypatch.setattr(
-        "chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None
-    )
 
     import sys
     import types
@@ -680,9 +669,6 @@ async def test_identify_domains_spagcn_rejects_mismatched_coordinate_length(
 
     monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSpg)
     monkeypatch.setattr(
-        "chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None
-    )
-    monkeypatch.setattr(
         sd,
         "require_spatial_coords",
         lambda _adata: np.asarray(_adata.obsm["spatial"])[:-1],
@@ -707,26 +693,6 @@ async def test_identify_domains_spagcn_rejects_mismatched_coordinate_length(
 
 
 @pytest.mark.asyncio
-async def test_identify_domains_stagate_rejects_unsupported_torch_version(
-    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
-):
-    import types
-
-    adata = minimal_spatial_adata.copy()
-    torch_mod = types.ModuleType("torch")
-    torch_mod.__version__ = "2.9.0"
-    torch_mod.device = lambda x: x
-    _patch_stagate_dependencies(monkeypatch, torch_mod, object())
-
-    with pytest.raises(ProcessingError, match="requires PyTorch <= 2.8.0"):
-        await sd._identify_domains_stagate(
-            adata,
-            SpatialDomainParameters(method="stagate"),
-            DummyCtx(adata),
-        )
-
-
-@pytest.mark.asyncio
 async def test_identify_domains_stagate_success_returns_embeddings_and_stats(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
@@ -736,7 +702,7 @@ async def test_identify_domains_stagate_success_returns_embeddings_and_stats(
     adata = minimal_spatial_adata.copy()
 
     torch_mod = types.ModuleType("torch")
-    torch_mod.__version__ = "2.8.0"
+    torch_mod.__version__ = "2.9.0"
     torch_mod.device = lambda x: f"device:{x}"
     monkeypatch.setitem(sys.modules, "torch", torch_mod)
 
@@ -784,6 +750,7 @@ async def test_identify_domains_stagate_success_returns_embeddings_and_stats(
     assert stats["method"] == "stagate_pyg"
     assert stats["target_n_clusters"] == 3
     assert stats["rad_cutoff"] == 40
+    assert stats["framework"] == "PyTorch Geometric (tensor edge index)"
 
 
 @pytest.mark.asyncio
@@ -1382,9 +1349,6 @@ async def test_identify_domains_spagcn_histology_image_selection_and_scaling(
         return ["0"] * _adata.n_obs
 
     monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSpg)
-    monkeypatch.setattr(
-        "chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None
-    )
     _install_fake_spagcn_modules(monkeypatch, _detect_fn)
     monkeypatch.setattr(sd, "run_sync_with_timeout", _run_timed_worker_inline)
 
@@ -1419,9 +1383,6 @@ async def test_identify_domains_spagcn_prefilter_failure_warns_and_continues(
             del _adata
 
     monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSpg)
-    monkeypatch.setattr(
-        "chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None
-    )
     _install_fake_spagcn_modules(monkeypatch, lambda ad, *_a, **_k: ["0"] * ad.n_obs)
 
     labels, _, _ = await sd._identify_domains_spagcn(

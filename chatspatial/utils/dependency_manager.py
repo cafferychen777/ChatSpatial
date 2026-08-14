@@ -148,6 +148,11 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
         "pip install 'chatspatial[deep-learning]'",
         "Single-cell variational inference tools",
     ),
+    "scvi": DependencyInfo(
+        "scvi",
+        "pip install 'chatspatial[deep-learning]'",
+        "Single-cell variational inference tools",
+    ),
     "torch": DependencyInfo(
         "torch",
         "pip install 'chatspatial[deep-learning]'",
@@ -171,7 +176,7 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     # Spatial Analysis
     "tangram": DependencyInfo(
         "tangram",
-        "pip install tangram-sc",
+        "pip install 'chatspatial[annotation]'",
         "Spatial mapping of single-cell transcriptomics",
     ),
     "squidpy": DependencyInfo(
@@ -182,14 +187,14 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
         "pip install 'chatspatial[spatial-domains]'",
         "Spatial domain identification using graph convolutional networks",
     ),
-    "STAGATE": DependencyInfo(
+    "STAGATE_pyG": DependencyInfo(
         "STAGATE_pyG",
-        "pip install STAGATE-pyG",
+        "pip install 'chatspatial[spatial-domains]'",
         "Spatial domain identification using graph attention",
     ),
     "GraphST": DependencyInfo(
         "GraphST",
-        "pip install GraphST",
+        "pip install 'chatspatial[spatial-domains]'",
         "Graph self-supervised contrastive learning for spatial domains",
     ),
     "banksy": DependencyInfo(
@@ -204,12 +209,12 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     ),
     "paste": DependencyInfo(
         "paste",
-        "pip install paste-bio",
+        "pip install 'chatspatial[registration]'",
         "Probabilistic alignment of spatial transcriptomics",
     ),
     "stalign": DependencyInfo(
         "STalign",
-        'pip install --upgrade "git+https://github.com/JEFworks-Lab/STalign.git"',
+        "pip install 'chatspatial[registration]'",
         "Spatial transcriptomics alignment",
     ),
     # R Interface
@@ -250,15 +255,10 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     "scvelo": DependencyInfo(
         "scvelo", "pip install 'chatspatial[velocity]'", "RNA velocity analysis"
     ),
-    "velovi": DependencyInfo(
-        "scvi",
-        "pip install 'chatspatial[deep-learning]'",
-        "VELOVI model provided by scvi-tools",
-    ),
     "cellrank": DependencyInfo(
         "cellrank",
         "pip install 'chatspatial[trajectory]'",
-        "Trajectory inference using RNA velocity",
+        "Trajectory inference using RNA velocity (requires Python 3.12+)",
     ),
     "palantir": DependencyInfo(
         "palantir",
@@ -268,35 +268,34 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     # Annotation
     "singler": DependencyInfo(
         "singler",
-        "pip install singler singlecellexperiment",
+        "pip install 'chatspatial[annotation]'",
         "Reference-based cell type annotation",
     ),
+    "singlecellexperiment": DependencyInfo(
+        "singlecellexperiment",
+        "pip install 'chatspatial[annotation]'",
+        "SingleCellExperiment container used by SingleR",
+    ),
     "mllmcelltype": DependencyInfo(
-        "mllmcelltype", "pip install mllmcelltype", "LLM-based cell type annotation"
+        "mllmcelltype",
+        "pip install 'chatspatial[annotation]'",
+        "LLM-based cell type annotation",
     ),
     "celldex": DependencyInfo(
-        "celldex", "pip install celldex", "Cell type reference datasets for SingleR"
+        "celldex",
+        "pip install 'chatspatial[annotation]'",
+        "Cell type reference datasets for SingleR",
     ),
     # Enrichment
     "gseapy": DependencyInfo(
-        "gseapy", "pip install gseapy", "Gene set enrichment analysis"
-    ),
-    "decoupler": DependencyInfo(
-        "decoupler", "pip install decoupler", "Functional analysis of omics data"
-    ),
-    # Spatial Statistics
-    "sparkx": DependencyInfo(
-        "sparkx", "pip install SPARK-X", "SPARK-X non-parametric spatial gene detection"
+        "gseapy",
+        "pip install 'chatspatial[enrichment]'",
+        "Gene set enrichment analysis",
     ),
     "spatialde": DependencyInfo(
         "SpatialDE",
-        "pip install spatialde-modern",
+        "pip install 'chatspatial[spatial-genes]'",
         "SpatialDE Gaussian process spatial gene detection",
-    ),
-    "naivede": DependencyInfo(
-        "NaiveDE",
-        "pip install naivede-modern",
-        "Variance stabilization used by SpatialDE",
     ),
     "flashs": DependencyInfo(
         "flashs",
@@ -305,19 +304,9 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     ),
     # CNV
     "infercnvpy": DependencyInfo(
-        "infercnvpy", "pip install infercnvpy", "Copy number variation inference"
-    ),
-    # Visualization
-    "plotly": DependencyInfo(
-        "plotly", "pip install plotly", "Interactive visualization"
-    ),
-    "adjustText": DependencyInfo(
-        "adjustText", "pip install adjustText", "Text label placement for matplotlib"
-    ),
-    "splot": DependencyInfo("splot", "pip install splot", "Spatial plotting for PySAL"),
-    # Data handling
-    "mudata": DependencyInfo(
-        "mudata", "pip install 'chatspatial[deep-learning]'", "Multimodal data handling"
+        "infercnvpy",
+        "pip install 'chatspatial[cnv]'",
+        "Copy number variation inference",
     ),
     # Integration
     "harmonypy": DependencyInfo(
@@ -346,39 +335,29 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
         "pip install 'chatspatial[spatial-stats]'",
         "Python spatial analysis library",
     ),
+    "networkx": DependencyInfo(
+        "networkx",
+        "pip install 'chatspatial[spatial-stats]'",
+        "Network analysis for spatial graphs",
+    ),
     # Other
-    "dask": DependencyInfo("dask", "pip install dask", "Parallel computing library"),
-    "ot": DependencyInfo("ot", "pip install POT", "Python Optimal Transport library"),
-    "louvain": DependencyInfo(
-        "louvain",
-        "pip install louvain",
-        "Legacy Louvain community detection; prefer Leiden",
+    "ot": DependencyInfo(
+        "ot",
+        "pip install 'chatspatial[registration]'",
+        "Python Optimal Transport library",
     ),
     "pydeseq2": DependencyInfo(
-        "pydeseq2", "pip install pydeseq2", "Python implementation of DESeq2"
+        "pydeseq2",
+        "pip install 'chatspatial[differential]'",
+        "Python implementation of DESeq2",
     ),
     "enrichmap": DependencyInfo(
-        "enrichmap", "pip install enrichmap", "Spatial enrichment mapping"
-    ),
-    "pygam": DependencyInfo(
-        "pygam",
-        "pip install 'chatspatial[trajectory]'",
-        "Generalized additive models",
-    ),
-    "skgstat": DependencyInfo(
-        "skgstat", "pip install scikit-gstat", "Geostatistical analysis toolkit"
-    ),
-    "sklearn": DependencyInfo(
-        "sklearn", "pip install scikit-learn", "Machine learning library"
+        "enrichmap",
+        "pip install 'chatspatial[enrichment]'",
+        "Spatial enrichment mapping",
     ),
     "statsmodels": DependencyInfo(
         "statsmodels", "pip install chatspatial", "Statistical models and tests"
-    ),
-    "scipy": DependencyInfo(
-        "scipy", "pip install scipy", "Scientific computing library"
-    ),
-    "scanpy": DependencyInfo(
-        "scanpy", "pip install scanpy", "Single-cell analysis in Python"
     ),
     "Pillow": DependencyInfo("PIL", "pip install Pillow", "Python Imaging Library"),
 }

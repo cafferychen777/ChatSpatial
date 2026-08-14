@@ -28,7 +28,6 @@ from ..utils.adata_utils import (
     reconstruct_velovi_adata,
     validate_obs_column,
 )
-from ..utils.compat import ensure_cellrank_compat
 from ..utils.compute import ensure_diffmap, ensure_neighbors, ensure_pca
 from ..utils.dependency_manager import require, require_module
 from ..utils.exceptions import (
@@ -152,199 +151,184 @@ def infer_spatial_trajectory_cellrank(
     Raises:
         ProcessingError: If CellRank computation fails.
     """
-    # Apply NumPy 2.x compatibility patch for CellRank
-    # CellRank 2.0.7 uses np.testing.assert_array_equal(x=, y=) which fails with NumPy 2.x
-    # This is fixed in CellRank main branch but not yet released to PyPI
-    cleanup_compat = ensure_cellrank_compat()
+    cr = require("cellrank", feature="CellRank trajectory inference")
+    from scipy.sparse import csr_matrix
+    from scipy.spatial.distance import pdist, squareform
 
-    try:
-        cr = require("cellrank", feature="CellRank trajectory inference")
-        from scipy.sparse import csr_matrix
-        from scipy.spatial.distance import pdist, squareform
+    # Check if spatial data is available
+    spatial_key = get_spatial_key(adata)
+    has_spatial = spatial_key is not None
 
-        # Check if spatial data is available
-        spatial_key = get_spatial_key(adata)
-        has_spatial = spatial_key is not None
+    if not has_spatial and spatial_weight > 0:
+        spatial_weight = 0
 
-        if not has_spatial and spatial_weight > 0:
-            spatial_weight = 0
-
-        # Handle different velocity methods
-        if "velocity_method" in adata.uns and adata.uns["velocity_method"] == "velovi":
-            # Reconstruct velovi adata from essential data stored in uns
-            if not has_velovi_essential_data(adata):
-                raise ProcessingError(
-                    "VELOVI velocity data not found. Run analyze_velocity_data first."
-                )
-            adata_for_cellrank = reconstruct_velovi_adata(adata)
-            vk = cr.kernels.VelocityKernel(adata_for_cellrank)
-            vk.compute_transition_matrix()
-        else:
-            adata_for_cellrank = adata
-            vk = cr.kernels.VelocityKernel(adata_for_cellrank)
-            vk.compute_transition_matrix()
-
-        # Create connectivity kernel
-        ck = cr.kernels.ConnectivityKernel(adata_for_cellrank)
-        ck.compute_transition_matrix()
-
-        # Combine kernels
-        vk_weight, ck_weight = kernel_weights
-
-        if has_spatial and spatial_weight > 0:
-            spatial_coords = adata.obsm[spatial_key]
-            spatial_dist = squareform(pdist(spatial_coords))
-            dist_mean = spatial_dist.mean()
-            if dist_mean < 1e-10:
-                logging.getLogger(__name__).warning(
-                    "Spatial coordinates are nearly identical; "
-                    "disabling spatial kernel."
-                )
-                # Fall back to non-spatial kernel combination
-                combined_kernel = vk_weight * vk + ck_weight * ck
-            else:
-                spatial_sim = np.exp(-spatial_dist / dist_mean)
-                spatial_kernel = csr_matrix(spatial_sim)
-
-                sk = cr.kernels.PrecomputedKernel(spatial_kernel, adata_for_cellrank)
-                sk.compute_transition_matrix()
-
-                combined_kernel = (1 - spatial_weight) * (
-                    vk_weight * vk + ck_weight * ck
-                ) + spatial_weight * sk
-        else:
-            combined_kernel = vk_weight * vk + ck_weight * ck
-
-        # GPCCA analysis
-        g = cr.estimators.GPCCA(combined_kernel)
-        g.compute_eigendecomposition()
-
-        # Compute macrostates
-        try:
-            g.compute_macrostates(n_states=n_states)
-        except ChatSpatialError:
-            raise
-        except Exception as e:
+    # Handle different velocity methods
+    if "velocity_method" in adata.uns and adata.uns["velocity_method"] == "velovi":
+        # Reconstruct velovi adata from essential data stored in uns
+        if not has_velovi_essential_data(adata):
             raise ProcessingError(
-                f"CellRank macrostate computation failed: {e}. "
-                f"Try reducing n_states or use method='palantir'/'dpt'."
-            ) from e
-
-        # Terminal states are optional: when none qualify, the macrostate
-        # fallback below still yields a pseudotime. CellRank reports this as a
-        # ValueError whose wording depends on which criterion failed, so the
-        # authoritative test is whether terminal states exist afterwards —
-        # matching on the message turns a recoverable run into a hard failure
-        # as soon as upstream rephrases it.
-        try:
-            g.predict_terminal_states(
-                method="stability", stability_threshold=stability_threshold
+                "VELOVI velocity data not found. Run analyze_velocity_data first."
             )
-        except ValueError as e:
+        adata_for_cellrank = reconstruct_velovi_adata(adata)
+        vk = cr.kernels.VelocityKernel(adata_for_cellrank)
+        vk.compute_transition_matrix()
+    else:
+        adata_for_cellrank = adata
+        vk = cr.kernels.VelocityKernel(adata_for_cellrank)
+        vk.compute_transition_matrix()
+
+    # Create connectivity kernel
+    ck = cr.kernels.ConnectivityKernel(adata_for_cellrank)
+    ck.compute_transition_matrix()
+
+    # Combine kernels
+    vk_weight, ck_weight = kernel_weights
+
+    if has_spatial and spatial_weight > 0:
+        spatial_coords = adata.obsm[spatial_key]
+        spatial_dist = squareform(pdist(spatial_coords))
+        dist_mean = spatial_dist.mean()
+        if dist_mean < 1e-10:
             logging.getLogger(__name__).warning(
-                "CellRank selected no terminal states (%s). Falling back to "
-                "macrostate-based pseudotime; lower "
-                "cellrank_stability_threshold to select terminal states.",
-                e,
+                "Spatial coordinates are nearly identical; disabling spatial kernel."
             )
+            # Fall back to non-spatial kernel combination
+            combined_kernel = vk_weight * vk + ck_weight * ck
+        else:
+            spatial_sim = np.exp(-spatial_dist / dist_mean)
+            spatial_kernel = csr_matrix(spatial_sim)
 
-        # Check terminal states and compute fate probabilities
-        has_terminal_states = (
-            hasattr(g, "terminal_states")
-            and g.terminal_states is not None
-            and len(g.terminal_states.cat.categories) > 0
+            sk = cr.kernels.PrecomputedKernel(spatial_kernel, adata_for_cellrank)
+            sk.compute_transition_matrix()
+
+            combined_kernel = (1 - spatial_weight) * (
+                vk_weight * vk + ck_weight * ck
+            ) + spatial_weight * sk
+    else:
+        combined_kernel = vk_weight * vk + ck_weight * ck
+
+    # GPCCA analysis
+    g = cr.estimators.GPCCA(combined_kernel)
+    g.compute_eigendecomposition()
+
+    # Compute macrostates
+    try:
+        g.compute_macrostates(n_states=n_states)
+    except ChatSpatialError:
+        raise
+    except Exception as e:
+        raise ProcessingError(
+            f"CellRank macrostate computation failed: {e}. "
+            f"Try reducing n_states or use method='palantir'/'dpt'."
+        ) from e
+
+    # Terminal states are optional: when none qualify, the macrostate
+    # fallback below still yields a pseudotime. CellRank reports this as a
+    # ValueError whose wording depends on which criterion failed, so the
+    # authoritative test is whether terminal states exist afterwards —
+    # matching on the message turns a recoverable run into a hard failure
+    # as soon as upstream rephrases it.
+    try:
+        g.predict_terminal_states(
+            method="stability", stability_threshold=stability_threshold
+        )
+    except ValueError as e:
+        logging.getLogger(__name__).warning(
+            "CellRank selected no terminal states (%s). Falling back to "
+            "macrostate-based pseudotime; lower "
+            "cellrank_stability_threshold to select terminal states.",
+            e,
         )
 
-        if has_terminal_states:
-            try:
-                g.compute_fate_probabilities()
-                absorption_probs = g.fate_probabilities
+    # Check terminal states and compute fate probabilities
+    has_terminal_states = (
+        hasattr(g, "terminal_states")
+        and g.terminal_states is not None
+        and len(g.terminal_states.cat.categories) > 0
+    )
 
-                # Derive pseudotime from fate probability entropy:
-                # high entropy = multipotent/undifferentiated = early
-                # low entropy = committed to one fate = late
-                fate_matrix = np.asarray(absorption_probs)
+    if has_terminal_states:
+        try:
+            g.compute_fate_probabilities()
+            absorption_probs = g.fate_probabilities
 
-                # Check for NaN in fate probabilities
-                nan_mask = np.isnan(fate_matrix).any(axis=1)
-                if nan_mask.all():
-                    raise ProcessingError(
-                        "CellRank fate probabilities are all NaN. "
-                        "This indicates numerical instability in "
-                        "GPCCA. Try reducing n_states or adjusting "
-                        "kernel weights."
-                    )
+            # Derive pseudotime from fate probability entropy:
+            # high entropy = multipotent/undifferentiated = early
+            # low entropy = committed to one fate = late
+            fate_matrix = np.asarray(absorption_probs)
 
-                fate_matrix = np.clip(fate_matrix, 1e-10, None)  # avoid log(0)
-                entropy = -np.sum(fate_matrix * np.log(fate_matrix), axis=1)
-
-                # NaN cells get pseudotime = NaN (not 0)
-                max_entropy = np.nanmax(entropy)
-                if max_entropy > 0:
-                    pseudotime = 1 - entropy / max_entropy
-                else:
-                    pseudotime = np.zeros_like(entropy)
-
-                if nan_mask.any():
-                    # Cells without fate probabilities get no pseudotime; the
-                    # caller reports the count from the pseudotime column.
-                    pseudotime[nan_mask] = np.nan
-
-                adata_for_cellrank.obs["pseudotime"] = pseudotime
-                adata_for_cellrank.obsm["fate_probabilities"] = absorption_probs
-                adata_for_cellrank.obs["terminal_states"] = g.terminal_states
-            except Exception as e:
+            # Check for NaN in fate probabilities
+            nan_mask = np.isnan(fate_matrix).any(axis=1)
+            if nan_mask.all():
                 raise ProcessingError(
-                    f"CellRank fate probability computation failed: {e}. "
-                    f"This often indicates numerical instability. "
-                    f"Try method='palantir' or 'dpt' instead."
-                ) from e
-        else:
-            # Fall back to macrostates-based pseudotime. Guard on the
-            # memberships actually read, not on the macrostates attribute.
-            macrostate_probs = getattr(g, "macrostates_memberships", None)
-            if macrostate_probs is not None:
-                pseudotime = 1 - macrostate_probs[:, 0].X.flatten()
-                adata_for_cellrank.obs["pseudotime"] = pseudotime
-            else:
-                raise ProcessingError(
-                    "CellRank could not compute terminal states or macrostates. "
-                    "Try method='palantir' or 'dpt' instead."
+                    "CellRank fate probabilities are all NaN. "
+                    "This indicates numerical instability in "
+                    "GPCCA. Try reducing n_states or adjusting "
+                    "kernel weights."
                 )
 
-        if hasattr(g, "macrostates") and g.macrostates is not None:
-            adata_for_cellrank.obs["macrostates"] = g.macrostates
+            fate_matrix = np.clip(fate_matrix, 1e-10, None)  # avoid log(0)
+            entropy = -np.sum(fate_matrix * np.log(fate_matrix), axis=1)
 
-        # Transfer results back to original adata
-        if "pseudotime" in adata_for_cellrank.obs:
-            adata.obs["pseudotime"] = adata_for_cellrank.obs["pseudotime"]
-        if "terminal_states" in adata_for_cellrank.obs:
-            adata.obs["terminal_states"] = adata_for_cellrank.obs["terminal_states"]
-        if "macrostates" in adata_for_cellrank.obs:
-            adata.obs["macrostates"] = adata_for_cellrank.obs["macrostates"]
-        if "fate_probabilities" in adata_for_cellrank.obsm:
-            adata.obsm["fate_probabilities"] = adata_for_cellrank.obsm[
-                "fate_probabilities"
-            ]
-            # Also write CellRank-standard alias so viz doesn't need to
-            adata.obsm["to_terminal_states"] = adata.obsm["fate_probabilities"]
-        if (
-            "to_terminal_states" in adata_for_cellrank.obsm
-            and "to_terminal_states" not in adata.obsm
-        ):
-            adata.obsm["to_terminal_states"] = adata_for_cellrank.obsm[
-                "to_terminal_states"
-            ]
+            # NaN cells get pseudotime = NaN (not 0)
+            max_entropy = np.nanmax(entropy)
+            if max_entropy > 0:
+                pseudotime = 1 - entropy / max_entropy
+            else:
+                pseudotime = np.zeros_like(entropy)
 
-        # Note: With optimized storage, velovi data is stored as individual arrays
-        # in uns (velovi_velocity, velovi_Ms, etc.) rather than a full adata copy.
-        # Results are already transferred to original adata above.
+            if nan_mask.any():
+                # Cells without fate probabilities get no pseudotime; the
+                # caller reports the count from the pseudotime column.
+                pseudotime[nan_mask] = np.nan
 
-        return adata
+            adata_for_cellrank.obs["pseudotime"] = pseudotime
+            adata_for_cellrank.obsm["fate_probabilities"] = absorption_probs
+            adata_for_cellrank.obs["terminal_states"] = g.terminal_states
+        except Exception as e:
+            raise ProcessingError(
+                f"CellRank fate probability computation failed: {e}. "
+                f"This often indicates numerical instability. "
+                f"Try method='palantir' or 'dpt' instead."
+            ) from e
+    else:
+        # Fall back to macrostates-based pseudotime. Guard on the
+        # memberships actually read, not on the macrostates attribute.
+        macrostate_probs = getattr(g, "macrostates_memberships", None)
+        if macrostate_probs is not None:
+            pseudotime = 1 - macrostate_probs[:, 0].X.flatten()
+            adata_for_cellrank.obs["pseudotime"] = pseudotime
+        else:
+            raise ProcessingError(
+                "CellRank could not compute terminal states or macrostates. "
+                "Try method='palantir' or 'dpt' instead."
+            )
 
-    finally:
-        # Always clean up the compatibility patch
-        cleanup_compat()
+    if hasattr(g, "macrostates") and g.macrostates is not None:
+        adata_for_cellrank.obs["macrostates"] = g.macrostates
+
+    # Transfer results back to original adata
+    if "pseudotime" in adata_for_cellrank.obs:
+        adata.obs["pseudotime"] = adata_for_cellrank.obs["pseudotime"]
+    if "terminal_states" in adata_for_cellrank.obs:
+        adata.obs["terminal_states"] = adata_for_cellrank.obs["terminal_states"]
+    if "macrostates" in adata_for_cellrank.obs:
+        adata.obs["macrostates"] = adata_for_cellrank.obs["macrostates"]
+    if "fate_probabilities" in adata_for_cellrank.obsm:
+        adata.obsm["fate_probabilities"] = adata_for_cellrank.obsm["fate_probabilities"]
+        # Also write CellRank-standard alias so viz doesn't need to
+        adata.obsm["to_terminal_states"] = adata.obsm["fate_probabilities"]
+    if (
+        "to_terminal_states" in adata_for_cellrank.obsm
+        and "to_terminal_states" not in adata.obsm
+    ):
+        adata.obsm["to_terminal_states"] = adata_for_cellrank.obsm["to_terminal_states"]
+
+    # Note: With optimized storage, velovi data is stored as individual arrays
+    # in uns (velovi_velocity, velovi_Ms, etc.) rather than a full adata copy.
+    # Results are already transferred to original adata above.
+
+    return adata
 
 
 def _normalize_palantir_matrix(

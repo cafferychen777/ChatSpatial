@@ -44,11 +44,16 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Resolve the composable method stack with pip
+      - name: Resolve each composable method family with pip
         run: |
           python -m pip install --upgrade pip
-          python -m pip install --dry-run --ignore-installed \
-            ".[full,cell-communication,trajectory,spatial-domains]"
+          for extra in \
+            deep-learning velocity trajectory cell-communication integration \
+            spatial-stats deconvolution annotation enrichment cnv differential \
+            registration spatial-genes spatial-domains full; do
+            echo "Resolving chatspatial[$extra]"
+            python -m pip install --dry-run --ignore-installed ".[${extra}]"
+          done
 
       - name: Resolve the isolated FastCCC stack
         if: matrix.python-version == '3.11' || matrix.python-version == '3.12'
@@ -77,6 +82,34 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install ".[r-backends]"
           python -c "import anndata2ri, rpy2.robjects; print(rpy2.robjects.r('R.version.string')[0])"
+
+  maintained-backend-smoke:
+    name: Test maintained backends from wheel
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Build ChatSpatial wheel
+        run: |
+          python -m pip install build
+          python -m build --wheel
+
+      - name: Install wheel with maintained backends in a clean environment
+        run: |
+          python -m venv /tmp/chatspatial-wheel-smoke
+          wheel=$(find "$PWD/dist" -name '*.whl' -print -quit)
+          /tmp/chatspatial-wheel-smoke/bin/python -m pip install \
+            "${wheel}[spatial-domains,spatial-genes,registration,trajectory]"
+          /tmp/chatspatial-wheel-smoke/bin/python \
+            scripts/quality/smoke_maintained_backends.py
 
   lint:
     name: Lint

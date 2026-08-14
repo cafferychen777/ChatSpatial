@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import tomllib
 from pathlib import Path
 
@@ -41,11 +42,17 @@ def test_dependency_families_keep_conflicting_backends_separate() -> None:
     r_backends = _requirements(extras["r-backends"])
 
     assert "jinja2" not in core
-    assert "cellrank" not in full
+    assert "cellrank" in full
     assert "pygam" not in full
-    assert full["spatialde-modern"][0].specifier.contains("1.1.3.post1")
+    assert full["spatialde-modern"][0].specifier.contains("1.1.3.post2")
     assert "spatialde" not in full
-    assert {"cellrank", "palantir", "pygam", "scipy"} <= trajectory.keys()
+    assert {"cellrank", "palantir"} <= trajectory.keys()
+    cellrank = trajectory["cellrank"][0]
+    assert cellrank.marker is not None
+    assert not cellrank.marker.evaluate({"python_version": "3.11"})
+    assert cellrank.marker.evaluate({"python_version": "3.12"})
+    assert "pygam" not in trajectory
+    assert "scipy" not in trajectory
     assert "fastccc" not in full
     assert "fastccc" not in communication
     assert "rpy2" not in full
@@ -57,7 +64,7 @@ def test_dependency_families_keep_conflicting_backends_separate() -> None:
     assert liana.marker is not None
     assert liana.marker.evaluate({"python_version": "3.13"})
     assert not liana.marker.evaluate({"python_version": "3.14"})
-    assert communication["ktplotspy"][0].specifier.contains("0.3.5")
+    assert "ktplotspy" not in communication
     requirement = fastccc["fastccc"][0]
     assert requirement.specifier.contains("1.0.1")
     assert requirement.marker is not None
@@ -105,6 +112,8 @@ def test_spatial_domain_extra_uses_maintained_spagcn_graph_stack() -> None:
     requirements = _requirements(project["optional-dependencies"]["spatial-domains"])
 
     assert requirements["spagcn-modern"][0].specifier.contains("1.2.7.post2")
+    assert requirements["graphst-modern"][0].specifier.contains("1.1.1.post3")
+    assert requirements["stagate-modern"][0].specifier.contains("1.0.0.post1")
     banksy = requirements["pybanksy"][0]
     assert banksy.specifier.contains("1.3.5")
     assert banksy.marker is not None
@@ -114,6 +123,17 @@ def test_spatial_domain_extra_uses_maintained_spagcn_graph_stack() -> None:
     assert "igraph" not in requirements
     assert "leidenalg" not in requirements
     assert "louvain" not in requirements
+
+
+@pytest.mark.unit
+def test_registration_extra_uses_maintained_backends() -> None:
+    requirements = _requirements(
+        _project_metadata()["optional-dependencies"]["registration"]
+    )
+
+    assert requirements["paste-modern"][0].specifier.contains("1.4.0.post1")
+    assert requirements["stalign-modern"][0].specifier.contains("1.0.post1")
+    assert "paste-bio" not in requirements
 
 
 @pytest.mark.unit
@@ -137,13 +157,20 @@ def test_install_guidance_uses_compatible_optional_families() -> None:
     expected_extras = {
         "cellrank": "trajectory",
         "palantir": "trajectory",
-        "pygam": "trajectory",
         "SpaGCN": "spatial-domains",
+        "STAGATE_pyG": "spatial-domains",
+        "GraphST": "spatial-domains",
         "banksy": "spatial-domains",
         "aestetik": "aestetik",
         "fastccc": "fastccc",
         "rpy2": "r-backends",
         "anndata2ri": "r-backends",
+        "spatialde": "spatial-genes",
+        "stalign": "registration",
+        "paste": "registration",
+        "gseapy": "enrichment",
+        "infercnvpy": "cnv",
+        "pydeseq2": "differential",
     }
 
     for dependency, extra in expected_extras.items():
@@ -151,7 +178,69 @@ def test_install_guidance_uses_compatible_optional_families() -> None:
             f"pip install 'chatspatial[{extra}]'"
         )
 
-    assert DEPENDENCY_REGISTRY["louvain"].install_cmd == "pip install louvain"
+
+@pytest.mark.unit
+def test_full_is_exact_union_of_composable_method_families() -> None:
+    """Adding a method family must update full without transitive cargo."""
+    extras = _project_metadata()["optional-dependencies"]
+    families = [
+        "deep-learning",
+        "velocity",
+        "trajectory",
+        "cell-communication",
+        "integration",
+        "spatial-stats",
+        "deconvolution",
+        "annotation",
+        "enrichment",
+        "cnv",
+        "differential",
+        "registration",
+        "spatial-genes",
+        "spatial-domains",
+    ]
+    expected = {str(Requirement(item)) for name in families for item in extras[name]}
+    actual = {str(Requirement(item)) for item in extras["full"]}
+    assert actual == expected
+
+
+@pytest.mark.unit
+def test_extras_do_not_redeclare_transitive_or_unused_packages() -> None:
+    extras = _project_metadata()["optional-dependencies"]
+    direct = set().union(*(_requirements(items) for items in extras.values()))
+    assert not direct.intersection(
+        {
+            "adjusttext",
+            "dask",
+            "ktplotspy",
+            "louvain",
+            "mudata",
+            "paste-bio",
+            "scikit-gstat",
+            "splot",
+            "spatialdata",
+            "statannotations",
+        }
+    )
+
+
+@pytest.mark.unit
+def test_dependency_registry_exactly_matches_runtime_lookups() -> None:
+    """The registry must contain every lookup and no historical dead entries."""
+    lookups: set[str] = set()
+    for path in (REPO_ROOT / "chatspatial").rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                continue
+            if node.func.id not in {"get", "is_available", "require", "require_module"}:
+                continue
+            if node.args and isinstance(node.args[0], ast.Constant):
+                value = node.args[0].value
+                if isinstance(value, str):
+                    lookups.add(value)
+
+    assert set(DEPENDENCY_REGISTRY) == lookups
 
 
 @pytest.mark.unit

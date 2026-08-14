@@ -120,14 +120,14 @@ def _install_fake_rpy2(
 
 def test_get_info_supports_registered_alias_and_unknown_defaults():
     spatialde_by_name = dm._get_info("spatialde")
-    spatialde_by_module = dm._get_info("NaiveDE")
-    velovi = dm._get_info("velovi")
+    spatialde_by_module = dm._get_info("SpatialDE")
+    scvi = dm._get_info("scvi")
     unknown = dm._get_info("some-new-package")
 
     assert spatialde_by_name.module_name == "SpatialDE"
-    assert spatialde_by_module.install_cmd == "pip install naivede-modern"
-    assert velovi.module_name == "scvi"
-    assert "scvi-tools" in velovi.description
+    assert spatialde_by_module.install_cmd == "pip install 'chatspatial[spatial-genes]'"
+    assert scvi.module_name == "scvi"
+    assert "variational inference" in scvi.description
     assert unknown.install_cmd == "pip install some-new-package"
     assert unknown.description == "Optional: some-new-package"
 
@@ -324,7 +324,7 @@ def test_require_module_distinguishes_missing_submodule(
         )
 
     assert "DESeq2 differential expression" in str(exc.value)
-    assert "pip install pydeseq2" in str(exc.value)
+    assert "pip install 'chatspatial[differential]'" in str(exc.value)
 
 
 def test_require_module_preserves_broken_submodule_cause(

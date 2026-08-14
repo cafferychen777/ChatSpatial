@@ -672,13 +672,7 @@ def test_infer_spatial_trajectory_cellrank_velovi_path_transfers_results(
         obsm={},
         uns={},
     )
-    cleanup_called = {"v": False}
 
-    monkeypatch.setattr(
-        traj,
-        "ensure_cellrank_compat",
-        lambda: lambda: cleanup_called.__setitem__("v", True),
-    )
     monkeypatch.setattr(traj, "get_spatial_key", lambda _a: "spatial")
     monkeypatch.setattr(traj, "has_velovi_essential_data", lambda _a: True)
     monkeypatch.setattr(traj, "reconstruct_velovi_adata", lambda _a: reconstructed)
@@ -702,20 +696,13 @@ def test_infer_spatial_trajectory_cellrank_velovi_path_transfers_results(
         adata.obsm["to_terminal_states"],
         adata.obsm["fate_probabilities"],
     )
-    assert cleanup_called["v"] is True
 
 
-def test_infer_spatial_trajectory_cellrank_wraps_macrostate_errors_and_cleans_up(
+def test_infer_spatial_trajectory_cellrank_wraps_macrostate_errors(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    cleanup_called = {"v": False}
 
-    monkeypatch.setattr(
-        traj,
-        "ensure_cellrank_compat",
-        lambda: lambda: cleanup_called.__setitem__("v", True),
-    )
     monkeypatch.setattr(traj, "get_spatial_key", lambda _a: None)
     _install_fake_cellrank(
         monkeypatch,
@@ -727,15 +714,12 @@ def test_infer_spatial_trajectory_cellrank_wraps_macrostate_errors_and_cleans_up
     with pytest.raises(ProcessingError, match="CellRank macrostate computation failed"):
         traj.infer_spatial_trajectory_cellrank(adata, spatial_weight=0.0, n_states=9)
 
-    assert cleanup_called["v"] is True
-
 
 def test_infer_spatial_trajectory_cellrank_falls_back_to_macrostate_pseudotime(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
 
-    monkeypatch.setattr(traj, "ensure_cellrank_compat", lambda: (lambda: None))
     monkeypatch.setattr(traj, "get_spatial_key", lambda _a: None)
     _install_fake_cellrank(
         monkeypatch,
@@ -1376,13 +1360,7 @@ def test_infer_spatial_trajectory_cellrank_disables_spatial_when_coords_missing(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    cleanup_called = {"v": False}
 
-    monkeypatch.setattr(
-        traj,
-        "ensure_cellrank_compat",
-        lambda: lambda: cleanup_called.__setitem__("v", True),
-    )
     monkeypatch.setattr(traj, "get_spatial_key", lambda _a: None)
     _install_fake_cellrank(
         monkeypatch,
@@ -1394,7 +1372,6 @@ def test_infer_spatial_trajectory_cellrank_disables_spatial_when_coords_missing(
     out = traj.infer_spatial_trajectory_cellrank(adata, spatial_weight=0.9, n_states=3)
     assert out is adata
     assert "pseudotime" in adata.obs
-    assert cleanup_called["v"] is True
 
 
 def test_infer_spatial_trajectory_cellrank_velovi_missing_essential_data_raises(
@@ -1403,7 +1380,6 @@ def test_infer_spatial_trajectory_cellrank_velovi_missing_essential_data_raises(
     adata = minimal_spatial_adata.copy()
     adata.uns["velocity_method"] = "velovi"
 
-    monkeypatch.setattr(traj, "ensure_cellrank_compat", lambda: (lambda: None))
     monkeypatch.setattr(traj, "get_spatial_key", lambda _a: "spatial")
     monkeypatch.setattr(traj, "has_velovi_essential_data", lambda _a: False)
     _install_fake_cellrank(
@@ -1421,13 +1397,7 @@ def test_infer_spatial_trajectory_cellrank_falls_back_when_terminal_states_fail(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    cleanup_called = {"v": False}
 
-    monkeypatch.setattr(
-        traj,
-        "ensure_cellrank_compat",
-        lambda: lambda: cleanup_called.__setitem__("v", True),
-    )
     monkeypatch.setattr(traj, "get_spatial_key", lambda _a: None)
 
     class _Kernel:
@@ -1486,14 +1456,12 @@ def test_infer_spatial_trajectory_cellrank_falls_back_when_terminal_states_fail(
     # on CellRank's wording used to turn a recoverable run into a hard failure.
     out = traj.infer_spatial_trajectory_cellrank(adata, spatial_weight=0.0)
     assert "pseudotime" in out.obs
-    assert cleanup_called["v"] is True
 
 
 def test_infer_spatial_trajectory_cellrank_wraps_fate_probability_failures(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    monkeypatch.setattr(traj, "ensure_cellrank_compat", lambda: (lambda: None))
     monkeypatch.setattr(traj, "get_spatial_key", lambda _a: None)
 
     class _Kernel:
@@ -1552,7 +1520,6 @@ def test_infer_spatial_trajectory_cellrank_raises_when_no_terminal_or_macrostate
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     adata = minimal_spatial_adata.copy()
-    monkeypatch.setattr(traj, "ensure_cellrank_compat", lambda: (lambda: None))
     monkeypatch.setattr(traj, "get_spatial_key", lambda _a: None)
 
     class _Kernel:
@@ -1977,7 +1944,6 @@ def test_cellrank_non_value_errors_still_bubble(
 ):
     """Only ValueError means "no terminal states"; other failures are real bugs."""
     adata = minimal_spatial_adata.copy()
-    monkeypatch.setattr(traj, "ensure_cellrank_compat", lambda: (lambda: None))
     monkeypatch.setattr(traj, "get_spatial_key", lambda _a: None)
     _patch_trajectory_dependency(
         monkeypatch,
@@ -1995,7 +1961,6 @@ def test_cellrank_stability_threshold_reaches_the_backend(
     """CellRank's own error tells users to lower this; it must be reachable."""
     adata = minimal_spatial_adata.copy()
     capture: dict[str, object] = {}
-    monkeypatch.setattr(traj, "ensure_cellrank_compat", lambda: (lambda: None))
     monkeypatch.setattr(traj, "get_spatial_key", lambda _a: None)
     _patch_trajectory_dependency(
         monkeypatch, "cellrank", _cellrank_stub(adata, capture=capture)
