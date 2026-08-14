@@ -14,7 +14,6 @@ from chatspatial.tools.enrichment import (
     _compute_variance_ranking,
     _convert_gene_format_for_matching,
     _filter_significant_statistics,
-    _top_n_desc_indices,
     load_cell_marker_gene_sets,
     load_go_gene_sets,
     load_kegg_gene_sets,
@@ -423,19 +422,6 @@ def test_perform_ora_fallback_cv_and_case_insensitive_gene_matching(
     assert out_case.gene_set_statistics["GS_A"]["query_size"] == 2
 
 
-def test_top_n_desc_indices_handles_non_finite_and_bounds() -> None:
-    values = np.array([0.2, np.nan, 1.5, 0.7, -1.0], dtype=float)
-
-    top3 = _top_n_desc_indices(values, 3)
-    assert list(top3) == [2, 3, 0]
-
-    top_all = _top_n_desc_indices(values, 10)
-    assert list(top_all) == [2, 3, 0, 4, 1]
-
-    top_zero = _top_n_desc_indices(values, 0)
-    assert top_zero.size == 0
-
-
 def test_perform_ora_handles_empty_pvalues_after_size_filter(
     monkeypatch: pytest.MonkeyPatch, minimal_spatial_adata
 ) -> None:
@@ -658,3 +644,53 @@ def test_loader_functions_wrap_external_failures_in_processing_error(
         load_reactome_gene_sets("human")
     with pytest.raises(ProcessingError, match="Failed to load cell markers"):
         load_cell_marker_gene_sets("human")
+
+
+def test_perform_gsea_reports_the_strongest_depletions_first(
+    monkeypatch: pytest.MonkeyPatch, minimal_spatial_adata
+) -> None:
+    """Depletion grows with how negative NES is.
+
+    A single descending sort puts the strongest depletions last, so slicing its
+    head returns the weakest ones under the label "top depleted".
+    """
+    adata = minimal_spatial_adata.copy()
+    _patch_metadata_noop(monkeypatch)
+    adata.var["dispersions_norm"] = np.linspace(5.0, 0.1, adata.n_vars)
+
+    monkeypatch.setattr(
+        enrichment_module,
+        "get_raw_data_source",
+        lambda _adata, prefer_complete_genes=True: SimpleNamespace(
+            X=_adata.X, var_names=_adata.var_names
+        ),
+    )
+
+    res_df = pd.DataFrame(
+        {
+            "Term": ["up_strong", "up_weak", "down_weak", "down_strong"],
+            "ES": [0.6, 0.2, -0.2, -0.6],
+            "NES": [2.5, 0.4, -0.3, -2.9],
+            "NOM p-val": [0.01, 0.4, 0.4, 0.01],
+            "FDR q-val": [0.02, 0.5, 0.5, 0.02],
+        }
+    )
+
+    class _Res:
+        res2d = res_df
+
+    _patch_gseapy(monkeypatch, prerank=lambda **_kwargs: _Res())
+
+    out = perform_gsea(
+        adata=adata,
+        gene_sets={term: ["gene_0", "gene_1"] for term in res_df["Term"]},
+        ranking_key=None,
+        method="dispersions_norm",
+        permutation_num=10,
+        min_size=1,
+        max_size=1000,
+        data_id="d1",
+    )
+
+    assert out.top_gene_sets == ["up_strong", "up_weak"]
+    assert out.top_depleted_sets == ["down_strong", "down_weak"]

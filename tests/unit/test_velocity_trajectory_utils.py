@@ -100,17 +100,23 @@ def test_compute_rna_velocity_dynamical_calls_expected_steps(
     adata.layers["Ms"] = np.ones((adata.n_obs, adata.n_vars))
     adata.layers["Mu"] = np.ones((adata.n_obs, adata.n_vars))
     called: list[str] = []
+    graph_kwargs: dict[str, object] = {}
+
+    def _velocity_graph(*_args, **kwargs):
+        called.append("graph")
+        graph_kwargs.update(kwargs)
 
     fake_scv = ModuleType("scvelo")
     fake_scv.tl = SimpleNamespace(
         recover_dynamics=lambda *_args, **_kwargs: called.append("recover"),
         velocity=lambda *_args, **kwargs: called.append(f"velocity:{kwargs['mode']}"),
         latent_time=lambda *_args, **_kwargs: called.append("latent_time"),
-        velocity_graph=lambda *_args, **_kwargs: called.append("graph"),
+        velocity_graph=_velocity_graph,
     )
     out = vel.compute_rna_velocity(adata, mode="dynamical", scv=fake_scv)
     assert out is adata
     assert called == ["recover", "velocity:dynamical", "latent_time", "graph"]
+    assert graph_kwargs == {"show_progress_bar": False}
 
 
 def test_compute_rna_velocity_preprocess_fallback(minimal_spatial_adata, monkeypatch):
@@ -1972,3 +1978,86 @@ def test_cellrank_stability_threshold_reaches_the_backend(
 
     assert capture["stability_threshold"] == 0.5
     assert capture["method"] == "stability"
+
+
+def test_infer_pseudotime_palantir_keeps_pseudotime_without_terminal_states(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """No terminal states is a property of the tissue, not a failed run.
+
+    Pseudotime is the primary output of trajectory inference, so it must
+    survive when Palantir finds no differentiation endpoints.
+    """
+    adata = minimal_spatial_adata.copy()
+    adata.obsm["X_pca"] = np.ones((adata.n_obs, 5))
+    monkeypatch.setattr(traj, "ensure_pca", lambda *_a, **_k: None)
+
+    class _PR:
+        pseudotime = pd.Series(np.linspace(0, 1, adata.n_obs), index=adata.obs_names)
+        branch_probs = pd.DataFrame(index=adata.obs_names)
+
+    fake_palantir = ModuleType("palantir")
+    fake_palantir.utils = SimpleNamespace(
+        run_diffusion_maps=lambda *_a, **_k: {"EigenVectors": adata.obsm["X_pca"]},
+        determine_multiscale_space=lambda result: pd.DataFrame(
+            result["EigenVectors"], index=adata.obs_names
+        ),
+    )
+    fake_palantir.core = SimpleNamespace(
+        run_palantir=lambda *_a, **_k: _PR(),
+    )
+
+    out = traj.infer_pseudotime_palantir(
+        adata, root_cells=[adata.obs_names[0]], palantir_module=fake_palantir
+    )
+
+    assert "palantir_pseudotime" in out.obs
+    assert "palantir_branch_probs" not in out.obsm
+
+
+def test_normalize_palantir_matrix_still_rejects_an_empty_diffusion_space(
+    minimal_spatial_adata,
+):
+    """An empty multiscale space is unusable, unlike empty branch probabilities."""
+    adata = minimal_spatial_adata.copy()
+    empty = pd.DataFrame(index=adata.obs_names)
+
+    with pytest.raises(DataCompatibilityError, match="contains no components"):
+        traj._normalize_palantir_matrix(
+            empty, adata.obs_names, name="multiscale diffusion space"
+        )
+
+
+@pytest.mark.asyncio
+async def test_analyze_trajectory_reports_palantir_without_terminal_states(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """Missing fate probabilities must be reported, not silently omitted."""
+    adata = minimal_spatial_adata.copy()
+    captured: dict[str, object] = {}
+
+    def _fake_palantir(_adata, **_kwargs):
+        _adata.obs["palantir_pseudotime"] = np.linspace(0, 1, _adata.n_obs)
+        return _adata
+
+    monkeypatch.setattr(traj, "infer_pseudotime_palantir", _fake_palantir)
+    monkeypatch.setattr(
+        "chatspatial.utils.adata_utils.store_analysis_metadata",
+        lambda _adata, **kwargs: captured.update(kwargs),
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.results_export.export_analysis_result",
+        lambda *_a, **_k: [],
+    )
+
+    ctx = _VelCtx(adata)
+    out = await traj.analyze_trajectory(
+        "t_no_fates",
+        ctx,
+        traj.TrajectoryParameters(method="palantir", root_cells=["cell_0"]),
+    )
+
+    assert out.pseudotime_computed is True
+    assert any("no terminal states" in warning for warning in ctx.warnings)
+    # Provenance must not claim a key that was never written.
+    assert captured["results_keys"]["obsm"] == []

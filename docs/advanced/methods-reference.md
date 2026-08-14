@@ -142,6 +142,16 @@ Identify spatially variable genes.
 |-----------|---------|-------------|
 | `method` | `flashs` | `sparkx`, `flashs`, `spatialde` |
 | `n_top_genes` | None | Top genes to return (None = all significant) |
+| `max_genes_tested` | None | Optional runtime cap applied after filters; keeps the highest-expressed genes for testing |
+| `test_only_hvg` | True | Restrict testing to highly variable genes |
+| `filter_mt_genes` | True | Exclude mitochondrial genes before testing |
+| `filter_ribo_genes` | False | Exclude ribosomal genes before testing |
+
+`n_top_genes` limits the ranked result returned to the caller;
+`max_genes_tested` limits the genes supplied to the statistical backend. Use
+the latter to bound SpatialDE runtime without changing the meaning of the
+output limit. FlashS is the default Python-native backend and is part of the
+standard installation; SpatialDE is installed with `chatspatial[spatial-genes]`.
 
 ---
 
@@ -154,6 +164,14 @@ Find tissue domains and spatial niches.
 | `method` | `spagcn` | `spagcn`, `stagate`, `graphst`, `banksy`, `aestetik`, `leiden`, `louvain` |
 | `n_domains` | 7 | Expected number of domains |
 | `resolution` | 0.5 | Clustering resolution |
+
+SpaGCN, STAGATE, and AESTETIK `kmeans`/`bgm` use `n_domains`. BANKSY and the
+Leiden/Louvain paths are resolution-driven; adjust `banksy_cluster_resolution`
+or `resolution` instead of expecting an exact domain count. GraphST may use
+`graphst_n_clusters` when an explicit count is required. GraphST and STAGATE
+publish their reusable embeddings as `X_graphst` and `X_stagate` in
+`adata.obsm`. The legacy Louvain choice is retained for compatibility and falls
+back to Leiden when the obsolete Louvain extension is unavailable.
 
 **AESTETIK** fuses a precomputed expression embedding, a precomputed per-spot morphology embedding, and the spatial neighborhood grid. It reads both representations from `adata.obsm` and does not extract morphology features from tissue images. It also needs discrete lattice coordinates in `adata.obs`, either `x_array`/`y_array` or the Visium `array_row`/`array_col` columns.
 
@@ -266,10 +284,17 @@ Analyze ligand-receptor interactions.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `method` | `fastccc` | `fastccc`, `liana`, `cellphonedb`, `cellchat_r` |
+| `method` | `liana` | `liana`, `fastccc`, `cellphonedb`, `cellchat_r` |
 | `species` | required | `human`, `mouse`, `zebrafish` |
 | `cell_type_key` | required | Cell type column |
 | `liana_resource` | `consensus` | LR database (`mouseconsensus` for mouse) |
+
+LIANA is the portable default and supports human, mouse, and zebrafish.
+FastCCC and CellPhoneDB currently require human data. Install LIANA and
+CellPhoneDB with `chatspatial[cell-communication]`, FastCCC with
+`chatspatial[fastccc]`, or all three through `chatspatial[full]`. The maintained
+FastCCC runtime is composable with `trajectory`; it does not include the unused
+HTML report layer or depend on Jinja2.
 
 ---
 
@@ -286,6 +311,10 @@ Find differentially expressed genes.
 | `group2` | None | Second group |
 | `method` | `wilcoxon` | `wilcoxon`, `t-test`, `t-test_overestim_var`, `logreg`, `pydeseq2` |
 | `n_top_genes` | 50 | Top genes per group |
+
+Results are grouped per comparison rather than flattened across groups. Each
+row reports both groups' mean expression alongside the fold change, so effect
+size can be interpreted in expression context.
 
 ---
 
@@ -341,8 +370,14 @@ Trajectory and pseudotime inference.
 |-----------|---------|-------------|
 | `method` | `cellrank` | `cellrank`, `palantir`, `dpt` |
 | `root_cells` | None | Starting cells |
+| `cellrank_n_states` | 5 | Number of CellRank macrostates |
+| `cellrank_stability_threshold` | 0.96 | Minimum stability for a macrostate to count as terminal |
 
-**Note**: CellRank requires velocity data
+**Note**: CellRank requires velocity data and Python 3.12 or newer. When no
+state reaches `cellrank_stability_threshold`, ChatSpatial falls back to
+macrostate-based pseudotime and returns a warning. Palantir and DPT do not need
+velocity; if `root_cells` is omitted, the automatically selected root and any
+unreachable cells are reported in the tool warnings.
 
 ---
 
@@ -406,7 +441,7 @@ Create all plot types.
 | Type | Subtypes | Use |
 |------|----------|-----|
 | `feature` | — | Gene/metadata on spatial or UMAP |
-| `expression` | `heatmap`, `violin`, `dotplot`, `correlation` | Aggregated expression |
+| `expression` | `heatmap`, `violin`, `dotplot`, `correlation` | Aggregated expression; heatmaps scale per gene by default |
 | `deconvolution` | `spatial_multi`, `pie`, `dominant`, `diversity`, `umap`, `imputation` | Cell proportions |
 | `communication` | `dotplot`, `tileplot`, `circle_plot` | LR interactions |
 | `interaction` | — | Spatial LR pairs |

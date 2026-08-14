@@ -33,8 +33,18 @@ Python 3.11-3.14 is supported, with 3.12 recommended. See [Installation](../inst
 ### Should I use a virtual environment?
 
 Most users can use `uvx`, which creates and caches an isolated environment
-automatically. Create a persistent virtual environment when you need optional
-method families or custom dependency control. See [Installation](../installation.md).
+automatically and accepts optional extras in its `--from` package specification.
+Create a persistent virtual environment when you need direct imports,
+environment inspection, or custom dependency control. See
+[Installation](../installation.md).
+
+### How do I install every Python method family?
+
+Use `uvx --from 'chatspatial[full]' chatspatial server` for an isolated MCP
+runtime, or `uv pip install 'chatspatial[full]'` inside a persistent environment.
+`full` is the union of the 15 portable Python families. R bridges, AESTETIK,
+and rctd-py are intentionally separate because they have system, platform, or
+large-runtime requirements.
 
 ### How do I configure ChatSpatial in my client?
 

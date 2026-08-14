@@ -117,6 +117,50 @@ def export_adata(data_id: str, adata: "AnnData", path: Path | None = None) -> Pa
         raise IOError(f"Failed to export data to {export_path}: {e}") from e
 
 
+def check_reload_identity(
+    current: "AnnData",
+    reloaded: "AnnData",
+    data_id: str,
+    load_path: Path,
+) -> str | None:
+    """Verify a reload target really is the dataset it claims to be.
+
+    The active directory is keyed by ``data_id`` alone, and IDs restart at
+    ``data_1`` in every server process, so a file left behind by an earlier
+    session sits exactly where the current dataset's file belongs. Reload is
+    meant to pick up edits to *this* dataset, and edits keep cell identity, so
+    a file that shares no observation names is a different dataset.
+
+    Returns a warning message when the overlap is partial, or None when the
+    file matches. Raises DataError when nothing matches at all.
+    """
+    from .exceptions import DataError
+
+    current_cells = set(map(str, current.obs_names))
+    reloaded_cells = set(map(str, reloaded.obs_names))
+    if not current_cells or not reloaded_cells:
+        return None
+
+    shared = len(current_cells & reloaded_cells)
+    if shared == 0:
+        raise DataError(
+            f"'{load_path}' holds a different dataset than '{data_id}': none of "
+            f"its {len(reloaded_cells)} cells appear in the {len(current_cells)} "
+            "cells currently loaded. The active directory is keyed by dataset ID "
+            "alone, so this file is most likely left over from an earlier "
+            "session. Export the dataset first, or pass the path of the file you "
+            "actually edited."
+        )
+
+    if shared < len(current_cells):
+        dropped = len(current_cells) - shared
+        return (
+            f"Reloaded '{data_id}' keeps {shared} of {len(current_cells)} cells; "
+            f"{dropped} are absent from '{load_path}'."
+        )
+    return None
+
+
 def load_adata_from_active(data_id: str, path: Path | None = None) -> "AnnData":
     """
     Load AnnData object from active directory or custom path.

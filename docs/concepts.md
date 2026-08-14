@@ -78,6 +78,11 @@ These two concepts are often confused. Here's the difference:
 - Human: `liana_resource="consensus"`
 - Mouse: `liana_resource="mouseconsensus"`
 
+LIANA is the default because it supports human, mouse, and zebrafish. FastCCC
+and CellPhoneDB currently support human inputs in ChatSpatial. The FastCCC and
+trajectory extras can coexist; the maintained FastCCC runtime does not depend
+on the HTML-report/Jinja2 stack.
+
 ---
 
 ### RNA Velocity
@@ -188,7 +193,9 @@ Visium spots contain 1-10 cells. Use deconvolution to estimate proportions, not 
 
 Methods like Cell2location are 10-100x slower without GPU. Either:
 - Set `use_gpu=False` explicitly
-- Use CPU-friendly alternatives (FlashDeconv, RCTD)
+- Use a CPU-friendly alternative such as FlashDeconv
+- Use the R/spacexr RCTD backend when an R environment is already available;
+  the rctd-py backend is primarily intended for CUDA systems
 
 ---
 

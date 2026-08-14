@@ -926,3 +926,70 @@ def test_ensure_counts_layer_raises_when_raw_and_x_both_normalized(
         del adata.layers["counts"]
     with pytest.raises(DataNotFoundError):
         au.ensure_counts_layer(adata)
+
+
+def _hvg_adata(ranking_column: str | None, values: list[float] | None = None):
+    """Genes on a genomic-style axis where axis order != variability order."""
+    adata = ad.AnnData(np.ones((5, 4)))
+    adata.var_names = ["chr1_early", "chr1_next", "chr8_mid", "chr20_late"]
+    adata.var["highly_variable"] = [True, True, True, True]
+    if ranking_column is not None:
+        adata.var[ranking_column] = values
+    return adata
+
+
+class TestHighlyVariableGeneRanking:
+    """`highly_variable` is a flag; the ordering lives in the score column."""
+
+    def test_ranks_by_normalized_dispersion_not_gene_axis_order(self):
+        adata = _hvg_adata("dispersions_norm", [1.0, 0.5, 9.0, 4.0])
+
+        assert au.rank_highly_variable_genes(adata, 2) == ["chr8_mid", "chr20_late"]
+
+    def test_rank_column_counts_up_from_the_most_variable_gene(self):
+        adata = _hvg_adata("highly_variable_rank", [3.0, 2.0, 0.0, 1.0])
+
+        assert au.rank_highly_variable_genes(adata, 2) == ["chr8_mid", "chr20_late"]
+
+    def test_prefers_the_flavor_specific_statistic(self):
+        adata = _hvg_adata("residual_variances", [1.0, 2.0, 3.0, 90.0])
+        # A stale column from an earlier run must not win over the current one.
+        adata.var["dispersions_norm"] = [90.0, 1.0, 1.0, 1.0]
+
+        assert au.rank_highly_variable_genes(adata, 1) == ["chr20_late"]
+
+    def test_skips_a_column_that_holds_no_usable_scores(self):
+        adata = _hvg_adata("residual_variances", [np.nan] * 4)
+        adata.var["dispersions_norm"] = [1.0, 2.0, 3.0, 4.0]
+
+        assert au.rank_highly_variable_genes(adata, 1) == ["chr20_late"]
+
+    def test_falls_back_to_gene_order_when_nothing_was_stored(self):
+        adata = _hvg_adata(None)
+
+        assert au.rank_highly_variable_genes(adata, 2) == ["chr1_early", "chr1_next"]
+
+    def test_ignores_genes_that_were_not_flagged(self):
+        adata = _hvg_adata("dispersions_norm", [1.0, 0.5, 9.0, 4.0])
+        adata.var["highly_variable"] = [True, True, False, True]
+
+        assert au.rank_highly_variable_genes(adata, 3) == [
+            "chr20_late",
+            "chr1_early",
+            "chr1_next",
+        ]
+
+    def test_analysis_gene_selection_uses_the_same_ranking(self):
+        adata = _hvg_adata("dispersions_norm", [1.0, 0.5, 9.0, 4.0])
+
+        assert au.select_genes_for_analysis(adata, n_genes=2) == [
+            "chr8_mid",
+            "chr20_late",
+        ]
+
+    def test_dataset_profile_reports_the_most_variable_genes(self):
+        adata = _hvg_adata("dispersions_norm", [1.0, 0.5, 9.0, 4.0])
+
+        top_hvg, _top_expressed = au.get_gene_profile(adata)
+
+        assert top_hvg[:2] == ["chr8_mid", "chr20_late"]

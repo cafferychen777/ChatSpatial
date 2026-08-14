@@ -8,12 +8,12 @@
     "url": "https://github.com/cafferychen777/ChatSpatial",
     "source": "github"
   },
-  "version": "1.3.8",
+  "version": "1.4.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "chatspatial",
-      "version": "1.3.8",
+      "version": "1.4.0",
       "runtimeHint": "uvx",
       "packageArguments": [
         {

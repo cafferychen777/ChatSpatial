@@ -10,7 +10,7 @@ import anndata as ad
 import pytest
 
 from chatspatial.server import data_manager, export_data, reload_data
-from chatspatial.utils.exceptions import DataNotFoundError
+from chatspatial.utils.exceptions import DataError, DataNotFoundError
 from tests.fixtures.helpers import load_generic_dataset
 
 
@@ -201,7 +201,11 @@ async def test_reload_data_does_not_emit_duplicate_generic_error_status(
     monkeypatch.setitem(
         sys.modules,
         "chatspatial.utils.persistence",
-        SimpleNamespace(load_adata_from_active=fake_load_adata_from_active),
+        SimpleNamespace(
+            load_adata_from_active=fake_load_adata_from_active,
+            check_reload_identity=lambda *_args, **_kwargs: None,
+            get_active_path=lambda data_id: Path(f"/tmp/{data_id}.h5ad"),
+        ),
     )
 
     ctx = DummyContext()
@@ -209,3 +213,28 @@ async def test_reload_data_does_not_emit_duplicate_generic_error_status(
         await reload_data("d_fail", path="/tmp/not_used.h5ad", context=ctx)
 
     assert ctx.progress_updates == [(1.0, None, "Reloading dataset 'd_fail'...")]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_reload_data_refuses_file_holding_a_different_dataset(
+    spatial_dataset_path, tmp_path, reset_data_manager
+):
+    """Dataset IDs restart every session, so the active file may be someone else's.
+
+    Reloading it would silently swap the live dataset for unrelated data.
+    """
+    dataset = await load_generic_dataset(spatial_dataset_path, name="reload_identity")
+
+    target = tmp_path / "exports" / "stale.h5ad"
+    await export_data(dataset.id, path=str(target))
+
+    stale = ad.read_h5ad(target)
+    stale.obs_names = [f"other_{i}" for i in range(stale.n_obs)]
+    stale.write_h5ad(target)
+
+    with pytest.raises(DataError, match="different dataset"):
+        await reload_data(dataset.id, path=str(target))
+
+    stored = await data_manager.get_dataset(dataset.id)
+    assert list(stored["adata"].obs_names)[0] != "other_0"

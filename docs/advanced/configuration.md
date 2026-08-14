@@ -24,6 +24,17 @@ Canonical `uvx` command shape:
 uvx --from chatspatial chatspatial server
 ```
 
+To expose every composable Python method family, put the `full` extra on the
+`--from` package specification:
+
+```text
+uvx --from 'chatspatial[full]' chatspatial server
+```
+
+Use `chatspatial[full]==1.4.0` when the MCP environment must be reproducible.
+R bridges, AESTETIK, and rctd-py are separate extras; see the installation
+guide before adding them.
+
 Canonical persistent-Python command shape:
 
 ```text
@@ -36,7 +47,7 @@ Canonical Docker command shape:
 docker run --rm -i \
   -v /absolute/path/to/your/data:/data:ro \
   -v /absolute/path/to/outputs:/outputs \
-  ghcr.io/cafferychen777/chatspatial:v1.3.8 server --transport stdio
+  ghcr.io/cafferychen777/chatspatial:v1.4.0 server --transport stdio
 ```
 
 Use `--rm -i`, not `-it`, for MCP stdio. If you mount host data to `/data`, prompts must use container paths such as `/data/sample.h5ad`.
@@ -89,7 +100,7 @@ claude mcp add chatspatial-docker docker -- \
   run --rm -i \
   -v /absolute/path/to/your/data:/data:ro \
   -v /absolute/path/to/outputs:/outputs \
-  ghcr.io/cafferychen777/chatspatial:v1.3.8 server --transport stdio
+  ghcr.io/cafferychen777/chatspatial:v1.4.0 server --transport stdio
 ```
 
 Use `/data/...` paths in prompts when using this Docker-backed server.
@@ -216,7 +227,7 @@ Docker-backed example:
         "/absolute/path/to/your/data:/data:ro",
         "-v",
         "/absolute/path/to/outputs:/outputs",
-        "ghcr.io/cafferychen777/chatspatial:v1.3.8",
+        "ghcr.io/cafferychen777/chatspatial:v1.4.0",
         "server",
         "--transport",
         "stdio"

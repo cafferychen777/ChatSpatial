@@ -336,8 +336,15 @@ def _normalize_palantir_matrix(
     obs_names: pd.Index,
     *,
     name: str,
+    allow_empty: bool = False,
 ) -> pd.DataFrame:
-    """Validate and align a Palantir cell-by-feature matrix."""
+    """Validate and align a Palantir cell-by-feature matrix.
+
+    ``allow_empty`` distinguishes a matrix with no columns that is a corrupt
+    result (an empty diffusion space, which nothing downstream can use) from
+    one that is a legitimate finding (no terminal states, which still leaves
+    a usable pseudotime).
+    """
     expected_index = pd.Index(obs_names)
     if not expected_index.is_unique:
         raise DataCompatibilityError(
@@ -369,7 +376,7 @@ def _normalize_palantir_matrix(
             )
         normalized = pd.DataFrame(values, index=expected_index)
 
-    if normalized.shape[1] == 0:
+    if normalized.shape[1] == 0 and not allow_empty:
         raise DataCompatibilityError(f"Palantir {name} contains no components.")
     try:
         values = normalized.to_numpy(dtype=float)
@@ -487,6 +494,7 @@ def infer_pseudotime_palantir(
         pr_res.branch_probs,
         adata.obs_names,
         name="branch probabilities",
+        allow_empty=True,
     )
     branch_values = branch_probs.to_numpy()
     if (branch_values < -1e-10).any() or (branch_values > 1 + 1e-10).any():
@@ -495,7 +503,11 @@ def infer_pseudotime_palantir(
         )
 
     adata.obs["palantir_pseudotime"] = pseudotime
-    adata.obsm["palantir_branch_probs"] = branch_probs.clip(0, 1)
+    # No terminal states is a statement about the data, not a failed run:
+    # pseudotime is the primary output and stays valid without fate
+    # probabilities, so the empty matrix is left unwritten and reported.
+    if branch_probs.shape[1] > 0:
+        adata.obsm["palantir_branch_probs"] = branch_probs.clip(0, 1)
 
     return adata
 
@@ -699,6 +711,14 @@ async def analyze_trajectory(
             "unreachable from the root. They are kept as NaN rather than filled."
         )
 
+    if method_used == "palantir" and "palantir_branch_probs" not in adata.obsm:
+        await ctx.warning(
+            "Palantir identified no terminal states, so pseudotime is reported "
+            "without fate probabilities and fate visualizations are unavailable. "
+            "Tissue without distinct differentiation endpoints gives this result; "
+            "pass root_cells if the automatic root sits mid-trajectory."
+        )
+
     # Store scientific metadata
     from ..utils.adata_utils import store_analysis_metadata
     from ..utils.results_export import export_analysis_result
@@ -720,7 +740,8 @@ async def analyze_trajectory(
         if fate_suffixed in adata.obsm:
             results_keys_dict["obsm"].append(fate_suffixed)
     elif method_used == "palantir":
-        results_keys_dict["obsm"].append("palantir_branch_probs")
+        if "palantir_branch_probs" in adata.obsm:
+            results_keys_dict["obsm"].append("palantir_branch_probs")
     elif method_used == "dpt":
         results_keys_dict["uns"].append("iroot")
 

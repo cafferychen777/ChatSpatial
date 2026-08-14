@@ -5,6 +5,97 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.4.0] - 2026-08-14 - Analysis Correctness and Maintained Runtimes
+
+### Added
+
+- Added nine repository-local analysis skills covering end-to-end spatial
+  workflows, cell composition and interaction, dynamics, spatial patterns,
+  differential and functional analysis, publication figures, and
+  troubleshooting.
+
+### Fixed
+
+- `reload_data` refused nothing: the active directory is keyed by dataset ID
+  alone and IDs restart at `data_1` in every server process, so a file left
+  behind by an earlier session sat exactly where the current dataset's file
+  belongs and silently replaced the live dataset with unrelated data. Reload now
+  verifies that the file shares cells with the dataset it claims to be, errors
+  when it shares none, and reports how many cells an edited export dropped.
+- Deconvolution silently returned all-zero proportions for a scaled reference.
+  A scanpy-tutorial reference keeps z-scored values in `X` and the expression it
+  was scaled from in `.raw`; every backend solves a non-negative mixture, so it
+  produced nothing while the tool reported success. Preparation now detects the
+  negative values it was already computing, recovers expression from `.raw`, and
+  errors with the fix when no usable matrix exists.
+- Deconvolution now warns when spots end up `unassigned`, instead of returning a
+  map in which every spot is blank as though it were a finding.
+- Autocrine loop counts for CellPhoneDB and FastCCC filtered on "interaction
+  strength > 0", which nearly every catalogued pair satisfies, so the reported
+  loop count equalled the size of the whole database (1887 of 1887 pairs on a
+  human lymph node) and the "top" loops were whichever pairs sorted first
+  alphabetically. Loops are now the significant self-signaling pairs the backend
+  itself called, ranked by autocrine strength. LIANA autocrine loops are
+  filtered by its significance threshold for the same reason.
+- `plot_top_pairs` returned fewer pairs than requested for LIANA. Each
+  ligand-receptor pair is scored once per cell-type pair, and truncating before
+  deduplicating collapsed a requested six pairs down to two. Ranking now happens
+  before deduplication.
+- CellPhoneDB reported its first significant interactions in database order as
+  the "top" pairs. They are now ranked by interaction strength, matching FastCCC.
+- `integrate_samples` reported only the new dataset ID, the sample count, and the
+  method, leaving callers to guess which representation to use downstream. It
+  now reports the embedding key it wrote, the batch key, and the cell count.
+- "The top N highly variable genes" returned whichever flagged genes sat
+  earliest on the gene axis, because `highly_variable` is a flag and slicing it
+  keeps file order. On a genomically ordered dataset that turned "the 20 most
+  variable genes" into "20 genes from the start of chromosome 1" (normalized
+  dispersions 1.1-11.9 instead of 11.8-15.9), silently choosing the input of
+  every gene-based spatial statistic and the gene profile shown at load time.
+  Genes are now ordered by the variability statistic scanpy stored.
+- GSEA reported the *weakest* depletions as the top depleted pathways: enriched
+  and depleted sets were both taken from the head of one NES-descending sort,
+  which puts the strongest depletions last.
+- Neighborhood enrichment and co-occurrence each summarized a symmetric
+  cluster-by-cluster matrix in a different half-correct way -- one kept mirror
+  pairs, the other kept the diagonal. Both now rank distinct cluster pairs
+  through one helper, and neighborhood enrichment reports self-enrichment as
+  its own metric instead of letting it fill every ranked slot.
+- Palantir discarded a completed analysis when it found no terminal states: the
+  empty branch-probability matrix failed a validity check shared with the
+  diffusion space, taking the pseudotime with it. Pseudotime is now kept and the
+  absent fate probabilities are reported.
+- `spatial_enrichmap` returned no key for the 50 obs columns it wrote, and
+  ranked signatures by their single most extreme spot. EnrichMap z-scores every
+  signature before smoothing, so what separates them is the variance that
+  survives smoothing, which is now measured over every spot.
+- `clustering_method="louvain"` failed with a bare `No module named 'louvain'`;
+  the package is now declared so the failure carries an install command and
+  names Leiden as the alternative that needs no extra package.
+- Spatial domain identification fell back from louvain to leiden but still
+  labelled the domains and the recorded method "louvain", leaving nothing
+  downstream able to tell which algorithm produced them.
+- RNA velocity's default `scvelo_mode="stochastic"` failed on NumPy 2 because
+  scVelo 0.3.4 assigned a one-element array to a scalar slot. The `velocity` and
+  `full` extras now install `scvelo-modern`, a minimal compatibility distribution
+  that preserves the requested stochastic model instead of substituting the
+  scientifically different deterministic estimator. Velocity graph construction
+  also disables notebook-only progress infrastructure in MCP execution, avoiding
+  unnecessary process spawning from stdin and other interactive entry points.
+- `network_properties` reported `is_connected` inside a numeric-only metric
+  dict, where the boolean surfaced as a bare 0.
+- Expression-based STalign registration refused to run on variance-stabilized
+  data -- the default after `preprocess_data` -- because summed Pearson
+  residuals are negative. It now recovers expression from `adata.raw` through
+  the same rule spatial domain identification already applied, which is now one
+  shared utility instead of a per-module convention.
+
+### Removed
+
+- Dropped the duplicate `_top_n_desc_indices` wrappers in the cell communication
+  and enrichment modules; `chatspatial.utils.compute.top_n_desc_indices` is the
+  single implementation.
+
 ## [v1.3.8] - 2026-08-14 - Optional Dependency Architecture
 
 ### Changed

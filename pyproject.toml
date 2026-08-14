@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chatspatial"
-version = "1.3.8"
+version = "1.4.0"
 description = "ChatSpatial: Natural language-driven spatial transcriptomics analysis via Model Context Protocol (MCP) integration"
 readme = "README.md"
 license = "MIT"
@@ -79,7 +79,7 @@ deep-learning = [
 
 # RNA velocity methods
 velocity = [
-    "scvelo>=0.2.5,<0.4",
+    "scvelo-modern>=0.3.4.post2,<0.4",
 ]
 
 # Trajectory methods. CellRank is available on Python 3.12 and newer.
@@ -180,7 +180,7 @@ full = [
     # Deep learning and dynamics
     "torch>=2.0.0,<3.0",
     "scvi-tools>=1.0.0,<2.0",
-    "scvelo>=0.2.5,<0.4",
+    "scvelo-modern>=0.3.4.post2,<0.4",
     "cellrank>=2.3.2,<3.0; python_version >= '3.12'",
     "palantir>=1.0.0",
 

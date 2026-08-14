@@ -71,7 +71,7 @@ Install Docker Desktop or Docker Engine, confirm `docker --version` works, then 
 Check the image name and network access:
 
 ```bash
-docker pull ghcr.io/cafferychen777/chatspatial:v1.3.8
+docker pull ghcr.io/cafferychen777/chatspatial:v1.4.0
 ```
 
 ### MCP tools do not appear when using Docker
@@ -145,6 +145,42 @@ For mouse: species="mouse", liana_resource="mouseconsensus"
 For human: species="human", liana_resource="consensus"
 ```
 
+LIANA is the default. FastCCC and CellPhoneDB currently accept human data only.
+If FastCCC is missing, install `chatspatial[fastccc]`; do not install the old
+upstream `fastccc` distribution beside it.
+
+### FastCCC and CellRank appear to conflict
+
+Use ChatSpatial 1.3.8 or newer and resolve both from ChatSpatial's extras in a
+fresh environment:
+
+```bash
+python3.12 -m venv chatspatial-clean
+source chatspatial-clean/bin/activate
+uv pip install 'chatspatial[fastccc,trajectory]'
+uv pip check
+```
+
+The maintained FastCCC distribution has no Jinja2 dependency. pyGPCCA may
+still select Jinja2 3.0.3 because of historical package metadata, but it does
+not use Jinja2 at runtime, so no manual override is needed. If `pip check`
+mentions the distribution named `fastccc` rather than `fastccc-modern`, the old
+package is a residue from a previous environment; reproduce the installation
+in a clean side-by-side environment instead of deleting packages from the old
+one.
+
+### An optional method is not installed
+
+Install the method family named in the error, or use `full` for every composable
+Python family:
+
+```bash
+uv pip install 'chatspatial[full]'
+```
+
+`full` intentionally excludes R bridges, AESTETIK, and rctd-py. See
+[Installation](../installation.md) before adding those isolated extras.
+
 ---
 
 ## Resource Problems
@@ -168,10 +204,10 @@ For human: species="human", liana_resource="consensus"
 
 | Problem | First fix |
 |---------|-----------|
-| Import errors | Reinstall with `uv pip install chatspatial[full]` |
+| Import errors | Reproduce in a fresh environment with `uv pip install 'chatspatial[full]'`, then run `uv pip check` |
 | `resolution-too-deep` | Use `uv` instead of `pip` |
 | Client not connecting | Run the configured `uvx` command in a terminal, then restart the client |
-| Docker pull fails | Run `docker pull ghcr.io/cafferychen777/chatspatial:v1.3.8` and check network access |
+| Docker pull fails | Run `docker pull ghcr.io/cafferychen777/chatspatial:v1.4.0` and check network access |
 | Docker dataset not found | Mount the host data directory and prompt with `/data/...` |
 | Path errors | Use absolute paths |
 | Analysis fails immediately | Run preprocessing first |

@@ -817,17 +817,30 @@ async def reload_data(
     """
     from pathlib import Path as PathLib
 
-    from .utils.persistence import load_adata_from_active
+    from .utils.persistence import (
+        check_reload_identity,
+        get_active_path,
+        load_adata_from_active,
+    )
 
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
     await ctx.info(f"Reloading dataset '{data_id}'...")
 
-    adata = load_adata_from_active(data_id, PathLib(path) if path else None)
+    load_path = PathLib(path).expanduser() if path else get_active_path(data_id)
+    adata = load_adata_from_active(data_id, load_path)
+    dataset_info = await data_manager.get_dataset(data_id)
+
+    identity_warning = check_reload_identity(
+        dataset_info["adata"], adata, data_id, load_path
+    )
+    if identity_warning:
+        await ctx.warning(identity_warning)
+
     await data_manager.update_adata(data_id, adata)
     await ctx.info(f"Dataset '{data_id}' reloaded successfully")
 
     return ctx.finalize(
-        f"Dataset '{data_id}' reloaded: " f"{adata.n_obs} cells × {adata.n_vars} genes"
+        f"Dataset '{data_id}' reloaded: {adata.n_obs} cells × {adata.n_vars} genes"
     )
 
 

@@ -1,9 +1,11 @@
 # Installation
 
 Use `uvx` for the shortest setup: it runs ChatSpatial in an isolated,
-automatically managed environment. Use a persistent environment when you need
-optional method families or tighter dependency control. If you want a
-containerized runtime, use the [Docker / GHCR](docker.md) guide instead.
+automatically managed environment and can install optional method families
+through extras. Use a persistent environment when you need to import the
+libraries directly, inspect the environment, or customize dependency versions.
+If you want a containerized runtime, use the [Docker / GHCR](docker.md) guide
+instead.
 
 - For exact MCP client syntax, see [Configuration Guide](advanced/configuration.md).
 - For your first workflow after setup, see [Quick Start](quickstart.md).
@@ -27,7 +29,7 @@ containerized runtime, use the [Docker / GHCR](docker.md) guide instead.
 | Runtime | Use when | Guide |
 |---------|----------|-------|
 | **uvx (recommended)** | You want the shortest setup with an isolated, cached environment | Continue below |
-| **Persistent Python environment** | You need optional methods or direct control of packages | [Persistent installation](#persistent-python-installation) |
+| **Persistent Python environment** | You need direct imports, environment inspection, or custom package control | [Persistent installation](#persistent-python-installation) |
 | **Docker / GHCR** | You want the most reproducible runtime or local dependency resolution fails | [Docker / GHCR](docker.md) |
 
 ---
@@ -83,7 +85,7 @@ Codex, use `/mcp`; in Claude Code, run `claude mcp list`.
 Use an exact version when a reproducible runtime matters:
 
 ```bash
-uvx --from 'chatspatial==1.3.8' chatspatial server
+uvx --from 'chatspatial==1.4.0' chatspatial server
 ```
 
 Without a pin, `uvx` resolves the current PyPI release and reuses its cached
@@ -95,6 +97,19 @@ Extras can be selected in the `--from` package specification:
 
 ```bash
 uvx --from 'chatspatial[cell-communication,velocity]' chatspatial server
+```
+
+For the broadest portable Python installation:
+
+```bash
+uvx --from 'chatspatial[full]' chatspatial server
+```
+
+For a reproducible full MCP runtime, pin the version on the package that owns
+the extras:
+
+```bash
+uvx --from 'chatspatial[full]==1.4.0' chatspatial server
 ```
 
 Because MCP clients store a single command, update that command when you change
@@ -180,6 +195,36 @@ the maintained `spagcn-modern` distribution. GraphST, STAGATE, SpatialDE,
 PASTE, STalign, and FastCCC are installed from focused maintained PyPI
 distributions; no Git URL, local wheel, or source build command is required.
 
+`full` is the exact union of the 15 composable Python method families listed
+above: deep learning, velocity, trajectory, cell communication, FastCCC,
+integration, spatial statistics, deconvolution, annotation, enrichment, CNV,
+differential expression, registration, spatial genes, and spatial domains. It
+deliberately excludes `r-backends`, `rctd-python`, and `aestetik`; add one of
+those extras only after reviewing its platform and runtime requirements.
+
+### Maintained backend distributions
+
+Several research packages stopped publishing compatible wheels or bundled
+large examples, generated data, and unused application layers into their
+runtime package. ChatSpatial's extras now resolve focused maintained
+distributions from public PyPI while preserving the import names used by the
+analysis code:
+
+| Method | Installed distribution | Python import | Extra |
+|--------|------------------------|---------------|-------|
+| SpaGCN | `spagcn-modern` | `SpaGCN` | `spatial-domains` |
+| GraphST | `graphst-modern` | `GraphST` | `spatial-domains` |
+| STAGATE | `stagate-modern` | `STAGATE_pyG` | `spatial-domains` |
+| PASTE | `paste-modern` | `paste` | `registration` |
+| STalign | `stalign-modern` | `STalign` | `registration` |
+| SpatialDE | `spatialde-modern` | `SpatialDE` | `spatial-genes` |
+| FastCCC | `fastccc-modern` | `fastccc` | `fastccc` |
+
+These are ordinary PyPI dependencies: users do not need Git URLs, local wheels,
+or package-level monkeypatches. Avoid installing the obsolete upstream
+distribution beside its maintained replacement because both provide the same
+Python import package.
+
 ChatSpatial tools fail with targeted installation guidance if you call a method
 whose optional dependency is not installed.
 
@@ -195,7 +240,10 @@ The maintained FastCCC distribution contains the statistical runtime used by
 ChatSpatial and omits FastCCC's optional HTML report layer. It therefore has no
 Jinja2 dependency and can be installed together with CellRank and pyGPCCA.
 `fastccc`, `trajectory`, `cell-communication`, and `full` can be combined in
-one environment.
+one environment. The current PyPI release of pyGPCCA may still select
+Jinja2 3.0.3 because of historical development metadata, but pyGPCCA does not
+import Jinja2 at runtime. That old pin is harmless once FastCCC no longer adds
+the opposing HTML-report requirement; do not override it manually.
 
 ### Shared repository environment
 
@@ -270,12 +318,19 @@ do not require these steps.
 
 ### If Python or MCP dependencies fail to resolve
 
+Create a fresh environment beside the old one so the test is not affected by
+packages left over from previous experiments:
+
 ```bash
-rm -rf venv
-python3.12 -m venv venv
-source venv/bin/activate
+python3.12 -m venv chatspatial-clean
+source chatspatial-clean/bin/activate
 uv pip install 'chatspatial[full]'
+uv pip check
 ```
+
+Do not diagnose the published dependency graph by deleting packages one by one
+from a long-lived research environment. A clean side-by-side environment makes
+the result reproducible and preserves the old workspace for comparison.
 
 ---
 

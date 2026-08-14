@@ -247,7 +247,7 @@ async def deconvolve_spatial_data(
     method = params.method
     if method not in METHOD_REGISTRY:
         raise ParameterError(
-            f"Unsupported method: {method}. " f"Supported: {', '.join(METHOD_REGISTRY)}"
+            f"Unsupported method: {method}. Supported: {', '.join(METHOD_REGISTRY)}"
         )
 
     config = _resolve_runtime_config(params, METHOD_REGISTRY[method])
@@ -613,7 +613,24 @@ async def _store_results(
     # NOT a column in the proportions matrix.  Metadata cell_types must
     # match the proportions matrix columns exactly to avoid downstream
     # DataFrame construction errors.
-    has_unassigned = bool(zero_mask.any())
+    n_unassigned = int(zero_mask.sum())
+    has_unassigned = n_unassigned > 0
+    if has_unassigned:
+        # A spot with no proportions carries no result. Reporting the run as a
+        # success without saying so leaves an empty map looking like a finding.
+        fraction = n_unassigned / len(full_proportions)
+        await ctx.warning(
+            f"{method} assigned no cell type to {n_unassigned} of "
+            f"{len(full_proportions)} spots ({fraction:.1%}): their proportions "
+            "are all zero and they are labelled 'unassigned' in "
+            f"obs['{dominant_key}']."
+            + (
+                " No spot received any signal, so the reference and the spatial "
+                "data likely share too few informative genes."
+                if n_unassigned == len(full_proportions)
+                else ""
+            )
+        )
 
     if method == "rctd":
         auxiliary_keys = _store_rctd_backend_outputs(

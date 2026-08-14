@@ -22,12 +22,16 @@ class DummyCtx:
     def __init__(self, datasets: dict[str, object]):
         self.datasets = datasets
         self.updated: dict[str, object] = {}
+        self.warnings: list[str] = []
 
     async def get_adata(self, data_id: str):
         return self.datasets[data_id]
 
     async def set_adata(self, data_id: str, adata):
         self.updated[data_id] = adata
+
+    async def warning(self, message: str):
+        self.warnings.append(message)
 
 
 @pytest.mark.integration
@@ -331,6 +335,46 @@ async def test_store_results_handles_zero_sum_rows(
     # But obs[dominant_key] labels zero-sum rows as "unassigned"
     dominant = adata.obs["dominant_celltype_flashdeconv"]
     assert "unassigned" in dominant.values
+
+    # A spot without proportions carries no result, so the caller has to hear
+    # about it instead of reading an empty map as a finding.
+    assert any("unassigned" in warning for warning in ctx.warnings)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_store_results_warns_loudly_when_every_spot_is_unassigned(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """An all-zero proportion matrix means the backend produced nothing."""
+    adata = minimal_spatial_adata.copy()
+    ctx = DummyCtx({"d1": adata})
+
+    monkeypatch.setattr(
+        deconv_module, "store_analysis_metadata", lambda _adata, **kwargs: None
+    )
+    monkeypatch.setattr(deconv_module, "export_analysis_result", lambda *a, **k: None)
+
+    proportions = pd.DataFrame(
+        {
+            "T": np.zeros(adata.n_obs),
+            "B": np.zeros(adata.n_obs),
+        },
+        index=adata.obs_names,
+    )
+
+    await _store_results(
+        spatial_adata=adata,
+        proportions=proportions,
+        stats={"n_spots": adata.n_obs, "genes_used": adata.n_vars},
+        method="flashdeconv",
+        data_id="d1",
+        ctx=ctx,
+    )
+
+    assert len(ctx.warnings) == 1
+    assert "100.0%" in ctx.warnings[0]
+    assert "No spot received any signal" in ctx.warnings[0]
 
 
 @pytest.mark.integration

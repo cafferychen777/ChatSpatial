@@ -27,7 +27,7 @@ parameters.
 
       <div style="margin: 2rem 0; padding: 1.5rem; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-radius: 12px; border-left: 4px solid #1565C0;">
         <p style="margin: 0; font-size: 1.1rem; color: #1e293b;">
-          通过 <strong>20 个 MCP 工具</strong> 调度 15 类分析的 65 种方法。
+          通过 <strong>20 个 MCP 工具</strong> 调度 15 类分析的 66 种方法。
           支持 10x Visium、Xenium、Slide-seq、MERFISH 等。
         </p>
       </div>

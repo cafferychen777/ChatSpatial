@@ -104,11 +104,6 @@ FASTCCC_REQUIRED_TABLES = (
 _CELLPHONEDB_DOWNLOAD_LOCK = threading.Lock()
 
 
-def _top_n_desc_indices(values: np.ndarray, n_top: int) -> np.ndarray:
-    """Backward-compatible wrapper with non-finite sanitization."""
-    return top_n_desc_indices(values, n_top, sanitize_nonfinite=True)
-
-
 @dataclass
 class CCCAutocrine:
     """Autocrine loop detection results."""
@@ -251,6 +246,54 @@ def _unique_standardized_lr_pairs(pairs: Iterable[str]) -> list[str]:
         seen.add(standardized_pair)
         unique_pairs.append(standardized_pair)
     return unique_pairs
+
+
+def _top_unique_lr_pairs(ranked_pairs: Iterable[str], n_top: int) -> list[str]:
+    """Take the best ``n_top`` distinct pairs from a ranked sequence.
+
+    The same ligand-receptor pair is scored once per cell-type pair, so taking
+    the first ``n_top`` rows and deduplicating afterwards returns fewer pairs
+    than asked for. Deduplicating first keeps the requested count while
+    preserving the caller's ranking.
+    """
+    return _unique_standardized_lr_pairs(ranked_pairs)[:n_top]
+
+
+def _cell_pair_columns(df: Optional[pd.DataFrame], *, self_only: bool = False) -> list:
+    """Numeric ``"sender|receiver"`` columns of a matrix-format result table.
+
+    CellPhoneDB and FastCCC return one column per cell-type pair alongside
+    string metadata columns; ``self_only`` narrows the selection to the
+    autocrine (sender == receiver) columns.
+    """
+    if df is None or not hasattr(df, "columns"):
+        return []
+    numeric_columns = set(df.select_dtypes(include=[np.number]).columns)
+    selected = []
+    for column in df.columns:
+        if column not in numeric_columns or "|" not in str(column):
+            continue
+        sender, _, receiver = str(column).partition("|")
+        if self_only and sender != receiver:
+            continue
+        selected.append(column)
+    return selected
+
+
+def _lr_pair_labels(df: pd.DataFrame) -> pd.Series:
+    """Ligand-receptor labels of a matrix-format result table."""
+    if "interacting_pair" in df.columns:
+        return df["interacting_pair"]
+    return pd.Series(df.index, index=df.index)
+
+
+def _rank_matrix_rows_by_strength(df: pd.DataFrame, columns: list) -> pd.DataFrame:
+    """Order rows by mean interaction strength over ``columns`` (strongest first)."""
+    if not columns:
+        return df
+    mean_strength = np.nanmean(df[columns].to_numpy(dtype=float), axis=1)
+    order = top_n_desc_indices(mean_strength, len(df), sanitize_nonfinite=True)
+    return df.iloc[order]
 
 
 def _build_fastccc_lri_pair_map(database_dir: str) -> dict[str, str]:
@@ -519,8 +562,10 @@ async def _run_ccc_analysis(
 def _integrate_autocrine_detection(storage: CCCStorage, n_top: int) -> None:
     """Extract autocrine loops and integrate into CCCStorage.
 
-    Autocrine signaling: source == target cell type.
-    This is integrated directly into the storage structure.
+    Autocrine signaling: source == target cell type. Only pairs the backend
+    itself called significant are counted, so ``n_loops`` stays comparable with
+    ``n_significant`` instead of degenerating into "every pair the database
+    contains"; loops are ranked by interaction strength.
     """
     if storage.analysis_type == "spatial":
         # Spatial analysis doesn't have cell type pairs
@@ -535,12 +580,15 @@ def _integrate_autocrine_detection(storage: CCCStorage, n_top: int) -> None:
     if storage.method == "liana" and "source" in results.columns:
         # LIANA cluster: direct source == target filter
         autocrine_df = results[results["source"] == results["target"]].copy()
+        if "magnitude_rank" in autocrine_df.columns:
+            alpha = storage.statistics.get("significance_threshold")
+            if alpha is not None:
+                autocrine_df = autocrine_df[autocrine_df["magnitude_rank"] <= alpha]
+            autocrine_df = autocrine_df.sort_values("magnitude_rank")
         if len(autocrine_df) > 0:
             autocrine_df["lr_pair"] = (
                 autocrine_df["ligand_complex"] + "^" + autocrine_df["receptor_complex"]
             )
-            if "magnitude_rank" in autocrine_df.columns:
-                autocrine_df = autocrine_df.sort_values("magnitude_rank")
             unique_pairs = _unique_standardized_lr_pairs(autocrine_df["lr_pair"])
             storage.autocrine = CCCAutocrine(
                 n_loops=len(unique_pairs),
@@ -550,30 +598,39 @@ def _integrate_autocrine_detection(storage: CCCStorage, n_top: int) -> None:
 
     elif storage.method in ("cellphonedb", "fastccc"):
         # Matrix format: columns are "celltype1|celltype2"
-        autocrine_cols = [
-            col
-            for col in results.columns
-            if "|" in str(col) and str(col).split("|")[0] == str(col).split("|")[1]
-        ]
+        autocrine_cols = _cell_pair_columns(results, self_only=True)
         if autocrine_cols:
-            # Filter rows with any autocrine interaction
-            numeric_cols = (
-                results[autocrine_cols].select_dtypes(include=[np.number]).columns
-            )
-            if len(numeric_cols) > 0:
-                mask = (results[numeric_cols] > 0).any(axis=1)
-                autocrine_df = results[mask].copy()
-                if len(autocrine_df) > 0:
-                    if "interacting_pair" in autocrine_df.columns:
-                        lr_pairs = autocrine_df["interacting_pair"]
-                    else:
-                        lr_pairs = autocrine_df.index
-                    unique_pairs = _unique_standardized_lr_pairs(lr_pairs)
-                    storage.autocrine = CCCAutocrine(
-                        n_loops=len(unique_pairs),
-                        top_pairs=unique_pairs[:n_top],
-                        results=autocrine_df,
-                    )
+            # Strength is non-zero for nearly every catalogued pair, so
+            # significance -- not "strength > 0" -- decides what is a loop.
+            pvalues = storage.pvalues
+            pvalue_cols = _cell_pair_columns(pvalues, self_only=True)
+            if pvalues is not None and pvalue_cols and len(pvalues) == len(results):
+                threshold = float(storage.statistics.get("pvalue_threshold", 0.05))
+                significant = (pvalues[pvalue_cols] <= threshold).any(axis=1)
+                mask = significant.to_numpy(dtype=bool)
+            else:
+                mask = (results[autocrine_cols] > 0).any(axis=1).to_numpy(dtype=bool)
+            # A loop is a significant pair that signals within one cell type,
+            # so it also has to clear the backend's own multiple-testing call.
+            # Deciding it here instead would duplicate that correction.
+            called_significant = storage.method_data.get("significant_lr_mask")
+            if called_significant is not None and len(called_significant) == len(
+                results
+            ):
+                mask &= np.asarray(called_significant, dtype=bool)
+            autocrine_df = results.loc[mask].copy()
+            if len(autocrine_df) > 0:
+                autocrine_df = _rank_matrix_rows_by_strength(
+                    autocrine_df, autocrine_cols
+                )
+                unique_pairs = _unique_standardized_lr_pairs(
+                    _lr_pair_labels(autocrine_df)
+                )
+                storage.autocrine = CCCAutocrine(
+                    n_loops=len(unique_pairs),
+                    top_pairs=unique_pairs[:n_top],
+                    results=autocrine_df,
+                )
 
     elif storage.method == "cellchat_r" and "prob_matrix" in storage.method_data:
         # CellChat: extract diagonal from 3D probability matrix
@@ -720,11 +777,16 @@ def _run_liana_cluster_analysis(
             f"{row['ligand_complex']}^{row['receptor_complex']}"
             for _, row in liana_res.iterrows()
         ]
-        # Top pairs by magnitude rank
-        top_df = liana_res.nsmallest(params.plot_top_pairs, "magnitude_rank")
-        top_lr_pairs = _unique_standardized_lr_pairs(
-            f"{row['ligand_complex']}^{row['receptor_complex']}"
-            for _, row in top_df.iterrows()
+        # Top pairs by magnitude rank. The same pair is scored once per
+        # cell-type pair, so rank everything and then keep the best distinct
+        # pairs -- truncating first would return fewer pairs than requested.
+        ranked = liana_res.sort_values("magnitude_rank")
+        top_lr_pairs = _top_unique_lr_pairs(
+            (
+                f"{row['ligand_complex']}^{row['receptor_complex']}"
+                for _, row in ranked.iterrows()
+            ),
+            params.plot_top_pairs,
         )
 
     # Build unified storage structure
@@ -1307,17 +1369,17 @@ async def _analyze_communication_cellphonedb(
                 f"No significant interactions found at p < {threshold}. Consider adjusting threshold or using method='liana'."
             )
 
-        # Get top LR pairs
-        # CellPhoneDB returns interactions in 'interacting_pair' column
-        top_lr_pairs = []
-        if (
-            significant_means is not None
-            and hasattr(significant_means, "head")
-            and hasattr(significant_means, "columns")
-            and "interacting_pair" in significant_means.columns
-        ):
-            top_pairs_df = significant_means.head(params.plot_top_pairs)
-            top_lr_pairs = top_pairs_df["interacting_pair"].tolist()
+        # Get top LR pairs, strongest first. CellPhoneDB returns interactions
+        # in database order, so ranking by interaction strength is what makes
+        # "top" mean anything.
+        top_lr_pairs: list[str] = []
+        if significant_means is not None and hasattr(significant_means, "columns"):
+            ranked_means = _rank_matrix_rows_by_strength(
+                significant_means, _cell_pair_columns(significant_means)
+            )
+            top_lr_pairs = _top_unique_lr_pairs(
+                _lr_pair_labels(ranked_means), params.plot_top_pairs
+            )
 
         end_time = time.time()
         analysis_time = end_time - start_time
@@ -1346,8 +1408,7 @@ async def _analyze_communication_cellphonedb(
         elif means is not None:
             all_lr_pairs = [standardize_lr_pair(str(p)) for p in means.index.tolist()]
 
-        # Standardize top LR pairs
-        top_lr_standardized = [standardize_lr_pair(p) for p in top_lr_pairs]
+        top_lr_standardized = top_lr_pairs
 
         statistics = {
             "iterations": params.cellphonedb_iterations,
@@ -1381,6 +1442,9 @@ async def _analyze_communication_cellphonedb(
                 "deconvoluted": deconvoluted,  # CellPhoneDB deconvoluted results
                 "significant_means": significant_means,  # Filtered significant means
                 "min_pvals_corrected": min_pvals_corrected,  # Corrected p-values
+                # Row-aligned with `results`; lets autocrine detection reuse the
+                # correction applied here instead of re-deriving it.
+                "significant_lr_mask": np.asarray(mask, dtype=bool),
             },
         )
 
@@ -2099,6 +2163,7 @@ async def _analyze_communication_fastccc(
 
         # Count significant pairs (with multiple-testing correction)
         threshold = params.fastccc_pvalue_threshold
+        significant_lr_mask = np.zeros(n_lr_pairs, dtype=bool)
         if pvalues is not None and hasattr(pvalues, "values"):
             # Get minimum p-value across cell type pair columns only.
             # Filter by "|" separator to exclude any numeric metadata columns.
@@ -2125,7 +2190,8 @@ async def _analyze_communication_fastccc(
                         ctx=ctx,
                         feature="FastCCC interaction p-value correction",
                     )
-                    n_significant_pairs = int(reject.sum())
+                    significant_lr_mask = np.asarray(reject, dtype=bool)
+                    n_significant_pairs = int(significant_lr_mask.sum())
                 else:
                     n_significant_pairs = 0
         else:
@@ -2133,37 +2199,19 @@ async def _analyze_communication_fastccc(
 
         # Get all LR pairs and top LR pairs based on interaction strength
         all_lr_pairs = []
-        top_lr_pairs_raw = []
+        top_lr_standardized: list[str] = []
         if interactions_strength is not None and hasattr(
             interactions_strength, "index"
         ):
             all_lr_pairs = [str(p) for p in interactions_strength.index]
 
             # Sort by mean interaction strength across cell type pair columns
-            if hasattr(interactions_strength, "select_dtypes"):
-                str_ct_cols = [
-                    c
-                    for c in interactions_strength.select_dtypes(
-                        include=[np.number]
-                    ).columns
-                    if "|" in str(c)
-                ]
-                if not str_ct_cols:
-                    # No cell-pair columns found; skip ranking
-                    str_ct_cols = []
-                strength_array = (
-                    interactions_strength[str_ct_cols].values
-                    if str_ct_cols
-                    else np.empty((len(interactions_strength), 0))
-                )
-                mean_strength = np.nanmean(strength_array, axis=1)
-                top_indices = top_n_desc_indices(
-                    mean_strength, params.plot_top_pairs, sanitize_nonfinite=True
-                )
-                top_lr_pairs_raw = [interactions_strength.index[i] for i in top_indices]
-
-        # Standardize top LR pairs
-        top_lr_standardized = [str(p) for p in top_lr_pairs_raw]
+            ranked_strength = _rank_matrix_rows_by_strength(
+                interactions_strength, _cell_pair_columns(interactions_strength)
+            )
+            top_lr_standardized = _top_unique_lr_pairs(
+                _lr_pair_labels(ranked_strength), params.plot_top_pairs
+            )
 
         end_time = time.time()
         analysis_time = end_time - start_time
@@ -2194,6 +2242,9 @@ async def _analyze_communication_fastccc(
             },
             method_data={
                 "percentages": percentages,  # Expression percentages per cell type
+                # Row-aligned with `results`; lets autocrine detection reuse the
+                # correction applied here instead of re-deriving it.
+                "significant_lr_mask": significant_lr_mask,
             },
         )
 

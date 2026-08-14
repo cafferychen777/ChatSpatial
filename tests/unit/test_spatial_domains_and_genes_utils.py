@@ -11,6 +11,7 @@ from chatspatial.tools import spatial_domains as sd
 from chatspatial.tools import spatial_genes as sg
 from chatspatial.tools.spatial_domains import _refine_spatial_domains
 from chatspatial.tools.spatial_genes import _calculate_sparse_gene_stats
+from chatspatial.utils import adata_utils as au
 from chatspatial.utils.exceptions import (
     DataError,
     DataNotFoundError,
@@ -430,9 +431,11 @@ async def test_identify_domains_clustering_louvain_falls_back_to_leiden(
 
     assert len(labels) == adata.n_obs
     assert emb_key == "X_pca"
-    assert stats["method"] == "louvain"
+    # Leiden ran, so the result says leiden: labelling another algorithm's
+    # output "louvain" would leave nothing downstream able to tell them apart.
+    assert stats["method"] == "leiden"
     assert any("deprecated" in w.lower() for w in ctx.warnings)
-    assert any("using leiden clustering instead" in w.lower() for w in ctx.warnings)
+    assert any("used leiden clustering instead" in w.lower() for w in ctx.warnings)
 
 
 @pytest.mark.asyncio
@@ -2270,9 +2273,7 @@ async def test_expression_source_warning_names_the_running_method():
     adata = _adata_with_values([[-2.0, 1.0], [0.5, 3.0]], with_raw=True)
     ctx = _WarnCtx()
 
-    use_raw = await sd._resolve_expression_source(
-        adata, SpatialDomainParameters(method="leiden"), ctx
-    )
+    use_raw = await au.resolve_expression_source(adata, ctx, feature="leiden")
 
     assert use_raw is True
     assert len(ctx.warnings) == 1
@@ -2288,9 +2289,7 @@ async def test_expression_source_reports_when_no_raw_is_available():
     adata = _adata_with_values([[-2.0, 1.0], [0.5, 3.0]], with_raw=False)
     ctx = _WarnCtx()
 
-    use_raw = await sd._resolve_expression_source(
-        adata, SpatialDomainParameters(method="stagate"), ctx
-    )
+    use_raw = await au.resolve_expression_source(adata, ctx, feature="stagate")
 
     assert use_raw is False
     assert "no adata.raw" in ctx.warnings[0]
@@ -2302,9 +2301,7 @@ async def test_expression_source_flags_unnormalized_counts():
     adata = _adata_with_values([[0.0, 5000.0], [1.0, 200.0]], with_raw=False)
     ctx = _WarnCtx()
 
-    use_raw = await sd._resolve_expression_source(
-        adata, SpatialDomainParameters(method="graphst"), ctx
-    )
+    use_raw = await au.resolve_expression_source(adata, ctx, feature="graphst")
 
     assert use_raw is False
     assert "unnormalized counts" in ctx.warnings[0]
@@ -2316,12 +2313,7 @@ async def test_expression_source_stays_silent_on_normalized_data():
     adata = _adata_with_values([[0.0, 2.5], [1.0, 3.0]], with_raw=True)
     ctx = _WarnCtx()
 
-    assert (
-        await sd._resolve_expression_source(
-            adata, SpatialDomainParameters(method="leiden"), ctx
-        )
-        is False
-    )
+    assert await au.resolve_expression_source(adata, ctx, feature="leiden") is False
     assert ctx.warnings == []
 
 

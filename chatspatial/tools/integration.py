@@ -986,10 +986,18 @@ async def integrate_samples(
             "spatial_alignment",
         )
 
+    # The embedding key is what downstream tools need to consume the result,
+    # so report it instead of leaving the caller to guess the method's naming.
+    embedding_keys = _integration_results_keys(combined_adata, params.method).get(
+        "obsm", []
+    )
     result = IntegrationResult(
         data_id=integrated_id,
         n_samples=len(data_ids),
         integration_method=params.method,
+        n_cells=int(combined_adata.n_obs),
+        batch_key=params.batch_key,
+        embedding_key=embedding_keys[0] if embedding_keys else None,
     )
     await ctx.add_dataset(
         combined_adata,

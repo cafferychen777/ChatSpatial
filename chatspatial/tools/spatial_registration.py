@@ -22,6 +22,7 @@ from ..utils.adata_utils import (
     find_common_genes,
     get_spatial_key,
     require_spatial_coords,
+    resolve_expression_source,
     shallow_copy_adata,
     store_analysis_metadata,
 )
@@ -411,6 +412,7 @@ def _register_stalign(
     *,
     stalign_module: Any | None = None,
     torch_module: Any | None = None,
+    expression_sources: Optional[list["ad.AnnData"]] = None,
 ) -> list["ad.AnnData"]:
     """Register slices using STalign diffeomorphic mapping."""
     if len(adata_list) != 2:
@@ -429,7 +431,15 @@ def _register_stalign(
 
     # Prepare intensity
     if params.stalign_use_expression:
-        common_genes = _get_common_genes(registered)
+        # STalign rasterizes summed expression into an image, so the values
+        # have to be expression. Variance-stabilized matrices sum to negative
+        # numbers, so the caller resolves the source through the same
+        # adata.raw rule the other tools use.
+        source_expr_adata, target_expr_adata = (
+            expression_sources if expression_sources is not None else (source, target)
+        )
+
+        common_genes = _get_common_genes([source_expr_adata, target_expr_adata])
         if len(common_genes) == 0:
             raise DataError(
                 "No common genes found between the two slices. "
@@ -440,8 +450,8 @@ def _register_stalign(
             logger.warning(f"Only {len(common_genes)} common genes found")
 
         # Compute sum intensity (sparse-aware)
-        source_expr = source[:, common_genes].X
-        target_expr = target[:, common_genes].X
+        source_expr = source_expr_adata[:, common_genes].X
+        target_expr = target_expr_adata[:, common_genes].X
 
         def _safe_sum(X):
             return np.asarray(X.sum(axis=1)).flatten().astype(np.float32)
@@ -560,6 +570,7 @@ def register_slices(
     params: Optional[RegistrationParameters] = None,
     *,
     ctx: Optional["ToolContext"] = None,
+    expression_sources: Optional[list["ad.AnnData"]] = None,
 ) -> list["ad.AnnData"]:
     """
     Register multiple spatial transcriptomics slices.
@@ -597,6 +608,7 @@ def register_slices(
             spatial_key,
             stalign_module=stalign_module,
             torch_module=torch_module,
+            expression_sources=expression_sources,
         )
     raise ParameterError(f"Unknown method: {params.method}")
 
@@ -641,10 +653,25 @@ async def register_spatial_slices_mcp(
     try:
         source_candidate = source_adata.copy()
         target_candidate = target_adata.copy()
+
+        expression_sources = None
+        if params.method == "stalign" and params.stalign_use_expression:
+            expression_sources = [
+                (
+                    candidate.raw.to_adata()
+                    if await resolve_expression_source(
+                        candidate, ctx, feature="STalign"
+                    )
+                    else candidate
+                )
+                for candidate in (source_candidate, target_candidate)
+            ]
+
         registered = register_slices(
             [source_candidate, target_candidate],
             params,
             ctx=ctx,
+            expression_sources=expression_sources,
         )
 
         # Copy registered coordinates into isolated publication candidates.

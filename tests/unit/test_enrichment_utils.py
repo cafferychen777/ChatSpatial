@@ -1533,3 +1533,54 @@ def test_perform_ora_counts_only_the_gene_sets_it_tested(
     )
 
     assert out.n_gene_sets == 1
+
+
+@pytest.mark.asyncio
+async def test_spatial_enrichment_reports_score_columns_and_ranks_by_retained_variance(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """Spatial enrichment writes one obs column per signature.
+
+    EnrichMap z-scores every signature before smoothing, so signatures differ
+    only in how much variance survives; ranking on the single most extreme spot
+    estimates that from one observation instead of all of them.
+    """
+    adata = minimal_spatial_adata.copy()
+    ctx = DummyCtx(adata)
+
+    class _FakeEnrichMap:
+        class tl:
+            @staticmethod
+            def score(adata, gene_set, score_key, **_kwargs):
+                # "spread" varies across every spot; "spike" is flat apart from
+                # one spot, so it wins on the maximum and loses on retained
+                # variance.
+                if score_key == "spread":
+                    values = np.resize([1.0, -1.0], adata.n_obs).astype(float)
+                else:
+                    values = np.zeros(adata.n_obs)
+                    values[0] = 3.0
+                adata.obs[f"{score_key}_score"] = values - values.mean()
+
+    monkeypatch.setattr(
+        enrichment_module, "require", lambda *_a, **_kw: _FakeEnrichMap()
+    )
+    monkeypatch.setattr(
+        enrichment_module, "export_analysis_result", lambda *_a, **_kw: []
+    )
+
+    genes = list(adata.var_names[:4])
+    result = await enrichment_module._perform_spatial_enrichment_on_adata(
+        "d1",
+        ctx,
+        adata,
+        gene_sets={"spread": genes, "spike": genes},
+        species="human",
+        database="MSigDB_Hallmark",
+    )
+
+    assert adata.obs["spike_score"].max() > adata.obs["spread_score"].max()
+    assert result.top_gene_sets[0] == "spread"
+    assert result.spatial_scores_key is not None
+    metadata = adata.uns[result.spatial_scores_key]
+    assert sorted(metadata["results_keys"]["obs"]) == ["spike_score", "spread_score"]

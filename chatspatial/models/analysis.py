@@ -187,6 +187,11 @@ class IntegrationResult(BaseAnalysisResult):
     data_id: str
     n_samples: int = Field(ge=2)
     integration_method: str
+    n_cells: int = Field(ge=0)
+    batch_key: str
+    # Representation downstream tools should use. None for bbknn, which
+    # corrects the neighbor graph instead of producing an embedding.
+    embedding_key: Optional[str] = None
 
 
 class SpatialRegistrationResult(BaseAnalysisResult):
@@ -410,7 +415,9 @@ class EnrichmentResult(BaseAnalysisResult):
     n_successful_signatures: Optional[int] = None
 
     # Spatial info key - included
-    spatial_scores_key: Optional[str] = None  # Key in adata.obsm
+    # Key in adata.obsm holding the scores, or -- for methods that write one
+    # obs column per signature -- the metadata entry naming every column.
+    spatial_scores_key: Optional[str] = None
 
     # ============================================================
     # EXCLUDED FROM MCP RESPONSE - stored in adata.uns for viz

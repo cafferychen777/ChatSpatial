@@ -9,7 +9,7 @@ Natural language commands for spatial transcriptomics analysis.
 A typical analysis follows this flow:
 
 ```
-Load → Preprocess → Analyze → Visualize
+Load → Preprocess → Embeddings (when required) → Analyze → Visualize
 ```
 
 ### 1. Load Your Data
@@ -134,9 +134,14 @@ Find genes with spatial expression patterns.
 "Find spatially variable genes"
 "Identify spatial genes with SpatialDE"
 "Use SPARK-X to find spatial patterns"
+"Use SpatialDE, test at most 3000 genes, and return the top 100"
 ```
 
 Common choices include FlashS, SPARK-X, and SpatialDE. See [Methods Reference](advanced/methods-reference.md) for canonical defaults and supported values.
+
+FlashS is the default. `n_top_genes` controls how many ranked results are
+returned; `max_genes_tested` is the separate runtime control for the number of
+input genes tested.
 
 ---
 
@@ -177,7 +182,10 @@ Analyze ligand-receptor interactions.
 "Which cell types are communicating?"
 ```
 
-Common choices include FastCCC, LIANA, CellPhoneDB, and CellChat (`cellchat_r`). See [Methods Reference](advanced/methods-reference.md) for canonical names, defaults, and species-specific settings.
+LIANA is the default and supports human, mouse, and zebrafish. FastCCC and
+CellPhoneDB currently require human data; CellChat is available as
+`cellchat_r`. See [Methods Reference](advanced/methods-reference.md) for
+canonical names, installation extras, and species-specific settings.
 
 **Requires**: Cell type annotations
 
@@ -208,9 +216,14 @@ Infer developmental trajectories.
 "Calculate pseudotime with Palantir"
 "Use CellRank for fate mapping"
 "Compute diffusion pseudotime"
+"Run CellRank with a stability threshold of 0.9"
 ```
 
-Common choices include CellRank, Palantir, and DPT. See [Methods Reference](advanced/methods-reference.md) for exact method names and requirements.
+Common choices include CellRank, Palantir, and DPT. CellRank needs velocity data
+and Python 3.12 or newer; Palantir and DPT can infer pseudotime without velocity.
+If a root is selected automatically, ChatSpatial reports it in the warnings.
+See [Methods Reference](advanced/methods-reference.md) for exact method names and
+requirements.
 
 ---
 

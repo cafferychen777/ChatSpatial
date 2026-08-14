@@ -285,3 +285,47 @@ def test_check_model_convergence_handles_zero_mean_without_warning():
     )
     assert converged is True
     assert message is None
+
+
+@pytest.mark.asyncio
+async def test_prepare_counts_recovers_expression_from_raw_when_x_is_scaled(
+    minimal_spatial_adata,
+):
+    """Scaled data cannot be mixed; every backend would return all-zero proportions.
+
+    A scanpy-tutorial reference keeps z-scored values in X and the expression
+    it was scaled from in .raw, so .raw is what deconvolution must use.
+    """
+    adata = minimal_spatial_adata.copy()
+    raw = adata.copy()
+    raw.X = np.full((adata.n_obs, adata.n_vars), 7.0)
+    adata.raw = raw
+    adata.X = np.full((adata.n_obs, adata.n_vars), -1.5)
+    adata.layers.pop("counts", None)
+
+    warnings: list[str] = []
+
+    class RecordingCtx:
+        async def warning(self, msg: str):
+            warnings.append(msg)
+
+    out = await _prepare_counts(
+        adata, "Reference", RecordingCtx(), require_int_dtype=False
+    )
+
+    assert np.allclose(out.X, 7.0)
+    assert out.n_obs == adata.n_obs
+    assert any("scaled" in message for message in warnings)
+
+
+@pytest.mark.asyncio
+async def test_prepare_counts_rejects_scaled_data_without_recoverable_source(
+    minimal_spatial_adata,
+):
+    adata = minimal_spatial_adata.copy()
+    adata.raw = None
+    adata.layers.pop("counts", None)
+    adata.X = np.full((adata.n_obs, adata.n_vars), -0.5)
+
+    with pytest.raises(DataError, match="negative values"):
+        await _prepare_counts(adata, "Reference", DummyCtx(), require_int_dtype=False)

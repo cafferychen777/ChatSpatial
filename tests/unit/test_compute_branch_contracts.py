@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from chatspatial.utils import compute
+from chatspatial.utils.exceptions import DependencyError
 
 
 def test_ensure_neighbors_skips_when_graph_already_available(
@@ -48,12 +49,30 @@ def test_ensure_louvain_computes_and_casts_categorical(
         assert key == "louvain"
         return True
 
+    required: list[str] = []
+
     monkeypatch.setattr(compute, "ensure_neighbors", _fake_neighbors)
     monkeypatch.setattr(compute.sc.tl, "louvain", _fake_louvain)
     monkeypatch.setattr(compute, "ensure_categorical", _fake_categorical)
+    monkeypatch.setattr(
+        compute, "require", lambda name, **_kwargs: required.append(name)
+    )
 
     assert compute.ensure_louvain(adata, key_added="louvain") is True
     assert called["neighbors"] and called["categorical"]
+    # scanpy imports louvain lazily, so the check has to happen here for the
+    # caller to get an install hint instead of a bare ImportError.
+    assert required == ["louvain"]
+
+
+def test_ensure_louvain_reports_the_missing_package(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adata = minimal_spatial_adata.copy()
+    monkeypatch.setattr(compute, "ensure_neighbors", lambda _adata: True)
+
+    with pytest.raises(DependencyError, match="louvain is required"):
+        compute.ensure_louvain(adata, key_added="louvain")
 
 
 def test_ensure_diffmap_compute_and_skip_paths(

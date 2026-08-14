@@ -216,8 +216,7 @@ def _normalize_velovi_cell_gene_output(
     values = _coerce_velovi_numeric_array(raw_values, output_name)
     if values.shape != expected_shape:
         raise DataCompatibilityError(
-            f"VELOVI {output_name} has shape {values.shape}; "
-            f"expected {expected_shape}."
+            f"VELOVI {output_name} has shape {values.shape}; expected {expected_shape}."
         )
     if require_nonnegative and np.any(values < 0):
         raise DataCompatibilityError(f"VELOVI {output_name} contains negative values.")
@@ -375,7 +374,9 @@ def compute_rna_velocity(
         scv.tl.velocity(adata, mode=mode)
 
     # Compute velocity graph
-    scv.tl.velocity_graph(adata)
+    # MCP has no notebook progress UI. Disabling it also keeps presentation-only
+    # multiprocessing infrastructure out of the numerical execution path.
+    scv.tl.velocity_graph(adata, show_progress_bar=False)
 
     return adata
 

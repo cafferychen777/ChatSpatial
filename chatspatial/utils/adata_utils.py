@@ -37,6 +37,8 @@ import pandas as pd
 if TYPE_CHECKING:
     import anndata as ad
 
+    from ..spatial_mcp_adapter import ToolContext
+
 from scipy import sparse
 
 from .exceptions import DataError, DataNotFoundError, ParameterError
@@ -1035,13 +1037,54 @@ def get_analysis_parameter(
 # =============================================================================
 # Gene Selection Utilities
 # =============================================================================
+# How scanpy records variability, by flavor. The rank column counts up from 0
+# (most variable first); the rest are variability scores, so they count down.
+_HVG_RANKING_COLUMNS: tuple[tuple[str, bool], ...] = (
+    ("highly_variable_rank", True),
+    ("residual_variances", False),
+    ("variances_norm", False),
+    ("dispersions_norm", False),
+    ("variances", False),
+    ("dispersions", False),
+)
+
+
+def rank_highly_variable_genes(adata: "ad.AnnData", max_genes: int) -> list[str]:
+    """Return the flagged highly variable genes, most variable first.
+
+    ``adata.var["highly_variable"]`` is a flag, not an ordering, so slicing the
+    flagged genes returns whichever ones sit earliest on the gene axis. That
+    axis is usually genomic order, which would silently turn "the 20 most
+    variable genes" into "20 genes from the start of chromosome 1". The
+    variability statistic scanpy stored alongside the flag is the ordering.
+    """
+    flags = adata.var["highly_variable"].to_numpy()
+    hvg_var = adata.var.loc[flags.astype(bool)]
+    if hvg_var.empty:
+        return []
+
+    for column, ascending in _HVG_RANKING_COLUMNS:
+        if column not in hvg_var.columns:
+            continue
+        scores = pd.to_numeric(hvg_var[column], errors="coerce")
+        if not np.isfinite(scores.to_numpy(dtype=float)).any():
+            continue
+        ordered = scores.sort_values(
+            ascending=ascending, kind="stable", na_position="last"
+        )
+        return ordered.index[:max_genes].tolist()
+
+    # Nothing was stored to rank by, so gene order is all the data provides.
+    return hvg_var.index[:max_genes].tolist()
+
+
 def get_highly_variable_genes(
     adata: "ad.AnnData",
     max_genes: int = 500,
     fallback_to_variance: bool = True,
 ) -> list[str]:
     """
-    Get highly variable genes from AnnData.
+    Get highly variable genes from AnnData, most variable first.
 
     Priority order:
     1. Use precomputed HVG from adata.var['highly_variable']
@@ -1057,8 +1100,7 @@ def get_highly_variable_genes(
     """
     # Try precomputed HVG first
     if "highly_variable" in adata.var.columns:
-        hvg_genes = adata.var_names[adata.var["highly_variable"]].tolist()
-        return hvg_genes[:max_genes]
+        return rank_highly_variable_genes(adata, max_genes)
 
     # Fallback to variance calculation
     if fallback_to_variance:
@@ -1082,6 +1124,61 @@ def get_highly_variable_genes(
         return adata.var_names[top_indices].tolist()
 
     return []
+
+
+async def resolve_expression_source(
+    adata: "ad.AnnData",
+    ctx: "ToolContext",
+    *,
+    feature: str,
+) -> bool:
+    """Decide whether to read ``adata.raw`` instead of ``adata.X``, and say why.
+
+    Variance-stabilizing normalization (Pearson residuals, scaling) leaves
+    negative values, which are not expression: methods that sum, mix, or
+    rasterize expression either fail on them or return nothing. ``adata.raw``
+    is where the pre-normalization matrix lives, so this is the one rule for
+    reaching it, and the message names the method that is about to run rather
+    than guessing which normalization produced the values.
+
+    Returns:
+        True when the caller should read ``adata.raw`` instead of ``adata.X``.
+    """
+    from scipy.sparse import issparse
+
+    # Sample a small portion for efficiency
+    sample_X = adata.X[:100, :100] if adata.shape[0] > 100 else adata.X
+    if issparse(sample_X):
+        data_min = sample_X.data.min() if sample_X.data.size > 0 else 0
+        data_max = sample_X.data.max() if sample_X.data.size > 0 else 0
+    else:
+        data_min = float(sample_X.min())
+        data_max = float(sample_X.max())
+
+    if data_min < 0:
+        if adata.raw is not None:
+            await ctx.warning(
+                f"Expression matrix contains negative values "
+                f"(min={data_min:.2f}), which variance-stabilizing "
+                f"normalization produces. Using adata.raw for "
+                f"{feature} instead."
+            )
+            return True
+        await ctx.warning(
+            f"Expression matrix contains negative values (min={data_min:.2f}) "
+            f"and no adata.raw is available, so {feature} will run on "
+            f"them directly."
+        )
+        return False
+
+    if data_max > 100:
+        await ctx.warning(
+            f"Expression matrix contains large values (max={data_max:.2f}), "
+            f"which suggests unnormalized counts. Normalizing and "
+            f"log-transforming before {feature} usually improves results."
+        )
+
+    return False
 
 
 def select_genes_for_analysis(
@@ -1151,8 +1248,7 @@ def select_genes_for_analysis(
 
     # Case 2: Use HVG
     if "highly_variable" in adata.var.columns and adata.var["highly_variable"].any():
-        hvg_genes = adata.var_names[adata.var["highly_variable"]].tolist()
-        return hvg_genes[:n_genes]
+        return rank_highly_variable_genes(adata, n_genes)
 
     # Case 3: HVG not available
     if require_hvg:

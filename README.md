@@ -53,6 +53,19 @@ claude mcp add --scope user chatspatial -- \
 `uvx` creates an isolated environment on first launch and reuses its cache on
 later launches. Restart the MCP client after adding the server.
 
+The command above installs the standard runtime. To make all 15 composable
+Python method families available in the same isolated MCP environment, use:
+
+```bash
+uvx --from 'chatspatial[full]' chatspatial server
+```
+
+`full` includes CellRank, FastCCC, the maintained spatial-domain and
+registration backends, annotation, enrichment, and the other portable Python
+families. R bridges, AESTETIK, and rctd-py remain separate because they have
+system, platform, or large-runtime requirements. See the installation guide
+before enabling those families.
+
 Then:
 
 1. **Run your first analysis** — [Quick Start](docs/quickstart.md)
@@ -63,7 +76,7 @@ Then:
 **Docker quick start:**
 
 ```bash
-docker pull ghcr.io/cafferychen777/chatspatial:v1.3.2
+docker pull ghcr.io/cafferychen777/chatspatial:v1.4.0
 ```
 
 **Minimal example prompt:**

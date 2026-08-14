@@ -182,6 +182,12 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     "squidpy": DependencyInfo(
         "squidpy", "pip install squidpy", "Spatial single-cell analysis"
     ),
+    "louvain": DependencyInfo(
+        "louvain",
+        "pip install louvain",
+        "Louvain community detection; superseded by Leiden, which needs no "
+        "extra package (use clustering_method='leiden')",
+    ),
     "SpaGCN": DependencyInfo(
         "SpaGCN",
         "pip install 'chatspatial[spatial-domains]'",

@@ -122,19 +122,6 @@ def test_standardize_lr_pair_normalizes_separators():
     assert standardize_lr_pair(123) == "123"
 
 
-def test_top_n_desc_indices_handles_non_finite_and_bounds():
-    values = np.array([0.3, np.nan, 1.2, 0.8, -1.0], dtype=float)
-
-    top3 = ccc._top_n_desc_indices(values, 3)
-    assert list(top3) == [2, 3, 0]
-
-    top_all = ccc._top_n_desc_indices(values, 10)
-    assert list(top_all) == [2, 3, 0, 4, 1]
-
-    top_zero = ccc._top_n_desc_indices(values, 0)
-    assert top_zero.size == 0
-
-
 def test_store_and_get_ccc_results_roundtrip(minimal_spatial_adata):
     adata = minimal_spatial_adata.copy()
     storage = CCCStorage(
@@ -206,8 +193,116 @@ def test_integrate_autocrine_detection_for_matrix_based_methods():
     _integrate_autocrine_detection(storage, n_top=5)
 
     assert storage.autocrine.n_loops == 2
-    assert storage.autocrine.top_pairs == ["L1^R1", "L2^R2"]
+    # Ranked by autocrine strength: L2^R2 scores 0.9 in B|B, L1^R1 0.4 in T|T.
+    assert storage.autocrine.top_pairs == ["L2^R2", "L1^R1"]
     assert len(storage.autocrine.results) == 3
+
+
+def test_integrate_autocrine_detection_counts_only_significant_loops():
+    # Interaction strength is non-zero for nearly every catalogued pair, so a
+    # "strength > 0" filter would call all three rows autocrine loops.
+    results = pd.DataFrame(
+        {
+            "interacting_pair": ["L1^R1", "L2^R2", "L3^R3"],
+            "T|T": [0.4, 0.6, 0.2],
+            "T|B": [0.1, 0.2, 0.2],
+            "B|B": [0.3, 0.1, 0.5],
+        },
+        index=[10, 11, 12],
+    )
+    pvalues = pd.DataFrame(
+        {
+            "interacting_pair": ["L1^R1", "L2^R2", "L3^R3"],
+            "T|T": [0.9, 0.01, 0.8],
+            "T|B": [0.001, 0.9, 0.9],
+            "B|B": [0.02, 0.9, 0.7],
+        },
+        index=[10, 11, 12],
+    )
+    storage = CCCStorage(
+        method="fastccc",
+        analysis_type="cluster",
+        species="human",
+        database="CellPhoneDB_v5",
+        results=results,
+        pvalues=pvalues,
+        statistics={"pvalue_threshold": 0.05},
+    )
+
+    _integrate_autocrine_detection(storage, n_top=5)
+
+    # L1^R1 is significant in B|B, L2^R2 in T|T; L3^R3 is significant nowhere,
+    # and L1^R1's T|B hit is paracrine, not a loop.
+    assert storage.autocrine.n_loops == 2
+    assert storage.autocrine.top_pairs == ["L2^R2", "L1^R1"]
+
+
+def test_integrate_autocrine_detection_respects_backend_significance_call():
+    """Loops must not outnumber the significant pairs they are drawn from.
+
+    The per-column threshold is uncorrected, while the backend applies
+    multiple-testing correction across cell-type pairs. Reusing the backend's
+    own call keeps the two numbers consistent.
+    """
+    results = pd.DataFrame(
+        {
+            "interacting_pair": ["L1^R1", "L2^R2"],
+            "T|T": [0.4, 0.6],
+            "B|B": [0.3, 0.1],
+        },
+        index=[10, 11],
+    )
+    pvalues = pd.DataFrame(
+        {
+            "interacting_pair": ["L1^R1", "L2^R2"],
+            "T|T": [0.04, 0.01],
+            "B|B": [0.9, 0.9],
+        },
+        index=[10, 11],
+    )
+    storage = CCCStorage(
+        method="fastccc",
+        analysis_type="cluster",
+        species="human",
+        database="CellPhoneDB_v5",
+        results=results,
+        pvalues=pvalues,
+        n_significant=1,
+        statistics={"pvalue_threshold": 0.05},
+        # L1^R1 clears the raw threshold but not the correction.
+        method_data={"significant_lr_mask": np.array([False, True])},
+    )
+
+    _integrate_autocrine_detection(storage, n_top=5)
+
+    assert storage.autocrine.n_loops == 1
+    assert storage.autocrine.top_pairs == ["L2^R2"]
+
+
+def test_integrate_autocrine_detection_filters_liana_by_significance():
+    results = pd.DataFrame(
+        {
+            "source": ["T", "T", "B"],
+            "target": ["T", "B", "B"],
+            "ligand_complex": ["L1", "L2", "L3"],
+            "receptor_complex": ["R1", "R2", "R3"],
+            "magnitude_rank": [0.01, 0.02, 0.4],
+        }
+    )
+    storage = CCCStorage(
+        method="liana",
+        analysis_type="cluster",
+        species="human",
+        database="consensus",
+        results=results,
+        statistics={"significance_threshold": 0.05},
+    )
+
+    _integrate_autocrine_detection(storage, n_top=5)
+
+    # B->B exists but ranks far below the threshold, so it is not a loop.
+    assert storage.autocrine.n_loops == 1
+    assert storage.autocrine.top_pairs == ["L1^R1"]
 
 
 @pytest.mark.asyncio
@@ -624,7 +719,9 @@ def test_run_liana_cluster_analysis_builds_expected_storage(
     assert out.n_pairs == 4
     assert out.n_significant == 3
     assert out.lr_pairs == ["L1^R1", "L1^R1", "L2^R2", "L3^R3"]
-    assert out.top_lr_pairs == ["L1^R1", "L2^R2"]
+    # L1^R1 is scored twice (T->B and B->T); deduplicating before truncation is
+    # what lets plot_top_pairs=3 actually return three distinct pairs.
+    assert out.top_lr_pairs == ["L1^R1", "L2^R2", "L3^R3"]
     assert len(out.results) == 4
     assert out.statistics["use_raw"] is True
 
@@ -1572,6 +1669,73 @@ async def test_analyze_communication_cellphonedb_success_with_correction_stats(
     else:
         assert captured_kwargs["debug_seed"] == debug_seed
         assert captured_kwargs["threads"] == 1
+
+
+@pytest.mark.asyncio
+async def test_analyze_communication_cellphonedb_ranks_top_pairs_by_strength(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """CellPhoneDB returns interactions in database order, not by strength.
+
+    Taking the first rows would make "top pairs" mean "first in the database".
+    """
+    import types
+
+    adata = minimal_spatial_adata.copy()
+    adata.obs["cell_type"] = pd.Categorical(
+        ["T"] * (adata.n_obs // 2) + ["B"] * (adata.n_obs - adata.n_obs // 2)
+    )
+
+    means = pd.DataFrame(
+        {
+            "interacting_pair": ["L1^R1", "L2^R2", "L3^R3"],
+            "T|B": [0.1, 0.5, 0.9],
+            "B|T": [0.1, 0.5, 0.9],
+        },
+        index=["pair1", "pair2", "pair3"],
+    )
+    pvals = pd.DataFrame(
+        {
+            "T|B": [0.001, 0.001, 0.001],
+            "B|T": [0.001, 0.001, 0.001],
+        },
+        index=["pair1", "pair2", "pair3"],
+    )
+
+    fake_cpdb_method = types.SimpleNamespace(
+        call=lambda **_kwargs: {
+            "deconvoluted": pd.DataFrame(),
+            "means": means,
+            "pvalues": pvals,
+            "significant_means": means.copy(),
+        }
+    )
+    _patch_required_module(
+        monkeypatch,
+        "cellphonedb.src.core.methods.cpdb_statistical_analysis_method",
+        fake_cpdb_method,
+    )
+    monkeypatch.setattr(ccc, "require", _required_dependency)
+    monkeypatch.setattr(
+        ccc,
+        "_ensure_cellphonedb_database",
+        lambda *_args, **_kwargs: "/tmp/fake_cpdb.zip",
+    )
+
+    params = CellCommunicationParameters(
+        method="cellphonedb",
+        species="human",
+        cell_type_key="cell_type",
+        cellphonedb_use_microenvironments=False,
+        cellphonedb_iterations=5,
+        cellphonedb_correction_method="none",
+        plot_top_pairs=2,
+    )
+
+    out = await ccc._analyze_communication_cellphonedb(adata, params, DummyCtx())
+
+    assert out.n_significant == 3
+    assert out.top_lr_pairs == ["L3^R3", "L2^R2"]
 
 
 @pytest.mark.asyncio

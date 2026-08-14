@@ -121,6 +121,7 @@ async def test_integrate_samples_adds_integrated_dataset_and_exports(
     integrated = minimal_spatial_adata.copy()
     integrated.obsm["spatial"] = integrated.obsm["spatial"].copy()
     integrated.obsm["spatial_aligned"] = integrated.obsm["spatial"].copy()
+    integrated.obsm["X_pca_harmony"] = np.zeros((integrated.n_obs, 2), dtype=np.float32)
 
     called: dict[str, object] = {}
 
@@ -175,6 +176,11 @@ async def test_integrate_samples_adds_integrated_dataset_and_exports(
     assert result.data_id == "integrated_1"
     assert result.n_samples == 2
     assert result.integration_method == "harmony"
+    # Downstream tools need the representation name, so the caller must be told
+    # which key integration wrote rather than guessing the method's convention.
+    assert result.embedding_key == "X_pca_harmony"
+    assert result.n_cells == integrated.n_obs
+    assert result.batch_key == "batch"
     assert called["integrate"]["method"] == "harmony"
     assert called["align"]["has_spatial"] is True
     assert ("integrated_1", "integration_harmony") in called["exports"]

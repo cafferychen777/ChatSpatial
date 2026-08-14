@@ -16,12 +16,16 @@ from chatspatial.utils.exceptions import ParameterError, ProcessingError
 class DummyCtx:
     def __init__(self, datasets: dict[str, object]):
         self.datasets = datasets
+        self.warnings: list[str] = []
 
     async def get_adata(self, data_id: str):
         return self.datasets[data_id]
 
     async def set_adatas(self, updates: dict[str, object]) -> None:
         self.datasets.update(updates)
+
+    async def warning(self, message: str) -> None:
+        self.warnings.append(message)
 
 
 class _IdentityImageTransform:
@@ -79,6 +83,7 @@ def test_register_slices_dispatches_to_paste_and_stalign(
         *,
         stalign_module=None,
         torch_module=None,
+        expression_sources=None,
     ):
         assert stalign_module is fake_stalign_module
         assert torch_module is fake_torch_module
@@ -105,7 +110,7 @@ async def test_register_spatial_slices_mcp_happy_path_records_metadata(
     tgt = minimal_spatial_adata.copy()
     captured: list[dict[str, object]] = []
 
-    def _fake_register_slices(adata_list, params, *, ctx=None):
+    def _fake_register_slices(adata_list, params, *, ctx=None, expression_sources=None):
         assert isinstance(ctx, DummyCtx)
         for i, adata in enumerate(adata_list):
             adata.obsm["spatial_registered"] = adata.obsm["spatial"] + i
@@ -145,7 +150,7 @@ async def test_register_spatial_slices_mcp_late_failure_preserves_both_sources(
     tgt = minimal_spatial_adata.copy()
     ctx = DummyCtx({"src": src, "tgt": tgt})
 
-    def _fake_register_slices(adata_list, params, *, ctx=None):
+    def _fake_register_slices(adata_list, params, *, ctx=None, expression_sources=None):
         del params, ctx
         for adata in adata_list:
             adata.obsm["spatial_registered"] = adata.obsm["spatial"] + 1
@@ -579,7 +584,7 @@ async def test_register_spatial_slices_mcp_passes_context_to_dependency_owner(
     tgt = minimal_spatial_adata.copy()
     seen: dict[str, object] = {}
 
-    def _register(adata_list, _params, *, ctx=None):
+    def _register(adata_list, _params, *, ctx=None, expression_sources=None):
         seen["ctx"] = ctx
         for adata in adata_list:
             adata.obsm["spatial_registered"] = adata.obsm["spatial"].copy()
@@ -808,7 +813,7 @@ async def test_register_mcp_metadata_contains_paste_params(
     target = minimal_spatial_adata.copy()
     ctx = DummyCtx({"src": source, "tgt": target})
 
-    def _fake_register(slices, params, *, ctx=None):
+    def _fake_register(slices, params, *, ctx=None, expression_sources=None):
         assert ctx is not None
         for s in slices:
             s.obsm["spatial_registered"] = s.obsm["spatial"]
@@ -853,7 +858,7 @@ async def test_register_mcp_metadata_contains_stalign_params(
     target = minimal_spatial_adata.copy()
     ctx = DummyCtx({"src": source, "tgt": target})
 
-    def _fake_register(slices, params, *, ctx=None):
+    def _fake_register(slices, params, *, ctx=None, expression_sources=None):
         assert ctx is not None
         for s in slices:
             s.obsm["spatial_registered"] = s.obsm["spatial"]
@@ -884,3 +889,43 @@ async def test_register_mcp_metadata_contains_stalign_params(
         assert p["stalign_a"] == 300.0
         assert p["stalign_use_expression"] is False
         assert "paste_alpha" not in p
+
+
+@pytest.mark.asyncio
+async def test_register_mcp_recovers_expression_for_stalign_from_raw(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """STalign rasterizes summed expression, which cannot be negative.
+
+    Variance-stabilizing normalization is ChatSpatial's default, so reading X
+    would make expression-based registration unusable right after preprocessing.
+    """
+    source = minimal_spatial_adata.copy()
+    target = minimal_spatial_adata.copy()
+    for adata in (source, target):
+        adata.raw = adata.copy()
+        adata.X = np.full((adata.n_obs, adata.n_vars), -1.5, dtype=np.float32)
+
+    seen: dict[str, object] = {}
+
+    def _fake_register(slices, params, *, ctx=None, expression_sources=None):
+        seen["expression_sources"] = expression_sources
+        for adata in slices:
+            adata.obsm["spatial_registered"] = np.asarray(
+                adata.obsm["spatial"], dtype=np.float32
+            )
+        return slices
+
+    monkeypatch.setattr(reg, "register_slices", _fake_register)
+    monkeypatch.setattr(reg, "store_analysis_metadata", lambda *_a, **_k: None)
+    monkeypatch.setattr(reg, "export_analysis_result", lambda *_a, **_k: [])
+
+    ctx = DummyCtx({"s": source, "t": target})
+    await reg.register_spatial_slices_mcp(
+        "s", "t", ctx, RegistrationParameters(method="stalign")
+    )
+
+    sources = seen["expression_sources"]
+    assert sources is not None
+    assert all(float(np.asarray(a.X).min()) >= 0 for a in sources)
+    assert any("adata.raw" in warning for warning in ctx.warnings)

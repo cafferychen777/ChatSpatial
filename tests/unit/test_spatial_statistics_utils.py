@@ -529,6 +529,8 @@ async def test_analyze_spatial_statistics_accepts_result_with_dict_method(
         "min_enrichment": -0.7,
         "z_threshold": 1.96,
         "n_depleted_pairs": 1,
+        "max_self_enrichment": 0.0,
+        "n_self_enriched_clusters": 0,
     }
     assert out.results_key == "leiden_nhood_enrichment"
 
@@ -707,7 +709,12 @@ def test_analyze_neighborhood_enrichment_uses_nan_safe_extrema(
     assert out["n_clusters"] == 2
     assert out["n_enriched_pairs"] == 2
     assert out["n_depleted_pairs"] == 1
-    assert out["top_enriched_pairs"] == ["0-1", "0-0"]
+    # Cluster 0 neighbours itself (z=2.5), but a spatially coherent cluster
+    # always does, so the ranked pairs report the 0-1 adjacency and the
+    # self-enrichment is reported as its own metric.
+    assert out["top_enriched_pairs"] == ["0-1"]
+    assert out["max_self_enrichment"] == 2.5
+    assert out["n_self_enriched_clusters"] == 1
     assert out["z_threshold"] == 1.96
     assert out["max_enrichment"] == 3.1
     assert out["min_enrichment"] == -2.2
@@ -747,7 +754,8 @@ def test_analyze_co_occurrence_uses_interval_from_params_and_returns_distance_ra
     assert out["n_clusters"] == 2
     assert out["n_intervals"] == 4  # 5 bin edges → 4 intervals
     assert out["distance_range"] == (0.0, 20.0)
-    assert out["top_features"] == ["0-1", "1-0"]
+    # Co-occurrence is symmetric, so 1-0 is the same finding as 0-1.
+    assert out["top_features"] == ["0-1"]
     assert out["summary_metrics"]["peak_co_occurrence"] == 3.5
     assert out["summary_metrics"]["peak_interval_index"] == 2.0
     assert out["summary_metrics"]["distance_min"] == 0.0
@@ -781,7 +789,8 @@ def test_analyze_co_occurrence_uses_default_interval_when_not_set(
 
     assert captured["interval"] == 50
     assert out["n_intervals"] == 50
-    assert out["top_features"] == ["1-0", "0-1"]
+    # Co-occurrence is symmetric; the relation is reported once.
+    assert out["top_features"] == ["0-1"]
     assert out["summary_metrics"]["n_intervals"] == 3.0
     assert out["summary_metrics"]["peak_co_occurrence"] == 1.7
     assert "distance_min" not in out["summary_metrics"]
@@ -2210,3 +2219,58 @@ def test_network_properties_counts_the_nodes_it_analysed():
     )
     assert summary["n_features_analyzed"] == 2681
     assert summary["summary_metrics"]["n_edges"] == 11112
+
+
+class TestSymmetricPairRanking:
+    """Neighborhood enrichment and co-occurrence summarize symmetric matrices."""
+
+    def test_reports_each_relation_once(self):
+        matrix = np.array(
+            [
+                [9.0, 5.0, 1.0],
+                [5.0, 9.0, 3.0],
+                [1.0, 3.0, 9.0],
+            ]
+        )
+
+        ranked = ss._rank_symmetric_pairs(matrix, ["A", "B", "C"])
+
+        # Without deduplication this would be B-A, A-B, C-B, B-C, ...
+        assert ranked == ["A-B", "B-C", "A-C"]
+
+    def test_excludes_self_pairs_that_would_fill_the_response(self):
+        # Every cluster is its own strongest neighbour, as spatial clusters are.
+        matrix = np.array([[50.0, 2.0], [2.0, 60.0]])
+
+        assert ss._rank_symmetric_pairs(matrix, ["A", "B"]) == ["A-B"]
+
+    def test_applies_minimum_and_limit(self):
+        matrix = np.array(
+            [
+                [0.0, 4.0, 1.0],
+                [4.0, 0.0, 2.0],
+                [1.0, 2.0, 0.0],
+            ]
+        )
+
+        assert ss._rank_symmetric_pairs(matrix, ["A", "B", "C"], minimum=1.5) == [
+            "A-B",
+            "B-C",
+        ]
+        assert ss._rank_symmetric_pairs(matrix, ["A", "B", "C"], limit=1) == ["A-B"]
+
+    def test_ignores_non_finite_scores(self):
+        matrix = np.array(
+            [
+                [0.0, np.nan, 1.0],
+                [np.nan, 0.0, np.inf],
+                [1.0, np.inf, 0.0],
+            ]
+        )
+
+        assert ss._rank_symmetric_pairs(matrix, ["A", "B", "C"]) == ["A-C"]
+
+    def test_falls_back_to_indices_when_labels_do_not_match(self):
+        matrix = np.array([[0.0, 1.0], [1.0, 0.0]])
+
+        assert ss._rank_symmetric_pairs(matrix, ["only_one"]) == ["0-1"]

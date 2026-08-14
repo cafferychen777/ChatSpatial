@@ -25,6 +25,7 @@ unified 'genes' parameter for consistent gene selection across methods.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Optional, get_args
 
@@ -348,22 +349,10 @@ def _summarize_co_occurrence_payload(
         return {"top_features": [], "summary_metrics": {}}
 
     finite_occ = np.where(finite_mask, occ, np.nan)
-    n_rows, n_cols, n_intervals = finite_occ.shape
-    row_labels = labels if len(labels) == n_rows else [str(i) for i in range(n_rows)]
-    col_labels = labels if len(labels) == n_cols else [str(i) for i in range(n_cols)]
+    n_rows, _n_cols, n_intervals = finite_occ.shape
 
     pair_max = np.nanmax(finite_occ, axis=2)
-    if n_rows > 1 and n_cols > 1:
-        for diagonal_idx in range(min(n_rows, n_cols)):
-            pair_max[diagonal_idx, diagonal_idx] = np.nan
-
-    pair_indices = np.argwhere(np.isfinite(pair_max))
-    pair_scores = [
-        (f"{row_labels[i]}-{col_labels[j]}", float(pair_max[i, j]))
-        for i, j in pair_indices
-    ]
-    pair_scores.sort(key=lambda item: item[1], reverse=True)
-    top_features = [pair for pair, _score in pair_scores[:10]]
+    top_features = _rank_symmetric_pairs(pair_max, labels)
 
     peak_index = np.unravel_index(np.nanargmax(finite_occ), finite_occ.shape)
     peak_interval_index = int(peak_index[2])
@@ -481,6 +470,51 @@ def _rank_features_by_count(counts: dict[str, Any], limit: int = 10) -> list[str
     """
     ordered = sorted(counts.items(), key=lambda item: (-float(item[1]), str(item[0])))
     return [str(name) for name, _count in ordered[:limit]]
+
+
+def _rank_symmetric_pairs(
+    matrix: Any,
+    labels: Sequence[Any],
+    *,
+    limit: int = 10,
+    minimum: Optional[float] = None,
+) -> list[str]:
+    """Rank the distinct cluster pairs of a symmetric cluster x cluster matrix.
+
+    Neighborhood enrichment and co-occurrence both produce symmetric matrices,
+    so (i, j) and (j, i) are one finding and reporting both spends half the
+    response on mirror images. The diagonal is excluded because a spatially
+    coherent cluster neighbours itself by construction: with as many clusters
+    as response slots, self-pairs would fill the list with a property of
+    spatial data instead of a result. Ties break on position so repeated runs
+    agree.
+    """
+    values = np.asarray(matrix, dtype=float)
+    if values.ndim != 2 or values.shape[0] != values.shape[1]:
+        return []
+
+    n_clusters = values.shape[0]
+    pair_labels = (
+        [str(label) for label in labels]
+        if len(labels) == n_clusters
+        else [str(index) for index in range(n_clusters)]
+    )
+
+    # Read both directions so an off-diagonal value is never dropped if a
+    # backend ever returns the relation on one side only.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        symmetric = np.fmax(values, values.T)
+
+    rows, cols = np.triu_indices(n_clusters, k=1)
+    scores = symmetric[rows, cols]
+    keep = np.isfinite(scores)
+    if minimum is not None:
+        keep &= scores > minimum
+    rows, cols, scores = rows[keep], cols[keep], scores[keep]
+
+    order = np.argsort(-scores, kind="stable")[:limit]
+    return [f"{pair_labels[rows[i]]}-{pair_labels[cols[i]]}" for i in order]
 
 
 def _summarize_bivariate_moran_pairs(
@@ -643,6 +677,8 @@ def _extract_result_summary(
             "min_enrichment": result.get("min_enrichment", 0.0),
             "z_threshold": result.get("z_threshold", 0.0),
             "n_depleted_pairs": result.get("n_depleted_pairs", 0),
+            "max_self_enrichment": result.get("max_self_enrichment", 0.0),
+            "n_self_enriched_clusters": result.get("n_self_enriched_clusters", 0),
         }
         summary["results_key"] = result.get("analysis_key")
 
@@ -720,7 +756,12 @@ def _extract_result_summary(
         summary["summary_metrics"] = {
             k: v
             for k, v in result.items()
-            if isinstance(v, (int, float)) and k not in ("n_cells", "n_neighbors")
+            # bool is an int subclass, and summary_metrics is numeric, so a
+            # flag would surface as a bare 0/1. n_components already says
+            # whether the graph is connected.
+            if isinstance(v, (int, float))
+            and not isinstance(v, bool)
+            and k not in ("n_cells", "n_neighbors")
         }
 
     elif analysis_type == "spatial_centrality":
@@ -965,21 +1006,25 @@ def _analyze_neighborhood_enrichment(
         cluster_labels = list(adata.obs[cluster_key].cat.categories)
         enriched_mask = upper_z > z_threshold
         depleted_mask = upper_z < -z_threshold
-        enriched_order = np.argsort(upper_z[enriched_mask])[::-1]
-        enriched_rows = upper_rows[enriched_mask][enriched_order]
-        enriched_cols = upper_cols[enriched_mask][enriched_order]
-        top_enriched_pairs = [
-            f"{cluster_labels[i]}-{cluster_labels[j]}"
-            for i, j in zip(enriched_rows[:10], enriched_cols[:10], strict=True)
-        ]
+        # Self-enrichment leaves the ranked pairs (see _rank_symmetric_pairs)
+        # but stays reported, because a cluster that does not neighbour itself
+        # is itself a finding.
+        self_z = np.diagonal(z_scores)
+        finite_self_z = self_z[np.isfinite(self_z)]
         return {
             "n_clusters": len(z_scores),
             "n_enriched_pairs": int(np.nansum(enriched_mask)),
             "n_depleted_pairs": int(np.nansum(depleted_mask)),
-            "top_enriched_pairs": top_enriched_pairs,
+            "top_enriched_pairs": _rank_symmetric_pairs(
+                z_scores, cluster_labels, minimum=z_threshold
+            ),
             "z_threshold": z_threshold,
             "max_enrichment": float(np.nanmax(z_scores)),
             "min_enrichment": float(np.nanmin(z_scores)),
+            "max_self_enrichment": (
+                float(finite_self_z.max()) if finite_self_z.size else 0.0
+            ),
+            "n_self_enriched_clusters": int((finite_self_z > z_threshold).sum()),
             "analysis_key": analysis_key,
         }
 

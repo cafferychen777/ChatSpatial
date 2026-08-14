@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 
 from chatspatial.utils import persistence
-from chatspatial.utils.exceptions import ParameterError
+from chatspatial.utils.exceptions import DataError, ParameterError
 
 
 def _make_adata(n_obs: int = 8, n_vars: int = 5):
@@ -175,3 +175,44 @@ def test_load_adata_wraps_underlying_read_errors(
 
     with pytest.raises(IOError, match="Failed to load data"):
         persistence.load_adata_from_active("unused", corrupt_path)
+
+
+def test_check_reload_identity_rejects_unrelated_dataset(tmp_path: Path):
+    """A stale active file from an earlier session must not silently replace data.
+
+    Dataset IDs restart at ``data_1`` in every server process, so an old
+    ``~/.chatspatial/active/data_1.h5ad`` sits exactly where the current
+    dataset's file belongs.
+    """
+    current = _make_adata(n_obs=6)
+    stale = _make_adata(n_obs=4)
+    stale.obs_names = [f"other_{i}" for i in range(stale.n_obs)]
+
+    with pytest.raises(DataError, match="different dataset"):
+        persistence.check_reload_identity(
+            current, stale, "data_1", tmp_path / "data_1.h5ad"
+        )
+
+
+def test_check_reload_identity_accepts_edited_export(tmp_path: Path):
+    current = _make_adata(n_obs=6)
+    edited = current.copy()
+    edited.obs["annotation"] = ["a"] * edited.n_obs
+
+    assert (
+        persistence.check_reload_identity(
+            current, edited, "data_1", tmp_path / "data_1.h5ad"
+        )
+        is None
+    )
+
+
+def test_check_reload_identity_warns_when_cells_were_filtered_out(tmp_path: Path):
+    current = _make_adata(n_obs=6)
+    filtered = current[:4].copy()
+
+    message = persistence.check_reload_identity(
+        current, filtered, "data_1", tmp_path / "data_1.h5ad"
+    )
+    assert message is not None
+    assert "keeps 4 of 6 cells" in message

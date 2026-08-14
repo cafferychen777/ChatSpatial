@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from ...spatial_mcp_adapter import ToolContext
 
 from ...utils.adata_utils import (
+    RawDataResult,
     ensure_unique_var_names_async,
     find_common_genes,
     get_spatial_key,
@@ -294,6 +295,31 @@ async def prepare_deconvolution(
     )
 
 
+def _recover_nonnegative_source(
+    adata: ad.AnnData,
+    scaled: "RawDataResult",
+    label: str,
+    require_counts: bool,
+) -> "RawDataResult":
+    """Fall back to ``adata.raw`` when the preferred matrix is scaled data."""
+    from ...utils.adata_utils import get_raw_data_source
+
+    recovered = get_raw_data_source(
+        adata,
+        prefer_complete_genes=True,
+        require_integer_counts=require_counts,
+    )
+    if recovered.has_negatives:
+        raise DataError(
+            f"{label} expression contains negative values (source: "
+            f"{scaled.source}), so it is scaled or residual data rather than "
+            "expression. Deconvolution estimates a non-negative mixture and "
+            "would return all-zero proportions. Provide counts in "
+            "layers['counts'] or adata.raw before deconvolving."
+        )
+    return recovered
+
+
 async def _prepare_counts(
     adata: ad.AnnData,
     label: str,
@@ -325,8 +351,30 @@ async def _prepare_counts(
         require_integer_counts=require_counts,
     )
 
-    adata_copy = adata.copy()
-    adata_copy.X = result.X
+    if result.has_negatives:
+        # Scaled/residual matrices are not expression. Every backend solves a
+        # non-negative mixture, so they return all-zero proportions instead of
+        # failing. adata.raw is where scanpy keeps the pre-scaling matrix.
+        result = _recover_nonnegative_source(adata, result, label, require_counts)
+        await ctx.warning(
+            f"{label} data is scaled (negative values), which deconvolution "
+            f"cannot mix; using adata.raw ({len(result.var_names)} genes) instead."
+        )
+
+    if len(result.var_names) == adata.n_vars and pd.Index(result.var_names).equals(
+        adata.var_names
+    ):
+        adata_copy = adata.copy()
+        adata_copy.X = result.X
+    else:
+        # Recovered from adata.raw, which carries its own gene axis.
+        adata_copy = ad.AnnData(
+            X=result.X.copy(),
+            obs=adata.obs.copy(),
+            var=pd.DataFrame(index=pd.Index(result.var_names, dtype=str)),
+            obsm={key: value.copy() for key, value in adata.obsm.items()},
+            uns=dict(adata.uns),
+        )
 
     # Convert to int32 if required (R-based methods like RCTD)
     if require_int_dtype:

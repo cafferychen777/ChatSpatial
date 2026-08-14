@@ -27,6 +27,7 @@ import scanpy as sc
 import scipy.sparse
 
 from .adata_utils import ensure_categorical
+from .dependency_manager import require
 from .exceptions import DataError, DataNotFoundError
 
 if TYPE_CHECKING:
@@ -309,6 +310,10 @@ def ensure_louvain(
         return False
 
     ensure_neighbors(adata)
+
+    # scanpy imports the louvain package lazily, so without this the caller
+    # sees a bare "No module named 'louvain'" with no way to act on it.
+    require("louvain", feature="Louvain clustering")
 
     sc.tl.louvain(
         adata,

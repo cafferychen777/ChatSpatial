@@ -24,6 +24,7 @@ from ..utils.adata_utils import (
     ensure_categorical,
     get_spatial_key,
     require_spatial_coords,
+    resolve_expression_source,
     store_analysis_metadata,
 )
 from ..utils.async_utils import run_sync, run_sync_with_timeout
@@ -83,59 +84,6 @@ def _build_domain_suffix(params: SpatialDomainParameters) -> str:
         return f"{params.method}_n{params.n_domains}"
     res_str = f"{getattr(params, control):.2f}".replace(".", "_")
     return f"{params.method}_res{res_str}"
-
-
-async def _resolve_expression_source(
-    adata: Any,
-    params: SpatialDomainParameters,
-    ctx: "ToolContext",
-) -> bool:
-    """Decide whether to read ``adata.raw`` and report why.
-
-    Every backend shares this check, so the message names the method actually
-    running and states the consequence, rather than guessing which
-    normalization produced the values it found.
-
-    Returns:
-        True when the backend should read ``adata.raw`` instead of ``adata.X``.
-    """
-    from scipy.sparse import issparse
-
-    # Sample a small portion for efficiency
-    sample_X = adata.X[:100, :100] if adata.shape[0] > 100 else adata.X
-    if issparse(sample_X):
-        data_min = sample_X.data.min() if sample_X.data.size > 0 else 0
-        data_max = sample_X.data.max() if sample_X.data.size > 0 else 0
-    else:
-        data_min = float(sample_X.min())
-        data_max = float(sample_X.max())
-
-    if data_min < 0:
-        # Negative values are what variance-stabilizing normalizations produce
-        # (Pearson residuals, scaling), so report the fallback, not a guess.
-        if adata.raw is not None:
-            await ctx.warning(
-                f"Expression matrix contains negative values "
-                f"(min={data_min:.2f}), which variance-stabilizing "
-                f"normalization produces. Using adata.raw for "
-                f"{params.method} instead."
-            )
-            return True
-        await ctx.warning(
-            f"Expression matrix contains negative values (min={data_min:.2f}) "
-            f"and no adata.raw is available, so {params.method} will run on "
-            f"them directly."
-        )
-        return False
-
-    if data_max > 100:
-        await ctx.warning(
-            f"Expression matrix contains large values (max={data_max:.2f}), "
-            f"which suggests unnormalized counts. Normalizing and "
-            f"log-transforming before {params.method} usually improves results."
-        )
-
-    return False
 
 
 async def identify_spatial_domains(
@@ -199,7 +147,7 @@ async def identify_spatial_domains(
         hvg_mask = adata.var["highly_variable"] if use_hvg else None
 
         # Step 2: Check data quality on original adata (read-only)
-        use_raw = await _resolve_expression_source(adata, params, ctx)
+        use_raw = await resolve_expression_source(adata, ctx, feature=params.method)
 
         # Step 3: Create working copy EXACTLY ONCE with final gene selection
         if use_raw:
@@ -626,6 +574,7 @@ async def _identify_domains_clustering(
             f"spatial_{params.method}"  # e.g., "spatial_leiden" or "spatial_louvain"
         )
 
+        method_used = params.method
         if params.method == "leiden":
             sc.tl.leiden(adata, resolution=params.resolution, key_added=key_added)
         else:  # louvain
@@ -639,16 +588,21 @@ async def _identify_domains_clustering(
             try:
                 sc.tl.louvain(adata, resolution=params.resolution, key_added=key_added)
             except ImportError as e:
-                # Fallback to leiden if louvain is not available
+                # Fall back to leiden, and record leiden. Labelling another
+                # algorithm's output "louvain" would leave nothing downstream
+                # able to tell what actually produced the domains.
+                method_used = "leiden"
+                key_added = f"spatial_{method_used}"
                 await ctx.warning(
-                    f"Louvain not available: {e}. Using Leiden clustering instead."
+                    f"Louvain not available: {e}. Used Leiden clustering instead; "
+                    f"the domains are reported as leiden in obs['{key_added}']."
                 )
                 sc.tl.leiden(adata, resolution=params.resolution, key_added=key_added)
 
         domain_labels = adata.obs[key_added].astype(str)
 
         statistics = {
-            "method": params.method,
+            "method": method_used,
             "resolution": params.resolution,
             "n_neighbors": n_neighbors,
             "spatial_weight": spatial_weight if detected_spatial_key else 0.0,

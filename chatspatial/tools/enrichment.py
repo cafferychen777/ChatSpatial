@@ -183,11 +183,6 @@ ENRICHR_ORGANISM_DATABASE_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
-def _top_n_desc_indices(values: np.ndarray, n_top: int) -> np.ndarray:
-    """Backward-compatible wrapper with non-finite sanitization."""
-    return top_n_desc_indices(values, n_top, sanitize_nonfinite=True)
-
-
 def _normalize_gene_set_library(raw_gene_sets: object) -> dict[str, list[str]]:
     """Normalize gene-set library payloads from gseapy/Enrichr boundaries."""
     if not isinstance(raw_gene_sets, dict):
@@ -926,12 +921,13 @@ def perform_gsea(
             }
 
         # Get top enriched and depleted
-        results_df_sorted = results_df.sort_values("NES", ascending=False)
-        top_enriched = (
-            results_df_sorted[results_df_sorted["NES"] > 0].head(10)["Term"].tolist()
-        )
+        by_nes = results_df.sort_values("NES", ascending=False, kind="stable")
+        top_enriched = by_nes.loc[by_nes["NES"] > 0, "Term"].head(10).tolist()
+        # Depletion is strongest at the most negative NES. A descending sort
+        # puts those last, so taking its head would report the *weakest*
+        # depletions as the top ones.
         top_depleted = (
-            results_df_sorted[results_df_sorted["NES"] < 0].head(10)["Term"].tolist()
+            by_nes.loc[by_nes["NES"] < 0, "Term"].iloc[::-1].head(10).tolist()
         )
 
         _store_enrichment_results(
@@ -1889,9 +1885,15 @@ async def _perform_spatial_enrichment_on_adata(
     # Export results for reproducibility
     export_analysis_result(adata, data_id, analysis_key)
 
-    # Create enrichment scores (use max score per gene set)
+    # EnrichMap z-scores every signature before smoothing, so all of them enter
+    # with the same mean and variance and the mean carries no information
+    # afterwards (it is 0 by construction). What separates signatures is how
+    # much variance survives neighbourhood averaging: a spatially coherent
+    # signature keeps it, a scattered one is averaged away. The retained
+    # standard deviation measures that over every spot, whereas the maximum
+    # estimates the same quantity from the single most extreme spot.
     enrichment_scores = {
-        sig_name: float(stats["max"]) for sig_name, stats in summary_stats.items()
+        sig_name: float(stats["std"]) for sig_name, stats in summary_stats.items()
     }
 
     # Sort by enrichment score to get top gene sets
@@ -1914,7 +1916,9 @@ async def _perform_spatial_enrichment_on_adata(
         pvalues=pvalues,
         adjusted_pvalues=adjusted_pvalues,
         gene_set_statistics={},  # Empty to reduce response size (no p-values available)
-        spatial_scores_key=None,  # Scores are in obs columns, not obsm
+        # One obs column per signature rather than a single obsm table, so
+        # point at the metadata entry that names every column written.
+        spatial_scores_key=f"{analysis_key}_metadata",
         top_gene_sets=top_gene_sets,
         top_depleted_sets=[],  # Spatial enrichment doesn't produce depleted sets
     )

@@ -75,6 +75,9 @@ async def test_integrate_samples_passes_inputs_and_returns_integrated_id(
             data_id="integrated_7",
             n_samples=len(data_ids),
             integration_method=params.method,
+            n_cells=120,
+            batch_key=params.batch_key,
+            embedding_key="X_pca_harmony",
         )
 
     monkeypatch.setitem(
@@ -164,6 +167,9 @@ async def test_integrate_samples_materializes_default_params(
             data_id="integrated_defaults",
             n_samples=len(data_ids),
             integration_method=params.method,
+            n_cells=64,
+            batch_key=params.batch_key,
+            embedding_key="X_pca_harmony",
         )
 
     monkeypatch.setitem(
