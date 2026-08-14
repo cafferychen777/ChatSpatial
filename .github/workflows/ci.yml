@@ -27,14 +27,10 @@ concurrency:
 
 jobs:
   dependency-resolution:
-    name: Resolve method extras (Python ${{ matrix.python-version }})
+    name: Resolve method extras
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -42,17 +38,25 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
 
-      - name: Resolve each composable method family with pip
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+
+      - name: Resolve every composable method family on Python 3.11-3.14
         run: |
-          python -m pip install --upgrade pip
-          for extra in \
-            deep-learning velocity trajectory cell-communication integration \
-            spatial-stats deconvolution annotation enrichment cnv differential \
-            registration spatial-genes spatial-domains fastccc full; do
-            echo "Resolving chatspatial[$extra]"
-            python -m pip install --dry-run --ignore-installed ".[${extra}]"
+          for python_version in 3.11 3.12 3.13 3.14; do
+            for extra in \
+              deep-learning velocity trajectory cell-communication fastccc \
+              integration spatial-stats deconvolution annotation enrichment \
+              cnv differential registration spatial-genes spatial-domains full; do
+              echo "Resolving chatspatial[$extra] on Python $python_version"
+              uv pip compile pyproject.toml \
+                --extra "$extra" \
+                --python-version "$python_version" \
+                --no-emit-package chatspatial \
+                --quiet > /dev/null
+            done
           done
 
   r-backend-install:
@@ -103,7 +107,7 @@ jobs:
           python -m venv /tmp/chatspatial-wheel-smoke
           wheel=$(find "$PWD/dist" -name '*.whl' -print -quit)
           /tmp/chatspatial-wheel-smoke/bin/python -m pip install \
-            "${wheel}[spatial-domains,spatial-genes,registration,trajectory]"
+            "${wheel}[spatial-domains,spatial-genes,registration,trajectory,fastccc]"
           /tmp/chatspatial-wheel-smoke/bin/python \
             scripts/quality/smoke_maintained_backends.py
 
