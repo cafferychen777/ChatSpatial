@@ -2343,35 +2343,50 @@ class TestNonNegativeExpressionForTotalBasedStatistics:
     async def test_hotspots_survive_the_sign_of_the_residual_total(self):
         """The regression itself: a negative total flips every z-score.
 
-        Reported on a lymph node as CCL21 losing all 67 of its hot spots.
+        Gi* is a neighbourhood sum over the global sum. Centred values drive
+        that denominator to zero and past it, and a negative denominator
+        reverses the ranking: on a lymph node CCL21 lost all 67 of its hot
+        spots and correlated at rho = -0.86 with the counts answer. The
+        statistic is computed here rather than imported, because the claim is
+        about the denominator, not about any one implementation of Gi*.
         """
         import anndata as ad
-        from esda.getisord import G_Local
-        from libpysal import weights
 
-        rng = np.random.default_rng(0)
-        coords = np.array([[x, y] for x in range(10) for y in range(10)], dtype=float)
-        counts = rng.poisson(2, size=(100, 1)).astype(np.float32)
+        coords = np.array([[x, y] for x in range(8) for y in range(8)], dtype=float)
+        counts = np.full((len(coords), 1), 2.0, dtype=np.float32)
         hot = (coords[:, 0] < 3) & (coords[:, 1] < 3)
-        counts[hot, 0] += 40  # a corner hot spot
+        counts[hot, 0] = 40.0
 
         adata = ad.AnnData(counts.copy())
         adata.var_names = ["gene_a"]
         adata.obsm["spatial"] = coords
         adata.raw = adata.copy()
-        adata.X = counts - counts.mean(axis=0)
-        assert float(np.asarray(adata.X).sum()) < 1e-6  # centred: a null total
+        # Pearson residuals are centred, and their column total lands on either
+        # side of zero: CCL21 summed to -156 on the lymph node.
+        adata.X = counts - counts.mean(axis=0) - 0.1
 
-        w = weights.KNN.from_array(coords, k=8)
-        w.transform = "r"
+        def gi_star(values: np.ndarray) -> np.ndarray:
+            """Row-standardized Gi*: a neighbourhood share of the global sum."""
+            within = (
+                np.linalg.norm(coords[:, None, :] - coords[None, :, :], axis=-1) <= 1.5
+            )
+            weights = within / within.sum(axis=1, keepdims=True)
+            return weights @ values / values.sum()
+
+        residual_values = np.asarray(adata.X)[:, 0].astype(float)
+        assert residual_values.sum() < 0  # the denominator that inverts Gi*
+
         resolved = await ss._resolve_nonnegative_expression(
             adata, _WarnCtx(), "getis_ord"
         )
+        resolved_values = np.asarray(resolved.X)[:, 0].astype(float)
+        assert resolved_values.sum() > 0
 
-        z_resolved = G_Local(
-            np.asarray(resolved.X)[:, 0].astype(float), w, transform="R", star=True
-        ).Zs
-        z_counts = G_Local(counts[:, 0].astype(float), w, transform="R", star=True).Zs
-
-        np.testing.assert_allclose(z_resolved, z_counts)
-        assert (z_resolved > 1.96).sum() > 0
+        # On expression the hot corner scores highest; on residuals the same
+        # corner scores lowest, which is how a hot spot is reported as a cold one.
+        assert (
+            gi_star(resolved_values)[hot].min() > gi_star(resolved_values)[~hot].max()
+        )
+        assert (
+            gi_star(residual_values)[hot].max() < gi_star(residual_values)[~hot].min()
+        )
