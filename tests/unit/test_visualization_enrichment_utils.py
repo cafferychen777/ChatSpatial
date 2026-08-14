@@ -196,6 +196,72 @@ def test_gsea_results_to_dataframe_restores_numeric_object_columns():
     assert df["Lead_genes"].tolist() == ["GeneA;GeneB", "GeneC"]
 
 
+class TestPathwayPlotTitles:
+    """A plot of nothing significant must not be captioned as a finding.
+
+    Both pathway plots draw the best-ranked terms whatever their q-values, so
+    equal-length bars at q ~ 0.9 arrived under the title "Top Enriched
+    Pathways".
+    """
+
+    @staticmethod
+    def _capture_title(monkeypatch: pytest.MonkeyPatch, plot_name: str) -> dict:
+        captured: dict[str, object] = {}
+        fake_gp = ModuleType("gseapy")
+
+        def _fake_plot(**kwargs):
+            captured.update(kwargs)
+            return plt.subplots()[1]
+
+        setattr(fake_gp, plot_name, _fake_plot)
+        monkeypatch.setattr(viz_enrich, "require", lambda *_args, **_kwargs: fake_gp)
+        return captured
+
+    def test_barplot_says_when_nothing_is_significant(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        captured = self._capture_title(monkeypatch, "barplot")
+        viz_enrich._create_gsea_barplot(
+            {"PathA": {"Adjusted P-value": 0.93}, "PathB": {"Adjusted P-value": 0.94}},
+            VisualizationParameters(plot_type="enrichment", subtype="barplot"),
+        )
+        assert "none reached" in str(captured["title"])
+        plt.close("all")
+
+    def test_barplot_keeps_plain_title_when_something_is_significant(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        captured = self._capture_title(monkeypatch, "barplot")
+        viz_enrich._create_gsea_barplot(
+            {"PathA": {"Adjusted P-value": 0.001}, "PathB": {"Adjusted P-value": 0.94}},
+            VisualizationParameters(plot_type="enrichment", subtype="barplot"),
+        )
+        assert captured["title"] == "Top Enriched Pathways"
+        plt.close("all")
+
+    def test_explicit_title_is_never_overridden(self, monkeypatch: pytest.MonkeyPatch):
+        captured = self._capture_title(monkeypatch, "barplot")
+        viz_enrich._create_gsea_barplot(
+            {"PathA": {"Adjusted P-value": 0.93}},
+            VisualizationParameters(
+                plot_type="enrichment", subtype="barplot", title="My Figure"
+            ),
+        )
+        assert captured["title"] == "My Figure"
+        plt.close("all")
+
+    def test_dotplot_says_when_nothing_is_significant(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        captured = self._capture_title(monkeypatch, "dotplot")
+        viz_enrich._create_gsea_dotplot(
+            {"PathA": {"Adjusted P-value": 0.93}, "PathB": {"Adjusted P-value": 0.94}},
+            VisualizationParameters(plot_type="enrichment", subtype="dotplot"),
+        )
+        assert "none reached" in str(captured["title"])
+        plt.close("all")
+
+
 def test_create_gsea_barplot_wraps_gseapy_errors(monkeypatch: pytest.MonkeyPatch):
     fake_gp = ModuleType("gseapy")
 

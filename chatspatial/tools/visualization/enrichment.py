@@ -45,6 +45,9 @@ logger = logging.getLogger(__name__)
 
 _LATEST_ENRICHMENT_RESULTS_KEY = "enrichment_latest_results_key"
 _LATEST_ENRICHMENT_SCORE_KEY = "enrichment_latest_score_key"
+# Threshold the pathway plots label their terms against; the same 5% the
+# enrichment backends count significance at.
+_PLOT_SIGNIFICANCE_ALPHA = 0.05
 _DEFAULT_ENRICHMENT_RESULTS_KEY = "gsea_results"
 _FALLBACK_ENRICHMENT_RESULTS_KEYS = (
     "enrichr_results",
@@ -668,6 +671,28 @@ def _require_pvalue_column(df: pd.DataFrame, plot_name: str) -> str:
     return pval_col
 
 
+def _plot_title(
+    df: pd.DataFrame,
+    pval_col: str,
+    params: VisualizationParameters,
+    default: str,
+    alpha: float = _PLOT_SIGNIFICANCE_ALPHA,
+) -> str:
+    """Return the plot title, saying so when nothing reached significance.
+
+    Both pathway plots draw the best-ranked terms whether or not any of them
+    passed multiple-testing correction, which is useful for exploration and
+    misleading unlabelled: equal-length bars for q-values near 1 read as
+    findings.
+    """
+    if params.title:
+        return params.title
+    n_significant = int((pd.to_numeric(df[pval_col], errors="coerce") < alpha).sum())
+    if n_significant:
+        return default
+    return f"{default} (none reached {pval_col} < {alpha:g})"
+
+
 def _create_gsea_barplot(
     gsea_results,
     params: VisualizationParameters,
@@ -698,7 +723,7 @@ def _create_gsea_barplot(
         ax = gp.barplot(
             df=df,
             column=pval_col,
-            title=params.title or "Top Enriched Pathways",
+            title=_plot_title(df, pval_col, params, "Top Enriched Pathways"),
             cutoff=1.0,
             top_term=n_top,
             figsize=figsize,
@@ -756,7 +781,7 @@ def _create_gsea_dotplot(
             column=pval_col,
             x=x_col,
             y="Term",
-            title=params.title or "Pathway Enrichment",
+            title=_plot_title(df, pval_col, params, "Pathway Enrichment"),
             cutoff=1.0,
             top_term=n_top,
             figsize=figsize,

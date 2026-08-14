@@ -125,7 +125,7 @@ def test_get_info_supports_registered_alias_and_unknown_defaults():
     unknown = dm._get_info("some-new-package")
 
     assert spatialde_by_name.module_name == "SpatialDE"
-    assert spatialde_by_module.install_cmd == "pip install SpatialDE"
+    assert spatialde_by_module.install_cmd == "pip install naivede-modern"
     assert velovi.module_name == "scvi"
     assert "scvi-tools" in velovi.description
     assert unknown.install_cmd == "pip install some-new-package"
@@ -444,6 +444,43 @@ def test_require_reports_broken_transitive_import_with_original_cause(
 
     assert "broken_transitive_dependency" in str(exc.value)
     assert isinstance(exc.value.__cause__, ModuleNotFoundError)
+
+
+def test_broken_import_offers_the_repair_not_the_install_command(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """An installed-but-unloadable package needs different advice.
+
+    rpy2 fails with a missing R symbol when it is linked against a different R
+    than the one being loaded, and "pip install rpy2" does not fix that.
+    """
+    dm._try_import.cache_clear()
+
+    def _raise_symbol_error(_module_name: str):
+        raise ImportError("symbol 'R_getVar' not found in library 'libR.dylib'")
+
+    monkeypatch.setattr(dm.importlib, "import_module", _raise_symbol_error)
+    try:
+        with pytest.raises(DependencyError) as exc:
+            dm.require("rpy2", feature="R-based methods")
+    finally:
+        dm._try_import.cache_clear()
+
+    message = str(exc.value)
+    assert "R RHOME" in message
+    assert "Install or repair: pip install rpy2\n" not in message
+
+
+def test_missing_package_still_offers_the_install_command(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    dm._try_import.cache_clear()
+    monkeypatch.setattr(dm, "_try_import", lambda _module_name: None)
+
+    with pytest.raises(DependencyError) as exc:
+        dm.require("rpy2", feature="R-based methods")
+
+    assert "Install: pip install rpy2" in str(exc.value)
 
 
 def test_require_wraps_non_import_loader_failures(

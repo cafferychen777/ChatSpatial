@@ -1599,7 +1599,7 @@ class CellCommunicationParameters(StrictParameters):
 
     # ========== Basic Method Selection ==========
     method: Literal["liana", "cellphonedb", "cellchat_r", "fastccc"] = Field(
-        default="fastccc",
+        default="liana",
         description="fastccc/cellphonedb: human only. liana/cellchat_r: human, mouse, zebrafish.",
     )
 

@@ -895,6 +895,19 @@ def _validate_velocity_data(adata: "ad.AnnData", issues: list[str]) -> None:
 # =============================================================================
 # Metadata Storage: Scientific Provenance Tracking
 # =============================================================================
+def storage_safe_key(name: str) -> str:
+    """Return a name usable as an AnnData key or obs/var column.
+
+    `uns` entries and DataFrame columns are written as HDF5 links, and HDF5
+    reserves "/" as its path separator, so a single slash anywhere in the name
+    makes the whole dataset unwritable. Names that come from outside the
+    package -- gene set names such as "PI3K/AKT/mTOR Signaling" above all --
+    routinely carry one, so they must pass through here before they become
+    identifiers.
+    """
+    return str(name).replace("/", "_")
+
+
 def store_analysis_metadata(
     adata: "ad.AnnData",
     analysis_name: str,

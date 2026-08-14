@@ -37,7 +37,7 @@ jobs:
           r-version: "4.4"
 
       - name: Install
-        run: pip install -e ".[full]"
+        run: pip install -e ".[full,cell-communication,trajectory,spatial-domains]"
         timeout-minutes: 30
 
       - name: Verify
@@ -45,4 +45,5 @@ jobs:
           python -c "import chatspatial; print(f'v{chatspatial.__version__}')"
           python -c "from chatspatial.server import mcp; print('MCP OK')"
           python -c "import scanpy, squidpy, leidenalg; print('Core OK')"
+          python -c "import SpaGCN, SpatialDE, NaiveDE, banksy, cellrank, liana; print('Method extras OK')"
           python -m chatspatial --help

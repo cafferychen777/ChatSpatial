@@ -27,6 +27,7 @@ from ..utils.adata_utils import (
     store_velovi_essential_data,
     validate_adata,
 )
+from ..utils.compute import ensure_highly_variable_genes
 from ..utils.dependency_manager import require, require_module
 from ..utils.device_utils import get_accelerator
 from ..utils.exceptions import (
@@ -84,6 +85,33 @@ def _copy_matrix_data(data: Any) -> Any:
     if hasattr(data, "copy"):
         return data.copy()
     return np.array(data, copy=True)
+
+
+def _filter_and_normalize_for_velocity(
+    adata: "ad.AnnData",
+    *,
+    min_shared_counts: int,
+    n_top_genes: int,
+    scv: Any,
+) -> None:
+    """Filter, normalize and reduce a dataset to velocity-ready genes.
+
+    scVelo's own ``filter_and_normalize`` wrapper is not stable across
+    releases: since 0.3 it forwards unrecognized keywords to
+    ``normalize_per_cell`` -- so ``n_top_genes`` raises a TypeError -- and it no
+    longer selects variable genes or log-transforms at all. Spelling the four
+    steps out keeps one behaviour across supported scVelo versions and reuses
+    the package-wide variable gene selection, degenerate-input fallback
+    included.
+    """
+    import scanpy as sc
+
+    scv.pp.filter_genes(adata, min_shared_counts=min_shared_counts)
+    # enforce=True normalizes even when an earlier preprocessing step already
+    # left the matrix looking normalized.
+    scv.pp.normalize_per_cell(adata, enforce=True)
+    sc.pp.log1p(adata)
+    ensure_highly_variable_genes(adata, min(n_top_genes, adata.n_vars), subset=True)
 
 
 def _compute_velocity_moments(
@@ -277,14 +305,11 @@ def preprocess_for_velocity(
     if scv is None:
         scv = require("scvelo", feature="scVelo preprocessing")
 
-    # Standard preprocessing with configurable parameters
-    # enforce=True ensures scvelo recomputes everything even if data was pre-normalized
-    # This is important when running after MCP's general preprocessing step
-    scv.pp.filter_and_normalize(
+    _filter_and_normalize_for_velocity(
         adata,
         min_shared_counts=min_shared_counts,
         n_top_genes=n_top_genes,
-        enforce=True,
+        scv=scv,
     )
     _compute_velocity_moments(
         adata,
@@ -408,14 +433,12 @@ async def _prepare_velovi_data(
         n_pcs = params.n_pcs
         n_neighbors = params.n_neighbors
 
-    # scvelo preprocessing
-    # enforce=True ensures scvelo recomputes everything even if data was pre-normalized
     try:
-        scv.pp.filter_and_normalize(
+        _filter_and_normalize_for_velocity(
             adata_velovi,
             min_shared_counts=min_shared_counts,
             n_top_genes=n_top_genes,
-            enforce=True,
+            scv=scv,
         )
     except Exception as e:
         raise ProcessingError(

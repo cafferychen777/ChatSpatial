@@ -199,14 +199,14 @@ def _install_fake_rpy2_runtime(monkeypatch: pytest.MonkeyPatch, spark_factory) -
 
 
 @pytest.mark.asyncio
-async def test_spatialde_applies_compatibility_patch_before_import(
+async def test_spatialde_imports_without_legacy_compatibility_patch(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     events: list[str] = []
 
     monkeypatch.setattr(
         "chatspatial.utils.compat.ensure_spatialde_compat",
-        lambda: events.append("compat"),
+        lambda: (_ for _ in ()).throw(AssertionError("legacy patch was called")),
     )
 
     def _stop_after_first_import(name: str, *_args, **_kwargs):
@@ -223,7 +223,7 @@ async def test_spatialde_applies_compatibility_patch_before_import(
             DummyCtx(),
         )
 
-    assert events == ["compat", "spatialde"]
+    assert events == ["spatialde"]
 
 
 @pytest.mark.asyncio

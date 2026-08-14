@@ -109,8 +109,99 @@ def test_extract_result_summary_local_join_count_aggregates_per_category_stats()
     )
     assert summary["n_features_analyzed"] == 2
     assert summary["n_significant"] == 5
-    assert summary["top_features"] == ["A", "B"]
+    assert summary["top_features"] == ["A", "B"]  # ranked by n_significant
     assert summary["summary_metrics"]["total_significant_clusters"] == 5
+
+
+class TestPerFeatureSummaryRanking:
+    """`top_features` has to name where the statistic found something.
+
+    Per-feature analyses build their results one gene or category at a time, so
+    reporting the first ten in iteration order returned the caller's own input
+    order back -- identical whether the run found 4000 hot spots or none.
+    """
+
+    def test_local_moran_ranks_genes_by_significant_spots(self):
+        summary = _extract_result_summary(
+            {
+                "genes_analyzed": ["Quiet", "Loud", "Middle"],
+                "results": {
+                    "Quiet": {"n_significant": 1, "n_hotspots": 1, "n_coldspots": 0},
+                    "Loud": {"n_significant": 90, "n_hotspots": 60, "n_coldspots": 30},
+                    "Middle": {"n_significant": 20, "n_hotspots": 12, "n_coldspots": 8},
+                },
+            },
+            "local_moran",
+        )
+        assert summary["top_features"] == ["Loud", "Middle", "Quiet"]
+        assert summary["n_significant"] == 111
+
+    def test_getis_ord_ranks_genes_by_hot_and_cold_spots(self):
+        summary = _extract_result_summary(
+            {
+                "genes_analyzed": ["Quiet", "Loud"],
+                "results": {
+                    "Quiet": {"n_hot_spots": 1, "n_cold_spots": 0},
+                    "Loud": {"n_hot_spots": 40, "n_cold_spots": 30},
+                },
+            },
+            "getis_ord",
+        )
+        assert summary["top_features"] == ["Loud", "Quiet"]
+        assert summary["n_significant"] == 71
+
+    def test_getis_ord_ranks_on_corrected_counts_when_present(self):
+        summary = _extract_result_summary(
+            {
+                "genes_analyzed": ["A", "B"],
+                "results": {
+                    # A dominates before correction and B after it, so ranking
+                    # on the raw counts would name the wrong gene.
+                    "A": {
+                        "n_hot_spots": 90,
+                        "n_cold_spots": 0,
+                        "n_hot_spots_corrected": 1,
+                        "n_cold_spots_corrected": 0,
+                    },
+                    "B": {
+                        "n_hot_spots": 10,
+                        "n_cold_spots": 0,
+                        "n_hot_spots_corrected": 30,
+                        "n_cold_spots_corrected": 5,
+                    },
+                },
+            },
+            "getis_ord",
+        )
+        assert summary["top_features"] == ["B", "A"]
+
+    def test_local_join_count_ranks_categories_by_significance(self):
+        summary = _extract_result_summary(
+            {
+                "n_categories": 3,
+                "categories": ["first", "second", "third"],
+                "per_category_stats": {
+                    "first": {"n_significant": 2, "n_hotspots": 1},
+                    "second": {"n_significant": 30, "n_hotspots": 20},
+                    "third": {"n_significant": 9, "n_hotspots": 5},
+                },
+            },
+            "local_join_count",
+        )
+        assert summary["top_features"] == ["second", "third", "first"]
+
+    def test_ranking_breaks_ties_reproducibly(self):
+        summary = _extract_result_summary(
+            {
+                "genes_analyzed": ["Zed", "Abe"],
+                "results": {
+                    "Zed": {"n_significant": 5},
+                    "Abe": {"n_significant": 5},
+                },
+            },
+            "local_moran",
+        )
+        assert summary["top_features"] == ["Abe", "Zed"]
 
 
 def test_build_results_keys_unknown_analysis_returns_empty_key_structure():
@@ -360,6 +451,39 @@ async def test_analyze_spatial_statistics_moran_success_path_updates_metadata_an
     }
     assert captured["statistics"] == {"n_cells": 60, "n_significant": 1}
     assert ctx.committed is not adata
+
+
+@pytest.mark.asyncio
+async def test_analyze_spatial_statistics_points_per_spot_results_at_metadata(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """Getis-Ord writes obs columns and no uns table, so it reported nowhere.
+
+    The metadata entry lists every column the run wrote, which is what a caller
+    needs to reach the per-spot results.
+    """
+    adata = minimal_spatial_adata.copy()
+    params = SpatialStatisticsParameters(analysis_type="getis_ord", genes=["gene_0"])
+
+    monkeypatch.setattr(ss, "ensure_spatial_neighbors", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ss, "store_analysis_metadata", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ss, "export_analysis_result", lambda *_args, **_kwargs: [])
+    monkeypatch.setitem(
+        ss._ANALYSIS_REGISTRY,
+        "getis_ord",
+        ss._AnalysisConfig(
+            handler=lambda *_a, **_kw: {
+                "genes_analyzed": ["gene_0"],
+                "results": {"gene_0": {"n_hot_spots": 3, "n_cold_spots": 1}},
+            },
+            needs_cluster=False,
+            metadata_keys={},
+        ),
+    )
+
+    out = await ss.analyze_spatial_statistics("d1", DummyCtx(adata), params)
+
+    assert out.results_key == "spatial_stats_getis_ord_metadata"
 
 
 @pytest.mark.asyncio

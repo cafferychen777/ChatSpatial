@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import logging
-
 import numpy as np
 import pandas as pd
 
 from chatspatial.tools.trajectory import (
+    TRAJECTORY_ROOT_KEY,
     compute_dpt_trajectory,
     infer_pseudotime_palantir,
 )
@@ -16,7 +15,7 @@ from chatspatial.tools.trajectory import (
 class TestPalantirAutoRoot:
     """Issue 5a: Palantir auto root should use abs() for sign invariance."""
 
-    def test_auto_root_uses_abs_of_first_dc(self, minimal_spatial_adata, caplog):
+    def test_auto_root_uses_abs_of_first_dc(self, minimal_spatial_adata):
         """Auto-selected root cell should be based on abs(DC1),
         making it invariant to eigenvector sign flips."""
         adata = minimal_spatial_adata.copy()
@@ -67,19 +66,18 @@ class TestPalantirAutoRoot:
             ),
         )
         fake_palantir.core = types.SimpleNamespace(run_palantir=fake_run_palantir)
-        with caplog.at_level(logging.WARNING):
-            infer_pseudotime_palantir(
-                adata,
-                root_cells=None,
-                palantir_module=fake_palantir,
-            )
+        infer_pseudotime_palantir(
+            adata,
+            root_cells=None,
+            palantir_module=fake_palantir,
+        )
 
         # With abs(), cell_2 should be selected (|-0.9| > |0.5|)
         assert (
             captured["start_cell"] == "cell_2"
         ), f"Expected cell_2 (largest abs DC1), got {captured['start_cell']}"
-        # Warning should be emitted
-        assert any("No root cell specified" in msg for msg in caplog.messages)
+        # The root the caller warns about must be recorded, not just logged.
+        assert adata.uns[TRAJECTORY_ROOT_KEY] == "cell_2"
 
     def test_explicit_root_skips_auto_selection(self, minimal_spatial_adata):
         """When root_cells is provided, auto-selection is skipped."""
@@ -134,7 +132,7 @@ class TestPalantirAutoRoot:
 class TestDPTAutoRoot:
     """Issue 5b: DPT auto root should use diffusion map, not index 0."""
 
-    def test_auto_root_uses_diffmap(self, minimal_spatial_adata, caplog):
+    def test_auto_root_uses_diffmap(self, minimal_spatial_adata):
         """DPT auto-root should pick cell with max abs(DC1)
         from X_diffmap, not just index 0."""
         adata = minimal_spatial_adata.copy()
@@ -153,16 +151,15 @@ class TestDPTAutoRoot:
         adata.obsm["X_diffmap"][3, 0] = -2.5  # largest absolute
         adata.obsm["X_diffmap"][0, 0] = 1.0  # smaller absolute
 
-        with caplog.at_level(logging.WARNING):
-            compute_dpt_trajectory(adata, root_cells=None)
+        compute_dpt_trajectory(adata, root_cells=None)
 
         assert (
             adata.uns["iroot"] == 3
         ), f"Expected iroot=3 (largest abs DC1), got {adata.uns['iroot']}"
-        assert any("No root cell specified" in msg for msg in caplog.messages)
+        assert adata.uns[TRAJECTORY_ROOT_KEY] == adata.obs_names[3]
 
     def test_auto_root_fallback_without_diffmap(
-        self, minimal_spatial_adata, monkeypatch, caplog
+        self, minimal_spatial_adata, monkeypatch
     ):
         """If X_diffmap is somehow missing, fall back to index 0."""
         adata = minimal_spatial_adata.copy()
@@ -184,8 +181,7 @@ class TestDPTAutoRoot:
         if "X_diffmap" in adata.obsm:
             del adata.obsm["X_diffmap"]
 
-        with caplog.at_level(logging.WARNING):
-            compute_dpt_trajectory(adata, root_cells=None)
+        compute_dpt_trajectory(adata, root_cells=None)
 
         assert adata.uns["iroot"] == 0
-        assert any("No root cell specified" in msg for msg in caplog.messages)
+        assert adata.uns[TRAJECTORY_ROOT_KEY] == adata.obs_names[0]

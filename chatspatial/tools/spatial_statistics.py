@@ -271,9 +271,10 @@ async def analyze_spatial_statistics(
             statistics_dict["mean_score"] = result["mean_score"]
 
         # Store metadata
+        analysis_name = f"spatial_stats_{params.analysis_type}"
         store_analysis_metadata(
             adata,
-            analysis_name=f"spatial_stats_{params.analysis_type}",
+            analysis_name=analysis_name,
             method=params.analysis_type,
             parameters=parameters_dict,
             results_keys=results_keys_dict,
@@ -281,7 +282,7 @@ async def analyze_spatial_statistics(
         )
 
         # Export results to CSV for reproducibility
-        export_analysis_result(adata, data_id, f"spatial_stats_{params.analysis_type}")
+        export_analysis_result(adata, data_id, analysis_name)
 
         tool_result = SpatialStatisticsResult(
             data_id=data_id,
@@ -290,7 +291,10 @@ async def analyze_spatial_statistics(
             n_significant=summary["n_significant"],
             top_features=summary["top_features"],
             summary_metrics=summary["summary_metrics"],
-            results_key=summary.get("results_key"),
+            # Per-spot analyses write their results as obs columns and have no
+            # single uns table; the metadata entry lists every column they
+            # wrote, so it is what a caller needs to find them.
+            results_key=summary.get("results_key") or f"{analysis_name}_metadata",
             statistics=result,  # Excluded from MCP response via Field(exclude=True)
         )
         await ctx.set_adata(data_id, adata)
@@ -467,6 +471,18 @@ def _summarize_centrality_scores(scores: Any) -> dict[str, Any]:
     return {"top_features": top_features, "summary_metrics": summary_metrics}
 
 
+def _rank_features_by_count(counts: dict[str, Any], limit: int = 10) -> list[str]:
+    """Order features by how much the statistic found, most first.
+
+    Per-feature analyses accumulate their results one gene or one category at a
+    time, so iterating them returns the caller's input order, which says
+    nothing about where the statistic actually found structure. Ties break on
+    the feature name to keep the response reproducible.
+    """
+    ordered = sorted(counts.items(), key=lambda item: (-float(item[1]), str(item[0])))
+    return [str(name) for name, _count in ordered[:limit]]
+
+
 def _summarize_bivariate_moran_pairs(
     result: dict[str, Any], threshold: float = 0.3
 ) -> dict[str, Any]:
@@ -517,7 +533,8 @@ def _extract_result_summary(
         - n_significant: Number of significant results
         - top_features: List of top significant features (max 10)
         - summary_metrics: Key numeric metrics
-        - results_key: Key in adata.uns for full results (if applicable)
+        - results_key: Key in adata.uns holding one results table, left None by
+          analyses that write per-spot obs columns instead
     """
     summary: dict[str, Any] = {
         "n_features_analyzed": 0,
@@ -550,10 +567,15 @@ def _extract_result_summary(
         # Match field names from _analyze_local_moran return value
         genes_analyzed = result.get("genes_analyzed", [])
         summary["n_features_analyzed"] = len(genes_analyzed)
-        summary["top_features"] = genes_analyzed[:10]
 
         # Compute statistics from per-gene results
         per_gene_results = result.get("results", {})
+        summary["top_features"] = _rank_features_by_count(
+            {
+                gene: gene_result.get("n_significant", 0)
+                for gene, gene_result in per_gene_results.items()
+            }
+        )
         total_significant = sum(
             r.get("n_significant", 0) for r in per_gene_results.values()
         )
@@ -579,28 +601,33 @@ def _extract_result_summary(
             }
 
     elif analysis_type == "getis_ord":
-        genes_analyzed = result.get("genes_analyzed", [])
-        summary["n_features_analyzed"] = len(genes_analyzed)
-        summary["top_features"] = genes_analyzed[:10]
+        summary["n_features_analyzed"] = len(result.get("genes_analyzed", []))
         per_gene_results = result.get("results", {})
-        use_corrected_spot_counts = any(
-            "n_hot_spots_corrected" in r or "n_cold_spots_corrected" in r
+        # Corrected counts exist only where a multiple-testing correction ran;
+        # one lookup per gene keeps the totals and the ranking on the same
+        # numbers.
+        spot_counts = {
+            gene: int(
+                gene_result.get(
+                    "n_hot_spots_corrected", gene_result.get("n_hot_spots", 0)
+                )
+            )
+            + int(
+                gene_result.get(
+                    "n_cold_spots_corrected", gene_result.get("n_cold_spots", 0)
+                )
+            )
+            for gene, gene_result in per_gene_results.items()
+        }
+        total_hot = sum(
+            int(r.get("n_hot_spots_corrected", r.get("n_hot_spots", 0)))
             for r in per_gene_results.values()
         )
-        if use_corrected_spot_counts:
-            total_hot = sum(
-                r.get("n_hot_spots_corrected", r.get("n_hot_spots", 0))
-                for r in per_gene_results.values()
-            )
-            total_cold = sum(
-                r.get("n_cold_spots_corrected", r.get("n_cold_spots", 0))
-                for r in per_gene_results.values()
-            )
-        else:
-            total_hot = sum(r.get("n_hot_spots", 0) for r in per_gene_results.values())
-            total_cold = sum(
-                r.get("n_cold_spots", 0) for r in per_gene_results.values()
-            )
+        total_cold = sum(
+            int(r.get("n_cold_spots_corrected", r.get("n_cold_spots", 0)))
+            for r in per_gene_results.values()
+        )
+        summary["top_features"] = _rank_features_by_count(spot_counts)
         summary["n_significant"] = total_hot + total_cold
         summary["summary_metrics"] = {
             "total_hotspots": total_hot,
@@ -665,7 +692,12 @@ def _extract_result_summary(
             stats.get("n_significant", 0) for stats in per_category_stats.values()
         )
         summary["n_significant"] = total_significant
-        summary["top_features"] = result.get("categories", [])[:10]
+        summary["top_features"] = _rank_features_by_count(
+            {
+                str(category): stats.get("n_significant", 0)
+                for category, stats in per_category_stats.items()
+            }
+        )
         # Compute mean hotspots per category
         n_categories = len(per_category_stats)
         if n_categories > 0:

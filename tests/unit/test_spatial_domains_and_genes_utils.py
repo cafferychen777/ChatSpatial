@@ -548,14 +548,14 @@ async def test_identify_spatial_domains_uses_raw_when_current_has_negatives(
 
 
 @pytest.mark.asyncio
-async def test_spagcn_applies_compatibility_patch_before_import(
+async def test_spagcn_imports_without_legacy_compatibility_patch(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
     events: list[str] = []
 
     monkeypatch.setattr(
         "chatspatial.utils.compat.ensure_spagcn_compat",
-        lambda: events.append("compat"),
+        lambda: (_ for _ in ()).throw(AssertionError("legacy patch was called")),
     )
 
     def _stop_after_import(name: str, *_args, **_kwargs):
@@ -571,7 +571,7 @@ async def test_spagcn_applies_compatibility_patch_before_import(
             DummyCtx(minimal_spatial_adata),
         )
 
-    assert events == ["compat", "SpaGCN"]
+    assert events == ["SpaGCN"]
 
 
 @pytest.mark.asyncio
@@ -779,8 +779,8 @@ async def test_identify_domains_stagate_success_returns_embeddings_and_stats(
     )
 
     assert len(labels) == adata.n_obs
-    assert emb_key == "STAGATE"
-    assert "STAGATE" in adata.obsm
+    assert emb_key == "X_stagate"
+    assert "X_stagate" in adata.obsm
     assert stats["method"] == "stagate_pyg"
     assert stats["target_n_clusters"] == 3
     assert stats["rad_cutoff"] == 40
@@ -835,7 +835,7 @@ async def test_identify_domains_stagate_stats_failure_logs_debug_and_continues(
     )
 
     assert len(labels) == adata.n_obs
-    assert emb_key == "STAGATE"
+    assert emb_key == "X_stagate"
     assert stats["method"] == "stagate_pyg"
     assert any("stats boom" in msg for msg in ctx.debug_logs)
 
@@ -947,8 +947,8 @@ async def test_identify_domains_graphst_mclust_path_success(
         )
 
     assert len(labels) == adata.n_obs
-    assert emb_key == "emb"
-    assert "emb" in adata.obsm
+    assert emb_key == "X_graphst"
+    assert "X_graphst" in adata.obsm
     assert stats["method"] == "graphst"
     assert stats["clustering_method"] == "mclust"
     assert stats["n_clusters"] == 4
@@ -1030,8 +1030,15 @@ async def test_identify_domains_banksy_success_path(
     )
     monkeypatch.setattr(sd.sc.pp, "neighbors", lambda *_a, **_k: None)
 
-    def _assign_banksy_clusters(a, resolution=0.5, key_added="banksy_cluster"):
+    def _assign_banksy_clusters(
+        a, resolution=0.5, key_added="banksy_cluster", **kwargs
+    ):
         del resolution
+        assert kwargs == {
+            "flavor": "igraph",
+            "n_iterations": 2,
+            "directed": False,
+        }
         labels = ["0"] * (a.n_obs // 2) + ["1"] * (a.n_obs - a.n_obs // 2)
         a.obs = a.obs.assign(**{key_added: labels})
 
@@ -1602,7 +1609,7 @@ async def test_identify_domains_graphst_leiden_refinement_branch_and_radius_stat
 
     assert len(labels) == adata.n_obs
     assert all(label.startswith("r_") for label in labels[:5])
-    assert emb_key == "emb"
+    assert emb_key == "X_graphst"
     assert stats["refinement"] is True
     assert stats["refinement_radius"] == 77
 
@@ -1651,8 +1658,15 @@ async def test_identify_domains_banksy_uses_alternative_spatial_key(
     )
     monkeypatch.setattr(sd.sc.pp, "neighbors", lambda *_a, **_k: None)
 
-    def _assign_banksy_clusters(a, resolution=0.5, key_added="banksy_cluster"):
+    def _assign_banksy_clusters(
+        a, resolution=0.5, key_added="banksy_cluster", **kwargs
+    ):
         del resolution
+        assert kwargs == {
+            "flavor": "igraph",
+            "n_iterations": 2,
+            "directed": False,
+        }
         a.obs = a.obs.assign(**{key_added: ["0"] * a.n_obs})
 
     monkeypatch.setattr(
@@ -2351,14 +2365,10 @@ async def test_expression_source_stays_silent_on_normalized_data():
 
 
 @pytest.mark.asyncio
-async def test_spagcn_receives_a_dense_matrix(
+async def test_spagcn_preserves_a_sparse_matrix(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
-    """Regression: SpaGCN 1.2.7 reads `adata.X.A`, removed in scipy 1.14.
-
-    Only SpaGCN's sparse branch touches `.A`; its dense branch is equivalent.
-    Handing it a dense matrix keeps the backend on the path that still works.
-    """
+    """The maintained SpaGCN handles sparse input without a dense workaround."""
     adata = minimal_spatial_adata.copy()
     adata.X = sp.csr_matrix(adata.X)
     ctx = DummyCtx(adata)
@@ -2374,10 +2384,6 @@ async def test_spagcn_receives_a_dense_matrix(
             del _adata
 
     monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSpg)
-    monkeypatch.setattr(
-        "chatspatial.utils.compat.ensure_spagcn_compat", lambda *_a, **_k: None
-    )
-
     import sys
     import types
 
@@ -2396,7 +2402,7 @@ async def test_spagcn_receives_a_dense_matrix(
         adata, SpatialDomainParameters(method="spagcn", n_domains=3), ctx
     )
 
-    assert seen["sparse"] is False
+    assert seen["sparse"] is True
     assert len(labels) == adata.n_obs
 
 

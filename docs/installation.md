@@ -83,7 +83,7 @@ Codex, use `/mcp`; in Claude Code, run `claude mcp list`.
 Use an exact version when a reproducible runtime matters:
 
 ```bash
-uvx --from 'chatspatial==1.3.6' chatspatial server
+uvx --from 'chatspatial==1.3.7' chatspatial server
 ```
 
 Without a pin, `uvx` resolves the current PyPI release and reuses its cached
@@ -152,7 +152,8 @@ If you hit `resolution-too-deep`, switch to `uv`.
 Install only the method families you plan to use:
 
 ```bash
-uv pip install 'chatspatial[cell-communication]'  # LIANA+, CellPhoneDB, FastCCC
+uv pip install 'chatspatial[cell-communication]'  # LIANA+ and CellPhoneDB
+uv pip install 'chatspatial[fastccc]'             # FastCCC (Python 3.11-3.12)
 uv pip install 'chatspatial[velocity]'            # scVelo
 uv pip install 'chatspatial[trajectory]'          # CellRank, Palantir
 uv pip install 'chatspatial[deep-learning]'       # scVI, scANVI, VeloVI, DestVI backend
@@ -162,6 +163,11 @@ uv pip install 'chatspatial[rctd-python]'         # PyTorch RCTD backend (rctd-p
 uv pip install 'chatspatial[spatial-stats]'       # PySAL/ESDA extensions
 uv pip install 'chatspatial[spatial-domains]'     # SpaGCN and BANKSY
 ```
+
+LIANA and BANKSY currently support Python through 3.13. Their extras remain
+installable on Python 3.14, but those individual backends are omitted until
+their upstream packages add 3.14 support. SpaGCN supports Python 3.14 through
+the maintained `spagcn-modern` distribution.
 
 ChatSpatial tools fail with targeted installation guidance if you call a method
 whose optional dependency is not installed.
@@ -174,24 +180,20 @@ and additional disk space. ChatSpatial downloads this cache with the bundled
 certificate authority and publishes it atomically so failed or concurrent
 downloads do not leave a partial cache file.
 
-FastCCC and the PyPI release of pyGPCCA currently require incompatible Jinja2
-versions. Keep `cell-communication`/`full` and `trajectory` in separate runtime
-environments for standard PyPI installations. Repository developers who need
-both use the pinned shared-environment constraints documented below.
+FastCCC is isolated because it supports Python 3.11-3.12 and requires
+Jinja2 >= 3.1.6, while the PyPI release of pyGPCCA pulled by CellRank pins
+Jinja2 3.0.3. Install `fastccc` and `trajectory` in separate environments.
+The `cell-communication`, `full`, and `trajectory` extras can otherwise be
+combined normally.
 
 ### Shared repository environment
 
-The workspace environment intentionally combines development, documentation,
-and every optional method family. Install it with the repository constraint
-set so upstream metadata cannot leave only part of a dependency family upgraded:
+The workspace environment combines development and the mutually compatible
+optional method families directly from the project metadata:
 
 ```bash
-# Replace the stale PyPI metadata even when pyGPCCA 1.0.4 is already installed.
-python -m pip install --force-reinstall --no-deps \
-  -c constraints/shared-py312.txt pygpcca
-
-python -m pip install -c constraints/shared-py312.txt \
-  -e '.[full,trajectory,spatial-domains,dev]'
+python -m pip install \
+  -e '.[full,trajectory,cell-communication,spatial-domains,dev]'
 ```
 
 ---

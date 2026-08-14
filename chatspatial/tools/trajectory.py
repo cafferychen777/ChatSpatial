@@ -41,6 +41,10 @@ from ..utils.exceptions import (
 )
 from ..utils.mcp_utils import suppress_output
 
+# Every method resolves one starting cell, and that choice sets the direction
+# of the whole pseudotime, so it is recorded in one place regardless of method.
+TRAJECTORY_ROOT_KEY = "trajectory_root_cell"
+
 
 def _build_trajectory_key(params: "TrajectoryParameters") -> str:
     """Build a parametric analysis key for trajectory results.
@@ -282,12 +286,9 @@ def infer_spatial_trajectory_cellrank(
                     pseudotime = np.zeros_like(entropy)
 
                 if nan_mask.any():
+                    # Cells without fate probabilities get no pseudotime; the
+                    # caller reports the count from the pseudotime column.
                     pseudotime[nan_mask] = np.nan
-                    logging.getLogger(__name__).warning(
-                        "%d cells have NaN fate probabilities; "
-                        "their pseudotime is set to NaN.",
-                        int(nan_mask.sum()),
-                    )
 
                 adata_for_cellrank.obs["pseudotime"] = pseudotime
                 adata_for_cellrank.obsm["fate_probabilities"] = absorption_probs
@@ -491,12 +492,7 @@ def infer_pseudotime_palantir(
     else:
         # Sign-invariant: pick cell with largest absolute value in first DC
         start_cell = ms_data.iloc[:, 0].abs().idxmax()
-        logging.getLogger(__name__).warning(
-            "No root cell specified; auto-selected '%s' from first "
-            "diffusion component. Specify root_cells for "
-            "reproducible results.",
-            start_cell,
-        )
+    adata.uns[TRAJECTORY_ROOT_KEY] = str(start_cell)
 
     pr_res = palantir.core.run_palantir(
         ms_data, start_cell, num_waypoints=num_waypoints
@@ -559,11 +555,7 @@ def compute_dpt_trajectory(
             adata.uns["iroot"] = int(np.argmax(np.abs(dc1)))
         else:
             adata.uns["iroot"] = 0
-        logging.getLogger(__name__).warning(
-            "No root cell specified; auto-selected cell %d. "
-            "Specify root_cells for reproducible results.",
-            adata.uns["iroot"],
-        )
+    adata.uns[TRAJECTORY_ROOT_KEY] = str(adata.obs_names[adata.uns["iroot"]])
 
     try:
         sc.tl.dpt(adata)
@@ -573,17 +565,8 @@ def compute_dpt_trajectory(
     if "dpt_pseudotime" not in adata.obs.columns:
         raise ProcessingError("DPT computation did not create 'dpt_pseudotime' column")
 
-    dpt_pseudotime = adata.obs["dpt_pseudotime"]
-    nan_count = int(dpt_pseudotime.isna().sum())
-    if nan_count > 0:
-        logging.getLogger(__name__).warning(
-            "%d cells have NaN pseudotime (unreachable from root). "
-            "These are preserved as NaN; downstream tools may "
-            "need to handle them.",
-            nan_count,
-        )
-    # Do NOT fill NaN — preserve for accurate downstream interpretation
-
+    # NaN pseudotime is preserved rather than filled: those cells are
+    # unreachable from the root, which the caller reports.
     return adata
 
 
@@ -715,6 +698,23 @@ async def analyze_trajectory(
     if pseudotime_key is None or pseudotime_key not in adata.obs.columns:
         raise ProcessingError("Failed to compute pseudotime with any available method")
 
+    # The root cell orders the whole trajectory, so an automatic choice is a
+    # result the caller has to see, not a log line.
+    root_cell = adata.uns.get(TRAJECTORY_ROOT_KEY)
+    if root_cell is not None and not params.root_cells:
+        await ctx.warning(
+            f"No root_cells given, so {method_used} started from '{root_cell}', "
+            "chosen as the extreme of the first diffusion component. Pseudotime "
+            "is measured from that cell; pass root_cells to set the origin."
+        )
+
+    n_unreachable = int(adata.obs[pseudotime_key].isna().sum())
+    if n_unreachable:
+        await ctx.warning(
+            f"{n_unreachable} cells have no pseudotime because they are "
+            "unreachable from the root. They are kept as NaN rather than filled."
+        )
+
     # Store scientific metadata
     from ..utils.adata_utils import store_analysis_metadata
     from ..utils.results_export import export_analysis_result
@@ -739,6 +739,9 @@ async def analyze_trajectory(
         results_keys_dict["obsm"].append("palantir_branch_probs")
     elif method_used == "dpt":
         results_keys_dict["uns"].append("iroot")
+
+    if TRAJECTORY_ROOT_KEY in adata.uns:
+        results_keys_dict["uns"].append(TRAJECTORY_ROOT_KEY)
 
     parameters_dict: dict[str, Any] = {"spatial_weight": params.spatial_weight}
     if method_used == "cellrank":

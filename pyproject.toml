@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chatspatial"
-version = "1.3.6"
+version = "1.3.7"
 description = "ChatSpatial: Natural language-driven spatial transcriptomics analysis via Model Context Protocol (MCP) integration"
 readme = "README.md"
 license = "MIT"
@@ -35,8 +35,11 @@ dependencies = [
     "pandas>=1.3.0",
     "scipy>=1.7.0",
     "scikit-learn>=1.0.0",
+    "statsmodels>=0.13.0,<1.0",
     "certifi>=2024.2.2",
     "cloudpickle>=2.2.0",
+    "typing-extensions>=4.12.0",
+    "zarr>=2.18.0,<4.0",
     
     # Visualization
     "matplotlib>=3.5.0",
@@ -77,13 +80,11 @@ deep-learning = [
 
 # RNA velocity methods
 velocity = [
-    "scvelo>=0.2.5",
+    "scvelo>=0.2.5,<0.4",
 ]
 
-# Trajectory methods are separate from [full] because the latest FastCCC and
-# PyPI pyGPCCA releases require mutually exclusive Jinja2 versions. The shared
-# developer constraints file uses current upstream pyGPCCA source when both
-# method families are needed in one environment.
+# Trajectory methods. FastCCC is isolated in its own extra because its Jinja2
+# requirement conflicts with the current PyPI release of pyGPCCA.
 trajectory = [
     "cellrank>=2.0.0,<2.3; python_version < '3.12'",
     "cellrank>=2.3.2,<3.0; python_version >= '3.12'",
@@ -94,10 +95,15 @@ trajectory = [
 
 # Cell-cell communication methods
 cell-communication = [
-    "liana",
+    "liana>=1.4.0,<2.0; python_version < '3.14'",
     "cellphonedb>=5.0.0,<6.0",
-    "fastccc>=1.0.1,<2.0",
     "ktplotspy>=0.3.5,<0.4",
+]
+
+# FastCCC supports Python 3.11-3.12 and currently conflicts with CellRank's
+# pyGPCCA dependency. Isolating it keeps every other method family composable.
+fastccc = [
+    "fastccc>=1.0.1,<2.0; python_version < '3.13'",
 ]
 
 # Batch integration methods that do not require the deep-learning stack
@@ -111,8 +117,6 @@ integration = [
 spatial-stats = [
     "esda>=2.4.0",
     "libpysal>=4.6.0",
-    "pysal>=2.6.0",
-    "statsmodels>=0.13.0",
     "networkx>=2.6.0",
 ]
 
@@ -128,16 +132,15 @@ rctd-python = [
     "rctd-py>=0.3.7,<0.4",
 ]
 
-# Broadest mutually compatible PyPI installation. CellRank lives in the
-# separate [trajectory] extra because of the upstream pyGPCCA/FastCCC conflict.
+# Broadest mutually compatible PyPI installation. FastCCC lives in its own
+# extra because of the upstream pyGPCCA/FastCCC conflict.
 full = [
     # ========== High-Frequency Method Extras ==========
     "scvi-tools>=1.0.0,<2.0",
     "mudata>=0.2.0",
-    "scvelo>=0.2.5",
-    "liana",
+    "scvelo>=0.2.5,<0.4",
+    "liana>=1.4.0,<2.0; python_version < '3.14'",
     "cellphonedb>=5.0.0,<6.0",
-    "fastccc>=1.0.1,<2.0",
     "ktplotspy>=0.3.5,<0.4",
     "harmonypy>=0.0.9",
     "bbknn>=1.5.0",
@@ -166,7 +169,7 @@ full = [
     "scanorama>=1.7.0",  # Cross-dataset integration
     
     # ========== Spatial Variable Genes ==========
-    "spatialde>=1.1.3",  # Gaussian process-based method
+    "spatialde-modern>=1.1.3.post1,<1.2",  # Maintained SpatialDE distribution
     "scikit-misc>=0.5.0",  # Required for Seurat v3 HVG selection (used by GraphST)
     
     # ========== Advanced Cell Type Annotation ==========
@@ -186,8 +189,6 @@ full = [
     "anndata2ri>=1.3.0",  # Sparse matrix support for R deconvolution (85.9% memory savings)
     
     # ========== Extended Spatial Analysis ==========
-    "pysal>=2.6.0",  # Full Python spatial analysis library
-    "statsmodels>=0.13.0",  # Statistical modeling
     "networkx>=2.6.0",  # Network analysis for spatial graphs
     
     # ========== Spatial Registration ==========
@@ -219,16 +220,12 @@ full = [
 # Install R package: R -e 'install.packages("sctransform")'
 # rpy2 is already included in the [full] optional dependencies
 
-# Spatial domain methods. SpaGCN depends on louvain, whose current release
-# requires igraph <0.12. Pin the complete graph stack together so the resolver
-# cannot later upgrade only one member and leave an inconsistent environment.
+# Spatial domain methods. The maintained SpaGCN distribution uses igraph's
+# built-in Leiden implementation and does not require the obsolete louvain
+# extension. BANKSY does not yet publish Python 3.14-compatible metadata.
 spatial-domains = [
-    "SpaGCN>=1.2.7,<2.0",
-    "louvain>=0.8.2,<0.9",
-    "igraph>=0.11.8,<0.12",
-    "python-igraph>=0.11.8,<0.12",
-    "leidenalg>=0.10.2,<0.11",
-    "pybanksy>=1.3.5,<2.0",
+    "spagcn-modern>=1.2.7.post2,<1.3",
+    "pybanksy>=1.3.5,<2.0; python_version < '3.14'",
 ]
 
 # AESTETIK multi-modal spatial domain identification. Kept in its own family
@@ -237,13 +234,6 @@ spatial-domains = [
 # need. The environment marker keeps the 3.14 CI leg resolvable.
 aestetik = [
     "aestetik>=0.3.1,<0.4; python_version < '3.14'",
-]
-
-# HPC acceleration (requires system PETSc/SLEPc libraries)
-# Install: brew install petsc slepc (macOS) or apt install petsc-dev slepc-dev (Linux)
-hpc = [
-    "petsc4py>=3.18.0,<4.0; sys_platform != 'win32'",
-    "slepc4py>=3.18.0,<4.0; sys_platform != 'win32'",
 ]
 
 # Dependencies used by the manuscript reproducibility scripts. Core scientific

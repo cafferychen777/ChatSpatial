@@ -16,7 +16,12 @@ import pandas as pd
 from scipy import stats
 
 from ..models.analysis import EnrichmentResult
-from ..utils.adata_utils import get_raw_data_source, store_analysis_metadata, to_dense
+from ..utils.adata_utils import (
+    get_raw_data_source,
+    storage_safe_key,
+    store_analysis_metadata,
+    to_dense,
+)
 from ..utils.compute import top_n_desc_indices
 from ..utils.dependency_manager import require
 from ..utils.exceptions import (
@@ -52,14 +57,37 @@ _LATEST_ENRICHMENT_RESULTS_KEY = "enrichment_latest_results_key"
 logger = logging.getLogger(__name__)
 
 
+def _to_storable_gene_set_names(
+    gene_sets: dict[str, list[str]],
+) -> tuple[dict[str, list[str]], list[str]]:
+    """Rename gene sets to names AnnData can store.
+
+    Every backend turns a gene set name into an ``uns`` key or an obs column,
+    so the rename belongs here -- once, before dispatch -- rather than at each
+    storage site.
+
+    Returns:
+        The renamed gene sets and the names two sets collapsed onto, which are
+        dropped because one key cannot hold both.
+    """
+    storable: dict[str, list[str]] = {}
+    collisions: list[str] = []
+    for name, genes in gene_sets.items():
+        key = storage_safe_key(name)
+        if key in storable:
+            collisions.append(name)
+            continue
+        storable[key] = genes
+    return storable, collisions
+
+
 def _build_enrichment_key(method: str, database: str | None) -> str:
     """Build parametric analysis key for enrichment.
 
     Encodes method + database so multiple enrichment runs coexist.
     """
     if database:
-        # Sanitize database name for use as key (replace spaces, slashes)
-        db_clean = database.replace(" ", "_").replace("/", "_")
+        db_clean = storage_safe_key(database).replace(" ", "_")
         return f"enrichment_{method}_{db_clean}"
     return f"enrichment_{method}"
 
@@ -425,27 +453,60 @@ def _filter_gene_sets_by_size(
     }
 
 
+class _GeneNameMatcher:
+    """Translate external gene names into the dataset's own naming.
+
+    Pathway databases and datasets disagree on symbol format -- Enrichr serves
+    human uppercase symbols, a mouse dataset carries title case -- so a literal
+    intersection of a gene set with the dataset can be empty even when every
+    gene is present. Matching one gene set at a time would rebuild the
+    case-folded index of the dataset on every call, so it is built once here
+    and reused for every set tested against the same dataset.
+    """
+
+    def __init__(self, available_genes: set[str], species: str) -> None:
+        self._available = available_genes
+        self._species = species
+        self._by_upper = {gene.upper(): gene for gene in available_genes}
+
+    def match(self, genes: list[str]) -> list[str]:
+        """Return the dataset's names for the genes it recognizes."""
+        common_genes = [gene for gene in genes if gene in self._available]
+        if len(common_genes) >= len(genes) * 0.5:
+            return common_genes
+
+        candidates = [common_genes]
+        if self._species != "unknown":
+            converted, _ = _convert_gene_format_for_matching(
+                genes, self._available, self._species
+            )
+            candidates.append(converted)
+        # Case is the one difference no species rule has to be known for.
+        candidates.append(
+            [
+                self._by_upper[gene.upper()]
+                for gene in genes
+                if gene.upper() in self._by_upper
+            ]
+        )
+        return max(candidates, key=len)
+
+
 def _match_gene_set_to_dataset(
     genes: list[str], available_genes: set[str], species: str
 ) -> list[str]:
     """Return genes from a gene set that are present in the dataset."""
-    common_genes = [gene for gene in genes if gene in available_genes]
-    if len(common_genes) < len(genes) * 0.5 and species != "unknown":
-        dataset_format_genes, _ = _convert_gene_format_for_matching(
-            genes, available_genes, species
-        )
-        if len(dataset_format_genes) > len(common_genes):
-            common_genes = dataset_format_genes
-    return common_genes
+    return _GeneNameMatcher(available_genes, species).match(genes)
 
 
 def _rank_gene_sets_by_dataset_overlap(
     gene_sets: dict[str, list[str]], available_genes: set[str], species: str
 ) -> list[tuple[str, list[str]]]:
     """Rank gene sets by overlap with the dataset for bounded spatial scoring."""
+    matcher = _GeneNameMatcher(available_genes, species)
     ranked: list[tuple[int, int, str, list[str]]] = []
     for name, genes in gene_sets.items():
-        common_genes = _match_gene_set_to_dataset(genes, available_genes, species)
+        common_genes = matcher.match(genes)
         if len(common_genes) >= 2:
             ranked.append((len(common_genes), len(genes), name, genes))
 
@@ -1033,18 +1094,12 @@ def perform_ora(
     bg_result = get_raw_data_source(adata, prefer_complete_genes=True)
     background_genes = set(bg_result.var_names)
 
-    # Case-insensitive matching as fallback for gene name format differences
-    # (e.g., MT.CO1 vs MT-CO1, uppercase vs lowercase)
-    query_genes = set(gene_list) & background_genes
-
-    # If no direct matches, try case-insensitive matching
-    if len(query_genes) == 0 and len(gene_list) > 0:
-        # Create case-insensitive lookup
-        gene_name_map = {g.upper(): g for g in background_genes}
-        query_genes = set()
-        for gene in gene_list:
-            if gene.upper() in gene_name_map:
-                query_genes.add(gene_name_map[gene.upper()])
+    # Both sides of the hypergeometric test are matched against the dataset the
+    # same way, because pathway databases and datasets disagree on gene symbol
+    # format (Enrichr ships human uppercase symbols; a mouse dataset carries
+    # title case, so a literal intersection is empty).
+    matcher = _GeneNameMatcher(background_genes, species or "unknown")
+    query_genes = set(matcher.match(list(gene_list)))
 
     # Perform hypergeometric test for each gene set
     enrichment_scores = {}
@@ -1052,7 +1107,7 @@ def perform_ora(
     gene_set_statistics = {}
 
     for gs_name, gs_genes in gene_sets.items():
-        gs_genes_set = set(gs_genes) & background_genes
+        gs_genes_set = set(matcher.match(gs_genes))
 
         if len(gs_genes_set) < min_size or len(gs_genes_set) > max_size:
             continue
@@ -1143,7 +1198,7 @@ def perform_ora(
             "n_query_genes": len(query_genes),
         },
         statistics={
-            "n_gene_sets": len(gene_sets),
+            "n_gene_sets": len(gene_set_statistics),
             "n_significant": n_significant,
             "n_query_genes": len(query_genes),
         },
@@ -1170,7 +1225,10 @@ def perform_ora(
 
     return EnrichmentResult(
         method="ora",
-        n_gene_sets=len(gene_sets),
+        # Only sets whose dataset-matched size fell inside [min_size, max_size]
+        # were tested; reporting the loaded count would credit the run with
+        # tests it never performed.
+        n_gene_sets=len(gene_set_statistics),
         n_significant=n_significant,
         enrichment_scores=filtered_scores,
         pvalues=filtered_pvals,
@@ -1486,7 +1544,9 @@ def perform_enrichr(
         enr = gp.enrichr(
             gene_list=gene_list,
             gene_sets=gene_sets_list,
-            organism=organism.capitalize(),
+            # gseapy keys its organism-to-Enrichr-instance map on lowercase
+            # names, so a capitalized species is rejected outright.
+            organism=organism.lower(),
             outdir=None,
             cutoff=pvalue_cutoff,
         )
@@ -1703,10 +1763,11 @@ async def _perform_spatial_enrichment_on_adata(
 
     # Validate gene sets with format conversion
     available_genes = set(adata.var_names)
+    matcher = _GeneNameMatcher(available_genes, species)
     validated_gene_sets = {}
 
     for sig_name, genes in gene_sets_dict.items():
-        common_genes = _match_gene_set_to_dataset(genes, available_genes, species)
+        common_genes = matcher.match(genes)
 
         if len(common_genes) < 2:
             await ctx.warning(
@@ -2254,6 +2315,15 @@ async def analyze_enrichment(
     else:
         gene_sets_dict = gene_sets
 
+    # Names arriving from a database or from the caller become uns keys and obs
+    # columns downstream, so make them storable before any backend writes them.
+    gene_sets_dict, name_collisions = _to_storable_gene_set_names(gene_sets_dict)
+    if name_collisions:
+        await ctx.warning(
+            f"Dropped {len(name_collisions)} gene sets whose names differ only in "
+            f"characters that cannot be stored: {name_collisions[:5]}."
+        )
+
     if params.method == "spatial_enrichmap" and loaded_from_database:
         n_loaded_gene_sets = len(gene_sets_dict)
         gene_sets_dict = _limit_spatial_enrichmap_gene_sets(
@@ -2267,7 +2337,6 @@ async def analyze_enrichment(
                 f"with highest dataset overlap out of {n_loaded_gene_sets} loaded sets. "
                 "Provide custom gene_sets to score specific signatures."
             )
-        gene_sets = gene_sets_dict
 
     # All enrichment backends may publish result tables or score columns.
     # Keep those writes on one candidate and commit only after success.
@@ -2279,7 +2348,7 @@ async def analyze_enrichment(
             data_id=data_id,
             ctx=ctx,
             adata=adata,
-            gene_sets=gene_sets,
+            gene_sets=gene_sets_dict,
             score_keys=params.score_keys,
             spatial_key=params.spatial_key,
             n_neighbors=params.n_neighbors,
@@ -2356,6 +2425,14 @@ async def analyze_enrichment(
             species=params.species,
             database=params.gene_set_database,
             data_id=data_id,
+        )
+
+    if result.n_gene_sets == 0:
+        await ctx.warning(
+            f"None of the {len(gene_sets_dict)} gene sets had between "
+            f"{params.min_genes} and {params.max_genes} of their genes present in "
+            f"the dataset, so nothing was tested. Check that species="
+            f"'{params.species}' matches the gene symbols in the data."
         )
 
     await ctx.set_adata(data_id, adata)

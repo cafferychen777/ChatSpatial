@@ -406,12 +406,6 @@ async def _identify_spatial_genes_spatialde(
         Nature Methods, DOI: 10.1038/nmeth.4636
         Official tutorial: https://github.com/Teichlab/SpatialDE
     """
-    # Apply scipy compatibility patch for SpatialDE (scipy >= 1.14 removed scipy.misc.derivative)
-    from ..utils.compat import ensure_spatialde_compat
-
-    ensure_spatialde_compat()
-
-    # SpatialDE must be imported after applying its SciPy compatibility patch.
     spatialde = require("spatialde", ctx, feature="SpatialDE spatial gene analysis")
     naivede = require("naivede", ctx, feature="SpatialDE spatial gene analysis")
     spatialde_util = require_module(

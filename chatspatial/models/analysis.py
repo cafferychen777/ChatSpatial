@@ -149,7 +149,10 @@ class SpatialStatisticsResult(BaseAnalysisResult):
     n_significant: Optional[int] = None
     top_features: list[str] = Field(default_factory=list)
     summary_metrics: dict[str, float] = Field(default_factory=dict)
-    results_key: Optional[str] = None  # Key in adata.uns for full results
+    # Key in adata.uns holding the full results, or -- for analyses that write
+    # per-spot columns instead of one table -- the metadata entry naming every
+    # column they wrote.
+    results_key: Optional[str] = None
 
     # Detailed statistics - excluded from MCP response
     statistics: SkipJsonSchema[Optional[dict[str, Any]]] = Field(

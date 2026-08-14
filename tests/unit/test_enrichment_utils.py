@@ -45,6 +45,7 @@ class DummyCtx:
         self._adata = adata
         self.errors: list[str] = []
         self.infos: list[str] = []
+        self.warnings: list[str] = []
         self.set_adata_calls: list[tuple[str, object]] = []
 
     async def get_adata(self, data_id: str):
@@ -57,8 +58,8 @@ class DummyCtx:
     async def error(self, msg: str):
         self.errors.append(msg)
 
-    async def warning(self, _msg: str):
-        return None
+    async def warning(self, msg: str):
+        self.warnings.append(msg)
 
     async def info(self, msg: str):
         self.infos.append(msg)
@@ -604,6 +605,11 @@ def test_perform_enrichr_maps_library_and_filters_significant(
             )
 
     def _fake_enrichr(**kwargs):
+        # gseapy keys its organism-to-Enrichr-instance map on lowercase names
+        # and rejects anything else, so the fake rejects it too.
+        organism = kwargs["organism"]
+        if organism not in {"human", "mouse", "fly", "yeast", "worm", "fish"}:
+            raise ValueError(f"Invalid organism '{organism}'.")
         captured.update(kwargs)
         return _EnrResult()
 
@@ -616,7 +622,7 @@ def test_perform_enrichr_maps_library_and_filters_significant(
     )
 
     assert captured["gene_sets"] == ["KEGG_2019_Mouse"]
-    assert captured["organism"] == "Mouse"
+    assert captured["organism"] == "mouse"
     assert out.method == "enrichr"
     assert out.n_gene_sets == 2
     assert out.n_significant == 1
@@ -1374,3 +1380,156 @@ async def test_ora_says_nothing_when_no_markers_are_stored(
     )
 
     assert not [m for m in ctx.infos if "find_markers" in m]
+
+
+@pytest.mark.asyncio
+async def test_analyze_enrichment_keeps_gene_set_names_writable(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    """A gene set name with a slash must not make the dataset unwritable.
+
+    AnnData stores uns entries and obs columns as HDF5 links, and HDF5 reserves
+    "/" as its path separator, so names like "PI3K/AKT/mTOR Signaling" used to
+    export -- and every later export of that dataset -- fail outright.
+    """
+    ctx = DummyCtx(minimal_spatial_adata)
+    monkeypatch.setattr(
+        enrichment_module,
+        "export_analysis_result",
+        lambda *_args, **_kwargs: [],
+    )
+
+    params = EnrichmentParameters(
+        method="pathway_ora",
+        species="human",
+        gene_set_database=None,
+        gene_sets={
+            "PI3K/AKT/mTOR  Signaling": minimal_spatial_adata.var_names[:3].tolist(),
+        },
+        min_genes=1,
+        max_genes=100,
+    )
+
+    await analyze_enrichment("d1", ctx, params)
+
+    stored = ctx.set_adata_calls[0][1]
+    assert "PI3K_AKT_mTOR  Signaling" in stored.uns["enrichment_ora_gene_sets"]
+    stored.write_h5ad(tmp_path / "enriched.h5ad")
+
+
+@pytest.mark.asyncio
+async def test_analyze_enrichment_warns_when_gene_set_names_collide(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    ctx = DummyCtx(minimal_spatial_adata)
+    monkeypatch.setattr(
+        enrichment_module,
+        "export_analysis_result",
+        lambda *_args, **_kwargs: [],
+    )
+    genes = minimal_spatial_adata.var_names[:3].tolist()
+
+    params = EnrichmentParameters(
+        method="pathway_ora",
+        species="human",
+        gene_set_database=None,
+        gene_sets={"A/B": genes, "A_B": genes},
+        min_genes=1,
+        max_genes=100,
+    )
+
+    await analyze_enrichment("d1", ctx, params)
+
+    # "A/B" is stored as "A_B", which the second set already claims; the
+    # dropped one has to be named rather than silently discarded.
+    assert any("Dropped 1 gene sets" in msg and "A_B" in msg for msg in ctx.warnings)
+    stored = ctx.set_adata_calls[0][1]
+    assert list(stored.uns["enrichment_ora_gene_sets"]) == ["A_B"]
+
+
+@pytest.mark.asyncio
+async def test_analyze_enrichment_warns_when_nothing_was_testable(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    ctx = DummyCtx(minimal_spatial_adata)
+    monkeypatch.setattr(
+        enrichment_module,
+        "export_analysis_result",
+        lambda *_args, **_kwargs: [],
+    )
+
+    params = EnrichmentParameters(
+        method="pathway_ora",
+        species="human",
+        gene_set_database=None,
+        gene_sets={"absent": ["NOT_IN_DATASET_1", "NOT_IN_DATASET_2"]},
+        min_genes=2,
+        max_genes=100,
+    )
+
+    out = await analyze_enrichment("d1", ctx, params)
+
+    assert out.n_gene_sets == 0
+    assert any("nothing was tested" in msg for msg in ctx.warnings)
+
+
+def test_perform_ora_matches_uppercase_pathway_genes_to_mouse_symbols(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Enrichr ships human uppercase symbols; a mouse dataset carries title case.
+
+    A literal intersection of the two is empty, which silently dropped every
+    gene set below the minimum size and reported nothing significant.
+    """
+    import anndata as ad
+
+    myelin = ["Plp1", "Mbp", "Mobp", "Mag", "Mog", "Cnp", "Cldn11", "Sox10"]
+    other = [f"Gene{i}" for i in range(12)]
+    genes = myelin + other
+    adata = ad.AnnData(
+        np.random.default_rng(0).random((10, len(genes))).astype("float32")
+    )
+    adata.var_names = genes
+    monkeypatch.setattr(
+        enrichment_module,
+        "_store_enrichment_results",
+        lambda **_kwargs: ("k", "k"),
+    )
+
+    out = enrichment_module.perform_ora(
+        adata=adata,
+        gene_sets={"Myelination": [gene.upper() for gene in myelin]},
+        gene_list=myelin,
+        min_size=5,
+        max_size=100,
+        species="mouse",
+    )
+
+    assert out.n_gene_sets == 1
+    assert out.n_significant == 1
+    assert out.top_gene_sets == ["Myelination"]
+
+
+def test_perform_ora_counts_only_the_gene_sets_it_tested(
+    monkeypatch: pytest.MonkeyPatch,
+    minimal_spatial_adata,
+):
+    adata = minimal_spatial_adata.copy()
+    monkeypatch.setattr(
+        enrichment_module,
+        "_store_enrichment_results",
+        lambda **_kwargs: ("k", "k"),
+    )
+
+    out = enrichment_module.perform_ora(
+        adata=adata,
+        gene_sets={
+            "tested": adata.var_names[:4].tolist(),
+            "too_small": adata.var_names[:1].tolist(),
+        },
+        gene_list=adata.var_names[:4].tolist(),
+        min_size=3,
+        max_size=100,
+    )
+
+    assert out.n_gene_sets == 1

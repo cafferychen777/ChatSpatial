@@ -408,6 +408,76 @@ async def test_analyze_trajectory_cellrank_requires_velocity_data(
 
 
 @pytest.mark.asyncio
+async def test_analyze_trajectory_reports_auto_selected_root_and_unreachable_cells(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    """The root and the cells it cannot reach are results, not log lines."""
+    adata = minimal_spatial_adata.copy()
+
+    def _fake_palantir(_adata, **_kwargs):
+        pseudotime = np.linspace(0, 1, _adata.n_obs)
+        pseudotime[-2:] = np.nan
+        _adata.obs["palantir_pseudotime"] = pseudotime
+        _adata.obsm["palantir_branch_probs"] = np.ones((_adata.n_obs, 2), dtype=float)
+        _adata.uns[traj.TRAJECTORY_ROOT_KEY] = str(_adata.obs_names[3])
+        return _adata
+
+    monkeypatch.setattr(traj, "infer_pseudotime_palantir", _fake_palantir)
+    monkeypatch.setattr(
+        "chatspatial.utils.adata_utils.store_analysis_metadata",
+        lambda _adata, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.results_export.export_analysis_result",
+        lambda *_a, **_k: [],
+    )
+
+    ctx = _VelCtx(adata)
+    await traj.analyze_trajectory(
+        "t_root",
+        ctx,
+        traj.TrajectoryParameters(method="palantir"),
+    )
+
+    assert any(str(adata.obs_names[3]) in msg for msg in ctx.warnings)
+    assert any("unreachable from the root" in msg for msg in ctx.warnings)
+
+
+@pytest.mark.asyncio
+async def test_analyze_trajectory_stays_quiet_when_root_is_given(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+):
+    adata = minimal_spatial_adata.copy()
+
+    def _fake_palantir(_adata, **_kwargs):
+        _adata.obs["palantir_pseudotime"] = np.linspace(0, 1, _adata.n_obs)
+        _adata.obsm["palantir_branch_probs"] = np.ones((_adata.n_obs, 2), dtype=float)
+        _adata.uns[traj.TRAJECTORY_ROOT_KEY] = str(_adata.obs_names[0])
+        return _adata
+
+    monkeypatch.setattr(traj, "infer_pseudotime_palantir", _fake_palantir)
+    monkeypatch.setattr(
+        "chatspatial.utils.adata_utils.store_analysis_metadata",
+        lambda _adata, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "chatspatial.utils.results_export.export_analysis_result",
+        lambda *_a, **_k: [],
+    )
+
+    ctx = _VelCtx(adata)
+    await traj.analyze_trajectory(
+        "t_root_given",
+        ctx,
+        traj.TrajectoryParameters(
+            method="palantir", root_cells=[str(adata.obs_names[0])]
+        ),
+    )
+
+    assert ctx.warnings == []
+
+
+@pytest.mark.asyncio
 async def test_analyze_trajectory_palantir_success_records_metadata(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
@@ -841,6 +911,37 @@ async def test_analyze_velocity_with_velovi_wraps_model_failures(
         await vel.analyze_velocity_with_velovi(adata, n_epochs=1, ctx=None)
 
 
+def _fake_scvelo_pp(calls: dict[str, object] | None = None) -> ModuleType:
+    """Return a scvelo stand-in with the preprocessing surface of 0.3.x.
+
+    ``filter_and_normalize`` forwards unrecognized keywords to
+    ``normalize_per_cell`` there, so asking it for ``n_top_genes`` raises --
+    the failure that made RNA velocity unusable. Reproducing that here keeps
+    the pipeline from drifting back onto the wrapper.
+    """
+    recorded: dict[str, object] = {} if calls is None else calls
+
+    def _filter_and_normalize(_adata, **kwargs):
+        unexpected = sorted(set(kwargs) - {"min_shared_counts", "enforce"})
+        if unexpected:
+            raise TypeError(
+                "normalize_per_cell() got an unexpected keyword argument "
+                f"'{unexpected[0]}'"
+            )
+
+    fake_scv = ModuleType("scvelo")
+    fake_scv.pp = SimpleNamespace(
+        filter_and_normalize=_filter_and_normalize,
+        filter_genes=lambda _adata, **kwargs: recorded.__setitem__(
+            "filter_genes", kwargs
+        ),
+        normalize_per_cell=lambda _adata, **kwargs: recorded.__setitem__(
+            "normalize_per_cell", kwargs
+        ),
+    )
+    return fake_scv
+
+
 def test_preprocess_for_velocity_uses_params_object_values(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):
@@ -848,18 +949,20 @@ def test_preprocess_for_velocity_uses_params_object_values(
     adata.layers["spliced"] = np.ones((adata.n_obs, adata.n_vars), dtype=float)
     adata.layers["unspliced"] = np.ones((adata.n_obs, adata.n_vars), dtype=float)
 
-    calls: dict[str, dict[str, int | bool]] = {}
-    fake_scv = ModuleType("scvelo")
-    fake_scv.pp = SimpleNamespace(
-        filter_and_normalize=lambda _adata, **kwargs: calls.__setitem__(
-            "filter", kwargs
-        ),
-    )
+    calls: dict[str, object] = {}
+    fake_scv = _fake_scvelo_pp(calls)
     monkeypatch.setattr(vel, "validate_adata", lambda *_a, **_k: None)
     monkeypatch.setattr(
         vel,
         "_compute_velocity_moments",
         lambda _adata, **kwargs: calls.__setitem__("moments", kwargs),
+    )
+    monkeypatch.setattr(
+        vel,
+        "ensure_highly_variable_genes",
+        lambda _adata, n_top_genes, **kwargs: calls.__setitem__(
+            "hvg", {"n_top_genes": n_top_genes, **kwargs}
+        ),
     )
 
     params = vel.RNAVelocityParameters(
@@ -870,10 +973,12 @@ def test_preprocess_for_velocity_uses_params_object_values(
     )
     out = vel.preprocess_for_velocity(adata, params=params, scv=fake_scv)
     assert out is adata
-    assert calls["filter"] == {
-        "min_shared_counts": 11,
-        "n_top_genes": 123,
-        "enforce": True,
+    assert calls["filter_genes"] == {"min_shared_counts": 11}
+    assert calls["normalize_per_cell"] == {"enforce": True}
+    # n_top_genes cannot exceed the genes the dataset actually has.
+    assert calls["hvg"] == {
+        "n_top_genes": min(123, adata.n_vars),
+        "subset": True,
     }
     assert calls["moments"] == {
         "n_pcs": 17,
@@ -916,10 +1021,8 @@ async def test_prepare_velovi_data_raises_on_scv_preprocessing_failure(
     def _raise_pp(*_a, **_k):
         raise RuntimeError("pp fail")
 
-    fake_scv = ModuleType("scvelo")
-    fake_scv.pp = SimpleNamespace(
-        filter_and_normalize=_raise_pp,
-    )
+    fake_scv = _fake_scvelo_pp()
+    fake_scv.pp.filter_genes = _raise_pp
     with pytest.raises(ProcessingError, match="VELOVI preprocessing failed"):
         await vel._prepare_velovi_data(adata, None, scv=fake_scv)
 
@@ -935,8 +1038,7 @@ async def test_prepare_velovi_data_raises_on_moments_failure(
     def _raise_moments(*_a, **_k):
         raise RuntimeError("moments fail")
 
-    fake_scv = ModuleType("scvelo")
-    fake_scv.pp = SimpleNamespace(filter_and_normalize=lambda *_a, **_k: None)
+    fake_scv = _fake_scvelo_pp()
     monkeypatch.setattr(vel, "_compute_velocity_moments", _raise_moments)
 
     with pytest.raises(ProcessingError, match="Moments computation failed"):
@@ -976,15 +1078,12 @@ async def test_prepare_velovi_data_keeps_input_unmodified_and_builds_independent
     spliced_before = adata.layers["spliced"].copy()
     unspliced_before = adata.layers["unspliced"].copy()
 
-    def _fake_filter_and_normalize(adata_obj, **_kwargs):
-        adata_obj.X[0, 0] = 999.0
-
     def _fake_moments(adata_obj, **_kwargs):
         adata_obj.obsp["connectivities"] = np.eye(adata_obj.n_obs, dtype=np.float32)
 
-    fake_scv = ModuleType("scvelo")
-    fake_scv.pp = SimpleNamespace(
-        filter_and_normalize=_fake_filter_and_normalize,
+    fake_scv = _fake_scvelo_pp()
+    fake_scv.pp.filter_genes = lambda adata_obj, **_kwargs: adata_obj.X.__setitem__(
+        (0, 0), 999.0
     )
     monkeypatch.setattr(vel, "_compute_velocity_moments", _fake_moments)
 

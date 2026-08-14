@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from packaging.requirements import Requirement
 
+from chatspatial.models.data import CellCommunicationParameters
 from chatspatial.utils.dependency_manager import DEPENDENCY_REGISTRY
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -36,13 +37,27 @@ def test_dependency_families_keep_conflicting_backends_separate() -> None:
     full = _requirements(extras["full"])
     trajectory = _requirements(extras["trajectory"])
     communication = _requirements(extras["cell-communication"])
+    fastccc = _requirements(extras["fastccc"])
 
     assert "jinja2" not in core
     assert "cellrank" not in full
     assert "pygam" not in full
+    assert full["spatialde-modern"][0].specifier.contains("1.1.3.post1")
+    assert "spatialde" not in full
     assert {"cellrank", "palantir", "pygam", "scipy"} <= trajectory.keys()
-    assert communication["fastccc"][0].specifier.contains("1.0.1")
+    assert "fastccc" not in full
+    assert "fastccc" not in communication
+    liana = communication["liana"][0]
+    assert liana.specifier.contains("1.4.0")
+    assert liana.marker is not None
+    assert liana.marker.evaluate({"python_version": "3.13"})
+    assert not liana.marker.evaluate({"python_version": "3.14"})
     assert communication["ktplotspy"][0].specifier.contains("0.3.5")
+    requirement = fastccc["fastccc"][0]
+    assert requirement.specifier.contains("1.0.1")
+    assert requirement.marker is not None
+    assert requirement.marker.evaluate({"python_version": "3.12"})
+    assert not requirement.marker.evaluate({"python_version": "3.13"})
 
 
 @pytest.mark.unit
@@ -58,24 +73,42 @@ def test_default_flashs_backend_is_a_core_dependency() -> None:
 
 
 @pytest.mark.unit
-def test_spatial_domain_extra_pins_a_coherent_graph_stack() -> None:
-    """Louvain and Leiden must resolve against the same igraph generation."""
+def test_direct_core_imports_have_explicit_dependencies() -> None:
+    """Core code must not rely on optional or transitive installations."""
+    project = _project_metadata()
+    core = _requirements(project["dependencies"])
+
+    assert {"statsmodels", "typing-extensions", "zarr"} <= core.keys()
+
+
+@pytest.mark.unit
+def test_unused_system_stacks_are_not_advertised_as_extras() -> None:
+    """Extras should correspond to code paths owned by ChatSpatial."""
+    project = _project_metadata()
+    extras = project["optional-dependencies"]
+
+    assert "hpc" not in extras
+    assert all(
+        "pysal" not in _requirements(requirements) for requirements in extras.values()
+    )
+
+
+@pytest.mark.unit
+def test_spatial_domain_extra_uses_maintained_spagcn_graph_stack() -> None:
+    """SpaGCN must use Leiden without pulling the obsolete Louvain extension."""
     project = _project_metadata()
     requirements = _requirements(project["optional-dependencies"]["spatial-domains"])
 
-    expected_versions = {
-        "spagcn": "1.2.7",
-        "louvain": "0.8.2",
-        "igraph": "0.11.9",
-        "python-igraph": "0.11.9",
-        "leidenalg": "0.10.2",
-        "pybanksy": "1.3.5",
-    }
-    for name, version in expected_versions.items():
-        assert requirements[name][0].specifier.contains(version)
-
-    assert not requirements["igraph"][0].specifier.contains("1.0.0")
-    assert not requirements["leidenalg"][0].specifier.contains("0.11.0")
+    assert requirements["spagcn-modern"][0].specifier.contains("1.2.7.post2")
+    banksy = requirements["pybanksy"][0]
+    assert banksy.specifier.contains("1.3.5")
+    assert banksy.marker is not None
+    assert banksy.marker.evaluate({"python_version": "3.13"})
+    assert not banksy.marker.evaluate({"python_version": "3.14"})
+    assert "python-igraph" not in requirements
+    assert "igraph" not in requirements
+    assert "leidenalg" not in requirements
+    assert "louvain" not in requirements
 
 
 @pytest.mark.unit
@@ -94,33 +127,6 @@ def test_aestetik_extra_is_bounded_and_excludes_python_314() -> None:
 
 
 @pytest.mark.unit
-def test_shared_environment_constraints_cover_conflict_boundaries() -> None:
-    """The combined repository environment must pin every conflict boundary."""
-    constraint_lines = {
-        line.strip()
-        for line in (REPO_ROOT / "constraints/shared-py312.txt")
-        .read_text(encoding="utf-8")
-        .splitlines()
-        if line.strip() and not line.startswith("#")
-    }
-
-    expected_prefixes = {
-        "cellrank==",
-        "fastccc==",
-        "igraph==",
-        "ktplotspy==",
-        "leidenalg==",
-        "louvain==",
-        "pybanksy==",
-        "pygpcca @ git+https://github.com/msmdev/pyGPCCA.git@",
-        "python-igraph==",
-        "scipy==",
-    }
-    for prefix in expected_prefixes:
-        assert any(line.startswith(prefix) for line in constraint_lines)
-
-
-@pytest.mark.unit
 def test_install_guidance_uses_compatible_optional_families() -> None:
     """Runtime errors should direct users to curated extras, not raw packages."""
     expected_extras = {
@@ -129,14 +135,24 @@ def test_install_guidance_uses_compatible_optional_families() -> None:
         "pygam": "trajectory",
         "SpaGCN": "spatial-domains",
         "banksy": "spatial-domains",
-        "louvain": "spatial-domains",
         "aestetik": "aestetik",
+        "fastccc": "fastccc",
     }
 
     for dependency, extra in expected_extras.items():
         assert DEPENDENCY_REGISTRY[dependency].install_cmd == (
             f"pip install 'chatspatial[{extra}]'"
         )
+
+    assert DEPENDENCY_REGISTRY["louvain"].install_cmd == "pip install louvain"
+
+
+@pytest.mark.unit
+def test_default_communication_backend_is_in_the_composable_extra() -> None:
+    """Default parameters must not select the isolated FastCCC backend."""
+    params = CellCommunicationParameters(species="human", cell_type_key="cell_type")
+
+    assert params.method == "liana"
 
 
 @pytest.mark.unit

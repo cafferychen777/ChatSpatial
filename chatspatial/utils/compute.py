@@ -68,9 +68,11 @@ def ensure_highly_variable_genes(
     Scanpy bins genes by mean expression to estimate dispersion. Degenerate
     inputs leave those bins unusable — genes that are all zero after merging
     samples with different gene sets, or bins that collapse to one value — and
-    pandas then fails in whichever way it reaches first: a ``KeyError`` for NaN
-    bin edges, a ``ValueError`` for infinite ones. Both mean the same thing, so
-    the fallback is chosen on the failure itself rather than on its wording.
+    scanpy then fails in whichever way it reaches first: a ``KeyError`` for NaN
+    bin edges, a ``ValueError`` for infinite ones, an ``IndexError`` when every
+    normalized dispersion came out NaN and none is left to rank. All mean the
+    same thing, so the fallback is chosen on the failure itself rather than on
+    its wording.
 
     Args:
         adata: Dataset to annotate in place.
@@ -83,8 +85,12 @@ def ensure_highly_variable_genes(
     try:
         sc.pp.highly_variable_genes(adata, n_top_genes=n_top_genes, **scanpy_kwargs)
         return False
-    except (KeyError, ValueError):
+    except (KeyError, ValueError, IndexError):
         select_hvgs_by_variance(adata, n_top_genes)
+        # The fallback must leave the dataset in the shape scanpy would have,
+        # or callers get a marked-but-unfiltered matrix on degenerate input.
+        if scanpy_kwargs.get("subset"):
+            adata._inplace_subset_var(adata.var["highly_variable"].to_numpy())
         return True
 
 

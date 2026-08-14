@@ -25,7 +25,6 @@ from ..utils.adata_utils import (
     get_spatial_key,
     require_spatial_coords,
     store_analysis_metadata,
-    to_dense,
 )
 from ..utils.async_utils import run_sync, run_sync_with_timeout
 from ..utils.compute import ensure_neighbors, ensure_pca
@@ -397,10 +396,6 @@ async def _identify_domains_spagcn(
     and optionally histology image features. The final domains are obtained by
     clustering these learned embeddings. This method requires the `SpaGCN` package.
     """
-    # SpaGCN must be imported after restoring SciPy's removed sparse-matrix API.
-    from ..utils.compat import ensure_spagcn_compat
-
-    ensure_spagcn_compat()
     spg = require("SpaGCN", ctx, feature="SpaGCN spatial domain identification")
     spagcn_ez = require_module(
         "SpaGCN",
@@ -508,12 +503,6 @@ async def _identify_domains_spagcn(
                 raise DataError(
                     f"Spatial coordinates length ({len(x_array)}) doesn't match data ({adata.shape[0]})"
                 )
-
-            # SpaGCN 1.2.7 reads `adata.X.A`, an attribute scipy removed in
-            # 1.14; only its sparse branch does so, and its dense branch is
-            # equivalent. Densifying here also spares the two dense copies that
-            # branch would otherwise build (one for fit, one for transform).
-            adata.X = to_dense(adata.X)
 
             def _run_spagcn():
                 with suppress_output():
@@ -833,8 +822,9 @@ async def _identify_domains_stagate(
             process_name="chatspatial-stagate",
         )
 
-        # Get embeddings
-        embeddings_key = "STAGATE"
+        # STAGATE writes its embedding to the bare obsm key "STAGATE"; publish
+        # it under the shared X_<method> name.
+        embeddings_key = "X_stagate"
         n_clusters_target = params.n_domains
 
         # Perform GMM clustering on STAGATE embeddings
@@ -845,7 +835,7 @@ async def _identify_domains_stagate(
         random_seed = (
             params.stagate_random_seed if params.stagate_random_seed is not None else 42
         )
-        embedding_data = adata_stagate.obsm[embeddings_key]
+        embedding_data = adata_stagate.obsm["STAGATE"]
 
         gmm_labels = gmm_clustering(
             data=embedding_data,
@@ -944,8 +934,10 @@ async def _identify_domains_graphst(
             process_name="chatspatial-graphst",
         )
 
-        # Get embeddings key
-        embeddings_key = "emb"  # GraphST stores embeddings in adata.obsm['emb']
+        # GraphST writes its embedding to the bare obsm key "emb"; publish it
+        # under the X_<method> name every other backend here uses so a second
+        # method cannot overwrite it.
+        embeddings_key = "X_graphst"
 
         refine_label = None
         if params.graphst_refinement:
@@ -1157,6 +1149,9 @@ async def _identify_domains_banksy(
                     banksy_matrix,
                     resolution=params.banksy_cluster_resolution,
                     key_added="banksy_cluster",
+                    flavor="igraph",
+                    n_iterations=2,
+                    directed=False,
                 )
                 return banksy_matrix
 

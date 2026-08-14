@@ -5,7 +5,66 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v1.3.7] - 2026-08-13 - Dependency Compatibility and Analysis Correctness
+
+### Fixed
+
+- Replaced the unmaintained SpaGCN, SpatialDE, and NaiveDE distributions with
+  maintained, source-only builds. SpaGCN now initializes with igraph Leiden,
+  so the spatial-domain extra no longer needs the obsolete Louvain extension,
+  a local wheel, a setuptools downgrade, or SciPy monkey patches.
+- Made the optional dependency families composable from public PyPI. FastCCC
+  now has its own Python 3.11-3.12 extra because its Jinja2 requirement
+  conflicts with CellRank's pyGPCCA dependency; LIANA and BANKSY no longer
+  resolve to stale releases on Python 3.14; unused PySAL and PETSc meta-stacks
+  were removed; direct core imports are now declared explicitly; and LIANA is
+  the default communication backend so the default works after a full install.
+- Kept datasets writable after enrichment analysis. Gene set names became
+  `uns` keys and obs columns, and HDF5 reserves "/" as its path separator, so
+  one run against MSigDB Hallmark -- which ships "PI3K/AKT/mTOR Signaling" --
+  left the dataset unable to be exported at all, that run and every one after
+  it. Names arriving from a database or from the caller are now made storable
+  once, before any backend writes them.
+- Matched pathway gene sets to the dataset's own gene naming in
+  over-representation analysis. Enrichr serves human uppercase symbols and a
+  mouse dataset carries title case, so the literal intersection ORA took was
+  empty: every gene set fell below the minimum size and the run reported no
+  significant pathway without saying why. Spatial EnrichMap already converted
+  formats; both now share one matcher, which also folds case for species it has
+  no rules for. On the mouse brain reference this turns 0 tested gene sets into
+  3389, led by nervous system development and synaptic transmission.
+- Reported the number of gene sets over-representation analysis actually
+  tested, rather than the number loaded, and warned when nothing was testable.
+- Fixed Enrichr for every species. The organism was capitalized before being
+  passed to gseapy, which keys its organism map on lowercase names and rejects
+  anything else -- while listing the lowercase form as valid.
+- Restored RNA velocity. scVelo 0.3 forwards unrecognized keywords from
+  `filter_and_normalize` to `normalize_per_cell`, so requesting `n_top_genes`
+  raised, and that wrapper no longer selects variable genes or log-transforms
+  either. The four steps are now spelled out once for both the scVelo and
+  VELOVI paths, reusing the package-wide variable gene selection, and `scvelo`
+  is bounded below 0.4.
+- Ranked `top_features` by what the statistic found for Local Moran's I,
+  Getis-Ord and Local Join Count. All three returned their first ten features
+  in input or appearance order, which is identical whether a gene had thousands
+  of significant spots or none.
+- Pointed callers at the per-spot results Getis-Ord and Local Moran's I write
+  into `obs`. Both left `results_key` empty because neither produces a single
+  `uns` table; they now name the metadata entry that lists every column written.
+- Surfaced the automatically selected trajectory root, and the cells it cannot
+  reach, as tool warnings. The root sets the direction of the entire pseudotime
+  and was only ever written to the Python logger, which no MCP caller sees.
+- Published GraphST and STAGATE embeddings under `X_graphst` and `X_stagate`,
+  matching every other spatial domain backend, instead of the bare `emb` and
+  `STAGATE` keys those libraries write.
+- Pointed a broken optional dependency at the repair its failure actually
+  needs. An installed rpy2 that cannot find an R symbol is linked against a
+  different R, which `pip install rpy2` does not fix.
+- Said so in the pathway plot title when no term reached significance, instead
+  of captioning equal-length bars at q ~ 0.9 as top enriched pathways.
+- Fell back to variance-based gene selection when scanpy's dispersion binning
+  fails with an `IndexError`, the third way degenerate input reaches it.
+
 
 ## [v1.3.6] - 2026-08-13 - Dataset Semantics and Visualization Consistency
 

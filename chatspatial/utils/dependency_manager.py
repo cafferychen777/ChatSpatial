@@ -40,6 +40,10 @@ class DependencyInfo:
     module_name: str
     install_cmd: str
     description: str = ""
+    # An installed package that fails to import is a different problem from an
+    # absent one, and for packages linked against external runtimes the install
+    # command does not fix it. Set this where the two differ.
+    repair_cmd: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -210,7 +214,15 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     ),
     # R Interface
     "rpy2": DependencyInfo(
-        "rpy2", "pip install rpy2", "R-Python interface (requires R installation)"
+        "rpy2",
+        "pip install rpy2",
+        "R-Python interface (requires R installation)",
+        repair_cmd=(
+            "rpy2 links against the R it was built for; a missing symbol means "
+            "a different R is being loaded. Check `R RHOME` and "
+            "`echo $R_HOME` agree, then rebuild against that R: "
+            'pip install --force-reinstall --no-binary rpy2 "rpy2"'
+        ),
     ),
     "anndata2ri": DependencyInfo(
         "anndata2ri",
@@ -230,8 +242,8 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     ),
     "fastccc": DependencyInfo(
         "fastccc",
-        "pip install 'chatspatial[cell-communication]'",
-        "Fast cell-cell communication analysis",
+        "pip install 'chatspatial[fastccc]'",
+        "Fast cell-cell communication analysis (Python 3.11-3.12)",
     ),
     # RNA Velocity
     "scvelo": DependencyInfo(
@@ -277,12 +289,12 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     ),
     "spatialde": DependencyInfo(
         "SpatialDE",
-        "pip install SpatialDE",
+        "pip install spatialde-modern",
         "SpatialDE Gaussian process spatial gene detection",
     ),
     "naivede": DependencyInfo(
         "NaiveDE",
-        "pip install SpatialDE",
+        "pip install naivede-modern",
         "Variance stabilization used by SpatialDE",
     ),
     "flashs": DependencyInfo(
@@ -338,8 +350,8 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
     "ot": DependencyInfo("ot", "pip install POT", "Python Optimal Transport library"),
     "louvain": DependencyInfo(
         "louvain",
-        "pip install 'chatspatial[spatial-domains]'",
-        "Louvain community detection algorithm",
+        "pip install louvain",
+        "Legacy Louvain community detection; prefer Leiden",
     ),
     "pydeseq2": DependencyInfo(
         "pydeseq2", "pip install pydeseq2", "Python implementation of DESeq2"
@@ -359,7 +371,7 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
         "sklearn", "pip install scikit-learn", "Machine learning library"
     ),
     "statsmodels": DependencyInfo(
-        "statsmodels", "pip install statsmodels", "Statistical models and tests"
+        "statsmodels", "pip install chatspatial", "Statistical models and tests"
     ),
     "scipy": DependencyInfo(
         "scipy", "pip install scipy", "Scientific computing library"
@@ -449,7 +461,7 @@ def _load_dependency(
         raise DependencyError(
             f"{subject}{feature_msg}.\n\n"
             f"Import failure: {exc}\n"
-            f"Install or repair: {info.install_cmd}\n"
+            f"Install or repair: {info.repair_cmd or info.install_cmd}\n"
             f"Description: {info.description}"
         ) from exc
     return info, module
@@ -539,7 +551,7 @@ def require_module(
     raise DependencyError(
         f"{name} is installed, but required module '{module_name}' is unavailable"
         f"{feature_msg}.\n\n"
-        f"Install or repair: {info.install_cmd}\n"
+        f"Install or repair: {info.repair_cmd or info.install_cmd}\n"
         f"Description: {info.description}"
     )
 
