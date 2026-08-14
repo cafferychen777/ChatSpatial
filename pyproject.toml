@@ -216,7 +216,7 @@ full = [
     # Spatial domains and variable genes
     "graphst-modern>=1.1.1.post3,<1.2",
     "stagate-modern>=1.0.0.post1,<1.1",
-    "spagcn-modern>=1.2.7.post2,<1.3",
+    "spagcn-modern>=1.3.0,<1.4",
     "pybanksy>=1.3.5,<2.0; python_version < '3.14'",
     "spatialde-modern>=1.1.3.post2,<1.2",
 
@@ -239,7 +239,7 @@ spatial-domains = [
     "torch>=2.0.0,<3.0",
     "graphst-modern>=1.1.1.post3,<1.2",
     "stagate-modern>=1.0.0.post1,<1.1",
-    "spagcn-modern>=1.2.7.post2,<1.3",
+    "spagcn-modern>=1.3.0,<1.4",
     "pybanksy>=1.3.5,<2.0; python_version < '3.14'",
 ]
 

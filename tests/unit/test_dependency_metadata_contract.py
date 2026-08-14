@@ -109,7 +109,9 @@ def test_spatial_domain_extra_uses_maintained_spagcn_graph_stack() -> None:
     project = _project_metadata()
     requirements = _requirements(project["optional-dependencies"]["spatial-domains"])
 
-    assert requirements["spagcn-modern"][0].specifier.contains("1.2.7.post2")
+    spagcn = requirements["spagcn-modern"][0]
+    assert spagcn.specifier.contains("1.3.0")
+    assert not spagcn.specifier.contains("1.4.0")
     assert requirements["graphst-modern"][0].specifier.contains("1.1.1.post3")
     assert requirements["stagate-modern"][0].specifier.contains("1.0.0.post1")
     banksy = requirements["pybanksy"][0]
