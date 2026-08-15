@@ -1347,3 +1347,38 @@ async def test_infer_cnv_rejects_exclude_chromosomes_without_gene_positions(
                 dendrogram=False,
             ),
         )
+
+
+@pytest.mark.unit
+def test_per_spot_cnv_burden_is_kept_not_only_summarized():
+    """Mapping CNV burden onto tissue is the reason to run CNV on spatial data.
+
+    The mean absolute CNV per spot was computed for the summary statistics and
+    then discarded, so the spatial plot found nothing in obs['cnv_score'] and
+    told the user to "Run analyze_cnv() first" when they just had.
+    """
+    import inspect
+
+    from chatspatial.tools import cnv_analysis
+
+    assert cnv_analysis.CNV_SCORE_OBS_KEY == "cnv_score"
+
+    source = inspect.getsource(cnv_analysis)
+    # Computed in both the sparse and the dense branch...
+    assert source.count(f"adata_cnv.obs[{cnv_analysis.CNV_SCORE_OBS_KEY!r}]") == 0
+    assert source.count("adata_cnv.obs[CNV_SCORE_OBS_KEY] = ") == 2
+    # ...and carried over to the object the tool publishes.
+    assert "adata.obs[CNV_SCORE_OBS_KEY] = adata_cnv.obs[CNV_SCORE_OBS_KEY]" in source
+
+
+@pytest.mark.unit
+def test_the_spatial_cnv_plot_reads_the_key_the_analysis_writes():
+    """The producer and the consumer have to agree on the name."""
+    import inspect
+
+    from chatspatial.tools import cnv_analysis
+    from chatspatial.tools.visualization import cnv as cnv_viz
+
+    assert f'"{cnv_analysis.CNV_SCORE_OBS_KEY}" in adata.obs' in inspect.getsource(
+        cnv_viz
+    )

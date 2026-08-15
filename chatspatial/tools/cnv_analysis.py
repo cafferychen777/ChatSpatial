@@ -56,6 +56,13 @@ def _resolve_numbat_table_path(out_dir: str, stem: str, iteration: str) -> Path 
     return None
 
 
+# Per-spot CNV burden. The mean absolute CNV was already computed for the
+# summary statistics and then discarded, while the spatial visualization —
+# the reason to run CNV on spatial data at all — looks for it here and told
+# the user to "Run analyze_cnv() first" when they just had.
+CNV_SCORE_OBS_KEY = "cnv_score"
+
+
 def _build_cnv_key(params: "CNVParameters") -> str:
     """Build a parametric analysis key for CNV results.
 
@@ -512,6 +519,7 @@ async def _infer_cnv_infercnvpy(
             cell_cnv_scores = np.array(cnv_abs.mean(axis=1)).flatten()
             statistics["mean_cell_cnv_score"] = float(np.mean(cell_cnv_scores))
             statistics["max_cell_cnv_score"] = float(np.max(cell_cnv_scores))
+            adata_cnv.obs[CNV_SCORE_OBS_KEY] = cell_cnv_scores
 
         else:
             # Dense matrix - use standard numpy operations
@@ -523,6 +531,7 @@ async def _infer_cnv_infercnvpy(
             cell_cnv_scores = np.mean(np.abs(cnv_matrix), axis=1)
             statistics["mean_cell_cnv_score"] = float(np.mean(cell_cnv_scores))
             statistics["max_cell_cnv_score"] = float(np.max(cell_cnv_scores))
+            adata_cnv.obs[CNV_SCORE_OBS_KEY] = np.asarray(cell_cnv_scores).ravel()
 
     # Count reference vs non-reference cells
     is_reference = adata_cnv.obs[params.reference_key].isin(params.reference_categories)
@@ -558,6 +567,11 @@ async def _infer_cnv_infercnvpy(
     # Store CNV metadata (required for infercnvpy plotting functions)
     if "cnv" in adata_cnv.uns:
         adata.uns["cnv"] = adata_cnv.uns["cnv"]
+
+    if CNV_SCORE_OBS_KEY in adata_cnv.obs and adata_cnv.obs_names.equals(
+        adata.obs_names
+    ):
+        adata.obs[CNV_SCORE_OBS_KEY] = adata_cnv.obs[CNV_SCORE_OBS_KEY]
 
     if params.cluster_cells and "cnv_clusters" in adata_cnv.obs:
         adata.obs["cnv_clusters"] = adata_cnv.obs["cnv_clusters"]

@@ -61,8 +61,26 @@ def _resolve_cellrank_fate_key(adata: "ad.AnnData") -> str:
         if key in adata.obsm:
             return key
 
+    # "Run trajectory analysis first" is the wrong instruction for someone who
+    # just ran it with palantir: these plots call CellRank's own routines and
+    # need CellRank's structures, so the method is the thing to name.
+    palantir_keys = [
+        key
+        for key in ("palantir_fate_probs", "palantir_branch_probs")
+        if key in adata.obsm
+    ]
+    remedy = (
+        "This dataset carries palantir fate probabilities in "
+        f"obsm['{palantir_keys[0]}']; plot those with subtype='palantir', or "
+        "re-run the trajectory with method='cellrank'."
+        if palantir_keys
+        else "Run the trajectory with method='cellrank', which requires "
+        "velocity data."
+    )
     raise DataNotFoundError(
-        "CellRank fate probabilities not found. Run trajectory analysis first."
+        "CellRank fate probabilities not found in obsm "
+        f"({', '.join(_FATE_KEY_CANDIDATES)}); these plots call CellRank's own "
+        f"routines. {remedy}"
     )
 
 

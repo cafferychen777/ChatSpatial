@@ -909,3 +909,63 @@ async def test_fate_map_uses_paga_independent_heatmap_mode(
     )
     assert captured["mode"] == "heatmap"
     plt.close("all")
+
+
+@pytest.mark.unit
+def test_missing_cellrank_fates_do_not_tell_you_to_rerun_what_you_ran():
+    """These plots call CellRank's own routines, so the method is the ask.
+
+    "Run trajectory analysis first" is the wrong instruction for someone who
+    just ran it with palantir, and it hid that palantir's own fate
+    probabilities have a subtype of their own.
+    """
+    import anndata as ad
+
+    from chatspatial.tools.visualization.trajectory import (
+        _resolve_cellrank_fate_key,
+    )
+    from chatspatial.utils.exceptions import DataNotFoundError
+
+    adata = ad.AnnData(np.zeros((4, 2), dtype=np.float32))
+    adata.obsm["palantir_branch_probs"] = np.full((4, 2), 0.5)
+
+    with pytest.raises(DataNotFoundError) as raised:
+        _resolve_cellrank_fate_key(adata)
+
+    message = str(raised.value)
+    assert "palantir_branch_probs" in message
+    assert "subtype='palantir'" in message
+    assert "Run trajectory analysis first" not in message
+
+
+@pytest.mark.unit
+def test_missing_cellrank_fates_name_the_method_when_nothing_was_run():
+    import anndata as ad
+
+    from chatspatial.tools.visualization.trajectory import (
+        _resolve_cellrank_fate_key,
+    )
+    from chatspatial.utils.exceptions import DataNotFoundError
+
+    adata = ad.AnnData(np.zeros((4, 2), dtype=np.float32))
+
+    with pytest.raises(DataNotFoundError) as raised:
+        _resolve_cellrank_fate_key(adata)
+
+    message = str(raised.value)
+    assert "method='cellrank'" in message
+    assert "palantir" not in message
+
+
+@pytest.mark.unit
+def test_present_cellrank_fates_resolve_without_error():
+    import anndata as ad
+
+    from chatspatial.tools.visualization.trajectory import (
+        _resolve_cellrank_fate_key,
+    )
+
+    adata = ad.AnnData(np.zeros((4, 2), dtype=np.float32))
+    adata.obsm["fate_probabilities"] = np.full((4, 3), 1 / 3)
+
+    assert _resolve_cellrank_fate_key(adata) == "fate_probabilities"

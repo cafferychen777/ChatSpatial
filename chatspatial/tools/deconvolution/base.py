@@ -295,6 +295,30 @@ async def prepare_deconvolution(
     )
 
 
+def _counts_for(
+    adata: "ad.AnnData",
+    label: str,
+    *,
+    prefer_complete_genes: bool,
+    require_counts: bool,
+) -> "RawDataResult":
+    """Read counts, naming the dataset if there are none.
+
+    Deconvolution holds two datasets at once, so "no raw integer counts found"
+    leaves the caller guessing which of them to go and fix.
+    """
+    from ...utils.adata_utils import get_raw_data_source
+
+    try:
+        return get_raw_data_source(
+            adata,
+            prefer_complete_genes=prefer_complete_genes,
+            require_integer_counts=require_counts,
+        )
+    except DataError as exc:
+        raise DataError(f"{label}: {exc}") from exc
+
+
 def _recover_nonnegative_source(
     adata: ad.AnnData,
     scaled: "RawDataResult",
@@ -302,12 +326,8 @@ def _recover_nonnegative_source(
     require_counts: bool,
 ) -> "RawDataResult":
     """Fall back to ``adata.raw`` when the preferred matrix is scaled data."""
-    from ...utils.adata_utils import get_raw_data_source
-
-    recovered = get_raw_data_source(
-        adata,
-        prefer_complete_genes=True,
-        require_integer_counts=require_counts,
+    recovered = _counts_for(
+        adata, label, prefer_complete_genes=True, require_counts=require_counts
     )
     if recovered.has_negatives:
         raise DataError(
@@ -340,15 +360,13 @@ async def _prepare_counts(
         require_counts: If True, raise DataError when no integer counts
             are available (required for count-based models).
     """
-    from ...utils.adata_utils import check_is_integer_counts, get_raw_data_source
+    from ...utils.adata_utils import check_is_integer_counts
 
     # Use SSOT priority: layers["counts"] > adata.X
     # prefer_complete_genes=False because deconvolution needs alignment
     # with current adata dimensions (obsm, obs, spatial coords).
-    result = get_raw_data_source(
-        adata,
-        prefer_complete_genes=False,
-        require_integer_counts=require_counts,
+    result = _counts_for(
+        adata, label, prefer_complete_genes=False, require_counts=require_counts
     )
 
     if result.has_negatives:

@@ -133,3 +133,194 @@ async def test_hvg_falls_back_to_binning_without_a_counts_layer(monkeypatch):
     )
 
     assert "flavor" not in seen
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_subsampling_reapplies_the_gene_filter():
+    """The filter ran against every spot, so its verdict does not survive.
+
+    A gene it kept can hold no counts at all once the subsample is drawn, and
+    a variance-stabilizing normalization then has nothing to divide by: on a
+    lymph node subsampled to 900 spots, 773 such genes came out of Pearson
+    residuals as entire columns of NaN. The invariant is asserted rather than
+    a particular gene, because which spots are drawn is not the contract.
+    """
+    import anndata as ad
+
+    from chatspatial.models.data import PreprocessingParameters
+    from chatspatial.tools import preprocessing
+
+    rng = np.random.default_rng(0)
+    counts = rng.poisson(3, size=(60, 10)).astype(np.float32)
+    # Four genes live only in the tail of the matrix, so a subsample leaves
+    # most of them below the threshold.
+    counts[:, 6:] = 0
+    counts[57:, 6:] = 5
+
+    adata = ad.AnnData(counts)
+    adata.var_names = [f"gene_{i}" for i in range(10)]
+    min_cells = 3
+    ctx = _WarnCtx()
+
+    out = await preprocessing._filter_and_subsample(
+        adata,
+        PreprocessingParameters(
+            subsample_spots=20,
+            filter_genes_min_cells=min_cells,
+            filter_cells_min_genes=None,
+            filter_mito_pct=None,
+        ),
+        ctx,
+        {},
+        None,
+    )
+
+    assert out.n_obs == 20
+    expressed_in = (np.asarray(out.X) > 0).sum(axis=0)
+    assert (
+        expressed_in >= min_cells
+    ).all(), "a gene survived that the filter would have rejected on these spots"
+    if out.n_vars < 10:
+        assert any("Subsampling to 20 spots left" in w for w in ctx.warnings)
+
+
+@pytest.mark.unit
+def test_undefined_residuals_become_zero():
+    """A gene with no counts has an expected count of zero, so 0/0 is NaN.
+
+    Nothing was observed and nothing was expected, which is no deviation:
+    the value the statistic reaches for is zero.
+    """
+    import anndata as ad
+    import scipy.sparse as sp
+
+    from chatspatial.tools import preprocessing
+
+    values = np.array([[1.0, np.nan], [-2.0, np.nan], [0.5, np.nan]])
+
+    dense = ad.AnnData(values.copy())
+    assert preprocessing._zero_non_finite_residuals(dense) == 1
+    assert np.isfinite(np.asarray(dense.X)).all()
+    assert np.asarray(dense.X)[0, 0] == 1.0  # the defined column is untouched
+
+    sparse = ad.AnnData(sp.csr_matrix(values))
+    assert preprocessing._zero_non_finite_residuals(sparse) == 1
+    assert np.isfinite(sparse.X.data).all()
+
+
+@pytest.mark.unit
+def test_finite_residuals_are_left_alone():
+    import anndata as ad
+
+    from chatspatial.tools import preprocessing
+
+    adata = ad.AnnData(np.array([[1.0, -2.0], [0.0, 3.0]]))
+    assert preprocessing._zero_non_finite_residuals(adata) == 0
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_pearson_residuals_leave_no_undefined_values_behind():
+    """The guard has to be wired into the normalization, not merely exist.
+
+    Testing the helper alone passed even with its call site removed, which is
+    exactly the gap that let entire NaN columns reach adata.X.
+    """
+    import anndata as ad
+
+    from chatspatial.models.data import PreprocessingParameters
+    from chatspatial.tools.preprocessing import preprocess_data
+
+    rng = np.random.default_rng(0)
+    counts = rng.poisson(4, size=(40, 120)).astype(np.float32)
+    counts[:, 100:] = 0  # 20 genes with no counts anywhere
+    adata = ad.AnnData(counts)
+    adata.var_names = [f"gene_{i}" for i in range(120)]
+    adata.obsm["spatial"] = rng.random((40, 2)) * 100
+
+    ctx = _PreprocessCtx(adata)
+    await preprocess_data(
+        "d",
+        ctx,
+        PreprocessingParameters(
+            normalization="pearson_residuals",
+            filter_genes_min_cells=None,
+            filter_cells_min_genes=None,
+            filter_mito_pct=None,
+            n_hvgs=20,
+        ),
+    )
+
+    values = np.asarray(
+        ctx.adata.X.todense() if hasattr(ctx.adata.X, "todense") else ctx.adata.X
+    )
+    assert np.isfinite(values).all(), "undefined residuals reached adata.X"
+    assert any("no counts in the analyzed cells" in w for w in ctx.warnings)
+
+
+class _PreprocessCtx(_WarnCtx):
+    def __init__(self, adata):
+        super().__init__()
+        self.adata = adata
+
+    async def get_adata(self, _data_id):
+        return self.adata
+
+    async def set_adata(self, _data_id, adata):
+        self.adata = adata
+
+    async def report_progress(self, *_args, **_kwargs):
+        return None
+
+    def log_config(self, *_args, **_kwargs):
+        return None
+
+    def log_step(self, *_args, **_kwargs):
+        return None
+
+    def log_result(self, *_args, **_kwargs):
+        return None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("requested", "n_hvgs", "should_warn"),
+    [(3000, 2000, True), (500, 2000, False)],
+    ids=["capped-by-n_hvgs", "within-n_hvgs"],
+)
+async def test_a_capped_gene_subsample_says_so(
+    requested: int, n_hvgs: int, should_warn: bool
+):
+    """Genes are chosen out of the highly variable set, so it bounds them.
+
+    Asking for 3000 with the default n_hvgs=2000 returned 1988: the count was
+    reported, but not the reason it was not the one requested.
+    """
+    from chatspatial.models.data import PreprocessingParameters
+    from chatspatial.tools import preprocessing
+
+    adata = _counts_adata(n_obs=40, n_vars=4000)
+    ctx = _WarnCtx()
+
+    def _mark(a, n_top_genes, **_kwargs):
+        flags = np.zeros(a.n_vars, dtype=bool)
+        flags[:n_top_genes] = True
+        a.var["highly_variable"] = flags
+        return False
+
+    import unittest.mock as mock
+
+    with mock.patch.object(preprocessing, "ensure_highly_variable_genes", _mark):
+        await preprocessing._select_and_subsample_genes(
+            adata,
+            PreprocessingParameters(subsample_genes=requested, n_hvgs=n_hvgs),
+            ctx,
+        )
+
+    capped = [w for w in ctx.warnings if "subsample_genes=" in w]
+    assert bool(capped) is should_warn
+    if should_warn:
+        assert f"subsample_genes={requested}" in capped[0]
+        assert "raise n_hvgs" in capped[0]

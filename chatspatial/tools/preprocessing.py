@@ -130,6 +130,26 @@ async def _filter_and_subsample(
             n_obs=params.subsample_spots,
             random_state=params.subsample_random_seed,
         )
+        # The gene filter ran against every spot, so genes it kept can hold no
+        # counts at all once the subsample is drawn. They are not lowly
+        # expressed here, they are absent, and a variance-stabilizing
+        # normalization has nothing to divide by: on a lymph node subsampled to
+        # 900 spots, 773 such genes came out of Pearson residuals as entire
+        # columns of NaN.
+        if (
+            params.filter_genes_min_cells is not None
+            and params.filter_genes_min_cells > 0
+        ):
+            n_genes_before = adata.n_vars
+            sc.pp.filter_genes(adata, min_cells=params.filter_genes_min_cells)
+            n_dropped = n_genes_before - adata.n_vars
+            if n_dropped:
+                await ctx.warning(
+                    f"Subsampling to {adata.n_obs} spots left {n_dropped} genes "
+                    f"below filter_genes_min_cells={params.filter_genes_min_cells}; "
+                    "they were dropped, so this gene set is smaller than the one "
+                    "the full dataset produces."
+                )
     return adata
 
 
@@ -200,6 +220,40 @@ async def _run_scrublet(
         )
         qc_metrics["scrublet_error"] = str(exc)
         return adata
+
+
+def _zero_non_finite_residuals(adata) -> int:
+    """Replace undefined residuals with zero and report how many genes had them.
+
+    Returns:
+        The number of genes that carried a non-finite residual.
+    """
+    matrix = adata.X
+
+    if scipy.sparse.issparse(matrix):
+        if np.isfinite(matrix.data).all():
+            return 0
+        by_column = matrix.tocsc()
+        affected = sum(
+            1
+            for column in range(by_column.shape[1])
+            if not np.isfinite(
+                by_column.data[by_column.indptr[column] : by_column.indptr[column + 1]]
+            ).all()
+        )
+        by_column.data[~np.isfinite(by_column.data)] = 0.0
+        by_column.eliminate_zeros()
+        adata.X = by_column.tocsr()
+        return affected
+
+    dense = np.asarray(matrix)
+    non_finite = ~np.isfinite(dense)
+    if not non_finite.any():
+        return 0
+    affected = int(non_finite.any(axis=0).sum())
+    dense[non_finite] = 0.0
+    adata.X = dense
+    return affected
 
 
 def _preserve_raw_counts(adata, params: PreprocessingParameters) -> None:
@@ -307,6 +361,17 @@ async def _select_and_subsample_genes(
             if requested_gene_count is not None
             else min(params.n_hvgs, adata.n_vars - 1)
         )
+        # subsample_genes selects from the highly variable set, so it cannot
+        # exceed it. Asking for 3000 genes with the default n_hvgs=2000 quietly
+        # returned 1988; the count was reported, but not the reason it was not
+        # the one requested.
+        if requested_gene_count is not None and n_hvgs < requested_gene_count:
+            await ctx.warning(
+                f"subsample_genes={requested_gene_count} exceeds the "
+                f"{n_hvgs} genes available to select from, so {n_hvgs} were "
+                "kept. Genes are chosen out of the highly variable set: raise "
+                "n_hvgs to make a larger subsample possible."
+            )
 
     if n_hvgs <= 0:
         n_hvgs = 1
@@ -683,6 +748,21 @@ async def preprocess_data(
             # Apply Pearson residuals normalization (to all genes)
             # Note: High variable gene selection happens later in the pipeline
             sc.experimental.pp.normalize_pearson_residuals(adata)
+
+            # A gene with no counts in the analyzed cells has an expected count
+            # of zero, so its residual is 0/0 and comes back NaN. The value the
+            # statistic is reaching for is defined: nothing was observed and
+            # nothing was expected, which is no deviation at all. Gene
+            # filtering normally removes such genes, so this is the guard for
+            # the configurations where it does not.
+            n_undefined = _zero_non_finite_residuals(adata)
+            if n_undefined:
+                await ctx.warning(
+                    f"{n_undefined} gene(s) have no counts in the analyzed "
+                    "cells, so their Pearson residuals were undefined (0/0) and "
+                    "are reported as 0. Raise filter_genes_min_cells to drop "
+                    "them instead."
+                )
         except MemoryError as e:
             raise MemoryError(
                 f"Insufficient memory for Pearson residuals on {adata.n_obs}×{adata.n_vars} matrix. "

@@ -5,6 +5,41 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.5.3] - 2026-08-15 - What the Data Says It Is
+
+### Fixed
+
+- Subsampling left entire columns of NaN in the expression matrix. The gene
+  filter runs against every spot, so genes it keeps can hold no counts at all
+  once the subsample is drawn — and a gene with no counts has an expected count
+  of zero, which makes its Pearson residual 0/0. On a human lymph node
+  subsampled to 900 spots, 773 genes came out of normalization as complete NaN
+  columns, invisible until something read the full matrix. The filter is now
+  re-applied to the spots that were actually kept, and says how many genes that
+  dropped. As a second guard, for configurations that disable filtering
+  entirely, an undefined residual is reported as 0 — nothing observed against
+  nothing expected is no deviation — with a warning naming the count.
+- `subsample_genes` was silently capped by `n_hvgs`. Genes are chosen out of
+  the highly variable set, so asking for 3000 with the default `n_hvgs=2000`
+  returned 1988: the count was reported, but not the reason it was not the one
+  requested. The cap is now stated, with the parameter to raise.
+- Deconvolution reported missing counts without saying which of its two
+  datasets lacked them. RCTD against a scanpy-processed reference failed with
+  "No raw integer counts found" and no indication of whether the spatial data
+  or the reference was the one to fix; the label the surrounding code already
+  carries is now attached to the error.
+- Spatial CNV plots never had anything to draw. `analyze_cnv` computed the mean
+  absolute CNV per spot for its summary statistics and then discarded the
+  vector, so `visualize_data(plot_type="cnv", subtype="spatial")` found no
+  `obs['cnv_score']` and answered "Run analyze_cnv() first" to someone who just
+  had — while the result claimed `visualization_available: True`. The per-spot
+  burden is now kept and carried onto the published dataset, which is what
+  makes mapping CNV onto tissue possible at all.
+- The CellRank fate plots told anyone who had run a trajectory to run one. They
+  call CellRank's own routines, so palantir output cannot serve them; the error
+  now names the method it needs, and points at `subtype='palantir'` when
+  palantir fate probabilities are what the dataset actually holds.
+
 ## [v1.5.2] - 2026-08-14 - Contracts, Effective Values, and a Cheaper Pipeline
 
 ### Fixed

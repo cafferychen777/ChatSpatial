@@ -329,3 +329,44 @@ async def test_prepare_counts_rejects_scaled_data_without_recoverable_source(
 
     with pytest.raises(DataError, match="negative values"):
         await _prepare_counts(adata, "Reference", DummyCtx(), require_int_dtype=False)
+
+
+@pytest.mark.unit
+def test_missing_counts_name_the_dataset_that_lacks_them():
+    """Deconvolution holds two datasets, so an unlabelled error is a guess.
+
+    RCTD on a scanpy-processed reference failed with "No raw integer counts
+    found" and no indication of whether the spatial data or the reference was
+    the one to fix.
+    """
+    import anndata as ad
+
+    from chatspatial.tools.deconvolution import base
+    from chatspatial.utils.exceptions import DataError
+
+    normalized = ad.AnnData(np.array([[0.5, -1.25], [2.5, 0.75]], dtype=np.float32))
+
+    with pytest.raises(DataError) as raised:
+        base._counts_for(
+            normalized, "Reference", prefer_complete_genes=False, require_counts=True
+        )
+
+    assert str(raised.value).startswith("Reference:")
+    # The original diagnosis is kept, not replaced.
+    assert "integer counts" in str(raised.value)
+
+
+@pytest.mark.unit
+def test_available_counts_are_returned_unlabelled():
+    import anndata as ad
+
+    from chatspatial.tools.deconvolution import base
+
+    counts = ad.AnnData(np.array([[3.0, 1.0], [2.0, 4.0]], dtype=np.float32))
+
+    result = base._counts_for(
+        counts, "Spatial", prefer_complete_genes=False, require_counts=True
+    )
+
+    assert result.is_integer_counts
+    assert list(result.var_names) == list(counts.var_names)
