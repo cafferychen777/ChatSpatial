@@ -12,7 +12,7 @@ sphinx-copybutton>=0.5.2  # Copy button for code blocks
 sphinx-design>=0.6.0  # Design elements (cards, tabs, grids)
 
 # Markdown support for Sphinx
-myst-parser>=2.0.0  # MyST Markdown parser
+myst-parser>=5.0.0  # MyST Markdown parser
 
 # i18n helper CLI (manages .po files under docs/locale/)
 sphinx-intl>=2.2.0
