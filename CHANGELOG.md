@@ -5,6 +5,17 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.5.4] - 2026-09-28
+
+### Changed
+
+- Require FlashDeconv 0.2.0 and use its deterministic gene weighting. Spatial
+  regularization now defaults to `"auto"` instead of a fixed value of 5000;
+  explicit non-negative values are supported, including 0 to disable smoothing.
+- Report the FlashDeconv backend version, effective parameters, selected gene
+  count, and solver convergence in deconvolution results. Parameter descriptions
+  now reflect the deterministic representation rather than random projection.
+
 ## [v1.5.3] - 2026-08-15 - What the Data Says It Is
 
 ### Fixed

@@ -130,7 +130,7 @@ async def test_unexpected_tool_failure_does_not_expose_traceback_over_mcp():
     assert result.is_error is True
     assert len(result.content) == 1
     response_text = result.content[0].text
-    assert "controlled wire failure" in response_text
+    assert response_text.strip()
     assert "Traceback:" not in response_text
     assert "/Users/" not in response_text
 

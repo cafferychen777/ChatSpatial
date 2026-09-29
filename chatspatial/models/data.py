@@ -1317,11 +1317,11 @@ class DeconvolutionParameters(StrictParameters):
     # FlashDeconv specific parameters (DEFAULT METHOD - ultra-fast, atlas-scale)
     flashdeconv_sketch_dim: Annotated[int, Field(gt=0, le=2048)] = Field(
         512,
-        description="Sketched space dimension. FlashDeconv only.",
+        description="Bucket count used to compute deterministic gene weights. FlashDeconv only.",
     )
-    flashdeconv_lambda_spatial: Annotated[float, Field(gt=0)] = Field(
-        5000.0,
-        description="Spatial regularization. 5000 for Visium, 50000+ for high-res. FlashDeconv only.",
+    flashdeconv_lambda_spatial: Literal["auto"] | Annotated[float, Field(ge=0)] = Field(
+        "auto",
+        description="Spatial regularization: auto adapts to the data scale; 0 disables smoothing. FlashDeconv only.",
     )
     flashdeconv_n_hvg: Annotated[int, Field(gt=0, le=5000)] = Field(
         2000,

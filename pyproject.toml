@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chatspatial"
-version = "1.5.3"
+version = "1.5.4"
 description = "ChatSpatial: Natural language-driven spatial transcriptomics analysis via Model Context Protocol (MCP) integration"
 readme = "README.md"
 license = "MIT"
@@ -116,7 +116,7 @@ spatial-stats = [
 
 # Spatial deconvolution methods
 deconvolution = [
-    "flashdeconv>=0.1.0",
+    "flashdeconv>=0.2.0",
     "cell2location>=0.1.4",
 ]
 
@@ -198,7 +198,7 @@ full = [
     "networkx>=2.6.0",
 
     # Deconvolution and annotation
-    "flashdeconv>=0.1.0",
+    "flashdeconv>=0.2.0",
     "cell2location>=0.1.4",
     "tangram-sc>=1.0.0",
     "singler>=0.4.0; sys_platform != 'win32'",

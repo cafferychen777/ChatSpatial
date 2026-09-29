@@ -134,24 +134,75 @@ def test_flashdeconv_dependency_error(
         flash_module.deconvolve(data)
 
 
-def test_flashdeconv_success_with_fake_backend(
-    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("lambda_spatial", ["auto", 0.0, 12.5])
+def test_flashdeconv_records_resolved_backend_parameters(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, lambda_spatial
 ):
-    data = _prepared_data(minimal_spatial_adata)
+    from chatspatial.models.data import DeconvolutionParameters
+    from chatspatial.tools.deconvolution import METHOD_REGISTRY
 
-    def _fake_run(adata_st, _reference, **_kwargs):
-        adata_st.obsm["flashdeconv"] = np.tile(
-            np.array([0.7, 0.3]), (adata_st.n_obs, 1)
+    data = _prepared_data(minimal_spatial_adata)
+    params = DeconvolutionParameters(
+        cell_type_key="cell_type", flashdeconv_lambda_spatial=lambda_spatial
+    )
+    backend_params = {
+        "sketch_dim": 512,
+        "lambda_spatial": 1.25 if lambda_spatial == "auto" else lambda_spatial,
+        "n_hvg": 2000,
+        "n_markers_per_type": 50,
+        "gene_weighting": "expected",
+        "max_iter": 1000,
+        "tol": 1e-4,
+        "preprocess": "log_cpm",
+        "rho_sparsity": 0.01,
+        "spatial_method": "knn",
+        "k_neighbors": 6,
+        "converged": False,
+        "n_iterations": 1000,
+        "n_genes_used": 3,
+    }
+
+    def _fake_run(adata_st, _reference, **kwargs):
+        assert kwargs["lambda_spatial"] == lambda_spatial
+        adata_st.obsm["flashdeconv"] = pd.DataFrame(
+            np.tile([0.7, 0.3], (adata_st.n_obs, 1)),
+            index=adata_st.obs_names,
+            columns=["B", "A"],
         )
+        adata_st.uns["flashdeconv_params"] = backend_params
 
     fake_mod = ModuleType("flashdeconv")
+    fake_mod.__version__ = "0.2.0"
     fake_mod.tl = SimpleNamespace(deconvolve=_fake_run)
     _patch_required_dependency(monkeypatch, flash_module, "flashdeconv", fake_mod)
 
-    proportions, stats = flash_module.deconvolve(data)
+    proportions, stats = flash_module.deconvolve(
+        data, **METHOD_REGISTRY["flashdeconv"].extract_kwargs(params)
+    )
     assert proportions.shape == (data.n_spots, 2)
-    assert list(proportions.columns) == data.cell_types
+    assert list(proportions.columns) == ["B", "A"]
+    assert list(proportions.index) == list(data.spatial.obs_names)
     assert stats["method"] == "FlashDeconv"
+    assert stats["backend_version"] == "0.2.0"
+    assert stats["genes_used"] == 3
+    assert stats["common_genes"] == len(data.common_genes)
+    for key in backend_params.keys() - {"n_genes_used"}:
+        assert stats[key] == backend_params[key]
+
+
+def test_flashdeconv_regularization_schema():
+    from pydantic import ValidationError
+
+    from chatspatial.models.data import DeconvolutionParameters
+
+    assert (
+        DeconvolutionParameters(cell_type_key="ct").flashdeconv_lambda_spatial == "auto"
+    )
+    for value in [-1, "invalid", float("inf"), float("nan")]:
+        with pytest.raises(ValidationError):
+            DeconvolutionParameters(
+                cell_type_key="ct", flashdeconv_lambda_spatial=value
+            )
 
 
 def test_flashdeconv_missing_output_raises_processing_error(
@@ -165,26 +216,6 @@ def test_flashdeconv_missing_output_raises_processing_error(
 
     with pytest.raises(ProcessingError, match="did not produce output"):
         flash_module.deconvolve(data)
-
-
-def test_flashdeconv_dataframe_output_uses_spatial_observation_labels(
-    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
-):
-    data = _prepared_data(minimal_spatial_adata)
-
-    def _fake_run(adata_st, _reference, **_kwargs):
-        adata_st.obsm["flashdeconv"] = pd.DataFrame(
-            np.tile([0.6, 0.4], (adata_st.n_obs, 1)),
-            index=adata_st.obs_names,
-            columns=data.cell_types,
-        )
-
-    fake_mod = ModuleType("flashdeconv")
-    fake_mod.tl = SimpleNamespace(deconvolve=_fake_run)
-    _patch_required_dependency(monkeypatch, flash_module, "flashdeconv", fake_mod)
-
-    proportions, _stats = flash_module.deconvolve(data)
-    assert list(proportions.index) == list(data.spatial.obs_names)
 
 
 def test_flashdeconv_wraps_unexpected_backend_errors(

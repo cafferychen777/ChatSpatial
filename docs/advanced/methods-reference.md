@@ -255,6 +255,13 @@ Estimate cell type proportions per spot.
 | `spotlight` | Fast | No | R-based |
 | `card` | Fast | No | R-based, imputation |
 
+**FlashDeconv** uses deterministic gene weighting and automatically scales spatial
+regularization to the data. Set `flashdeconv_lambda_spatial` to a non-negative
+number to choose the strength explicitly (`0` disables smoothing).
+`flashdeconv_sketch_dim` controls the expected gene weights, not a projected
+embedding dimension. Results report the backend version, resolved regularization,
+selected gene count, and solver convergence.
+
 **RCTD backend options**:
 
 | Parameter | Default | Description |
