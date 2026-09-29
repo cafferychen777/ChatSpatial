@@ -722,6 +722,21 @@ def test_integrate_multiple_samples_wraps_harmony_errors(
         integrate_multiple_samples(adata, method="harmony", batch_key="batch", n_pcs=3)
 
 
+@pytest.mark.parametrize("values", [[True, False], [True, pd.NA]])
+def test_clean_concatenated_metadata_normalizes_nullable_booleans(
+    minimal_spatial_adata, values
+):
+    from chatspatial.tools.integration import _clean_concatenated_metadata
+
+    adata = minimal_spatial_adata[:, :2].copy()
+    adata.var["flag"] = pd.array(values, dtype="boolean")
+
+    _clean_concatenated_metadata(adata)
+
+    assert adata.var["flag"].dtype == bool
+    assert adata.var["flag"].tolist() == [True, False]
+
+
 def test_integrate_multiple_samples_cleans_var_na_and_diffmap_artifacts(
     minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch
 ):

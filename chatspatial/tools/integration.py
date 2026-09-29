@@ -252,6 +252,9 @@ def _clean_concatenated_metadata(combined: ad.AnnData) -> None:
     """Normalize outer-join metadata and remove incomplete graph artifacts."""
     for column in combined.var.columns:
         values = combined.var[column]
+        if pd.api.types.is_bool_dtype(values.dtype):
+            combined.var[column] = values.fillna(False).astype(bool)
+            continue
         is_label_column = pd.api.types.is_object_dtype(
             values.dtype
         ) or pd.api.types.is_string_dtype(values.dtype)
