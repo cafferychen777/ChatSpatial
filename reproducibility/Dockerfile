@@ -1,9 +1,9 @@
 # Reproduction image for the manuscript's key results.
 #
 # Built on top of the published ChatSpatial image (pass its digest as
-# BASE_IMAGE) and adds only what the reproduction needs: the manuscript-era
-# SpaGCN backend, R + CARD for the deconvolution case study, and the
-# reproduction scripts with their committed reference values.
+# BASE_IMAGE) and adds only what the reproduction needs: R + CARD for the
+# deconvolution case study, and the reproduction scripts with their committed
+# reference values.
 #
 #   docker build -f reproducibility/Dockerfile \
 #     --build-arg BASE_IMAGE=ghcr.io/cafferychen777/chatspatial@sha256:<digest> \
@@ -48,17 +48,13 @@ RUN Rscript -e 'options(repos = c(CRAN = "https://packagemanager.posit.co/cran/2
                               dependencies = FALSE, upgrade = "never"); \
       library(MuSiC); library(CARD); cat("CARD", as.character(packageVersion("CARD")), "\n")'
 
-# Python side: rpy2 bridge, CPU-only torch, and the original SpaGCN 1.2.7
-# (Louvain-based) backend that produced the manuscript's DLPFC numbers. The
-# maintained spagcn-modern distribution uses Leiden and gives different
-# partitions. louvain 0.8.2 needs igraph < 0.12 (hence leidenalg < 0.11) and
-# pkg_resources; rpy2 3.6 needs a newer R than the 4.2 that Debian bookworm ships.
+# Python side: rpy2 bridge and CPU-only torch. SpaGCN comes from the base image:
+# spagcn-modern >= 1.4 runs the published SpaGCN 1.2.7 model by default and
+# reproduces its labels exactly. rpy2 3.6 needs a newer R than the 4.2 that
+# Debian bookworm ships.
 RUN python -m pip install --index-url https://download.pytorch.org/whl/cpu torch \
-    && python -m pip install \
-        "rpy2>=3.5.17,<3.6" "anndata2ri>=1.3.0" requests \
-        "setuptools<81" "igraph>=0.11,<0.12" "leidenalg<0.11" \
-        louvain==0.8.2 SpaGCN==1.2.7 \
-    && python -c "import SpaGCN, louvain, rpy2.robjects; print('SpaGCN + rpy2 ready')"
+    && python -m pip install "rpy2>=3.5.17,<3.6" "anndata2ri>=1.3.0" requests \
+    && python -c "import SpaGCN, rpy2.robjects; print('SpaGCN', SpaGCN.__version__ if hasattr(SpaGCN, '__version__') else '', '+ rpy2 ready')"
 
 COPY scripts /opt/chatspatial-repro/scripts
 COPY data/dlpfc_benchmark /opt/chatspatial-repro/data/dlpfc_benchmark
