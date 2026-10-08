@@ -184,6 +184,7 @@ def ensure_neighbors(
     n_pcs: Optional[int] = None,
     use_rep: str = "X_pca",
     random_state: int = 0,
+    require_n_neighbors: bool = False,
 ) -> bool:
     """
     Ensure neighborhood graph is computed.
@@ -196,12 +197,19 @@ def ensure_neighbors(
         n_pcs: Number of PCs to use (None = auto)
         use_rep: Representation to use (default: X_pca)
         random_state: Random seed
+        require_n_neighbors: When True, an existing graph is reused only if it
+            was built with ``n_neighbors``; otherwise it is recomputed. When
+            False (default), any existing graph is reused.
 
     Returns:
         True if neighbors was computed, False if already existed
     """
     if "neighbors" in adata.uns and "connectivities" in adata.obsp:
-        return False
+        stored = adata.uns["neighbors"].get("params", {}).get("n_neighbors")
+        if not require_n_neighbors or (
+            stored is not None and int(stored) == n_neighbors
+        ):
+            return False
 
     # Ensure PCA exists if using X_pca
     if use_rep == "X_pca":

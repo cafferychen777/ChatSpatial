@@ -34,6 +34,12 @@ def _resolve_fake_spatial_domain_submodules(
     )
     if not request.node.name.endswith("timeout_is_wrapped"):
         monkeypatch.setattr(sd, "run_sync_with_timeout", _run_timed_worker_inline)
+    # GraphST seeds its training worker with GraphST.preprocess.fix_seed.
+    graphst_preprocess = __import__("types").ModuleType("GraphST.preprocess")
+    graphst_preprocess.fix_seed = lambda _seed: None
+    monkeypatch.setitem(
+        __import__("sys").modules, "GraphST.preprocess", graphst_preprocess
+    )
 
 
 def _required_dependency(name: str, *_args, **_kwargs):
@@ -719,8 +725,8 @@ async def test_identify_domains_stagate_success_returns_embeddings_and_stats(
             return None
 
         @staticmethod
-        def train_STAGATE(a, device=None):
-            del device
+        def train_STAGATE(a, device=None, random_seed=0):
+            del device, random_seed
             a.obsm["STAGATE"] = np.ones((a.n_obs, 4), dtype=float)
             return a
 
@@ -781,8 +787,8 @@ async def test_identify_domains_stagate_stats_failure_logs_debug_and_continues(
             raise RuntimeError("stats boom")
 
         @staticmethod
-        def train_STAGATE(a, device=None):
-            del device
+        def train_STAGATE(a, device=None, random_seed=0):
+            del device, random_seed
             a.obsm["STAGATE"] = np.ones((a.n_obs, 2), dtype=float)
             return a
 
@@ -830,8 +836,8 @@ async def test_identify_domains_stagate_timeout_is_wrapped(
             del rad_cutoff
 
         @staticmethod
-        def train_STAGATE(a, device=None):
-            del a, device
+        def train_STAGATE(a, device=None, random_seed=0):
+            del a, device, random_seed
             return None
 
     _patch_stagate_dependencies(monkeypatch, torch_mod, _FakeSTAGATE)

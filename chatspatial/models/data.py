@@ -1343,7 +1343,15 @@ class SpatialDomainParameters(StrictParameters):
         description="'spagcn' uses histology. 'banksy' uses spatial feature augmentation. 'stagate'/'graphst' use deep learning. 'aestetik' fuses precomputed expression and morphology embeddings.",
     )
     n_domains: int = Field(
-        default=7, gt=0, le=50, description="Number of spatial domains to identify."
+        default=7,
+        gt=0,
+        le=50,
+        description=(
+            "Number of spatial domains to identify. Used by spagcn, stagate, "
+            "graphst (unless graphst_n_clusters is set) and aestetik with "
+            "kmeans/bgm. Ignored by leiden, louvain and banksy, which are "
+            "controlled by a resolution."
+        ),
     )
 
     # SpaGCN specific parameters
@@ -1363,44 +1371,135 @@ class SpatialDomainParameters(StrictParameters):
     spagcn_random_seed: int = 100
 
     # General clustering parameters
-    resolution: float = 0.5
-    use_highly_variable: bool = True
-    refine_domains: bool = True
+    resolution: float = Field(
+        default=0.5,
+        gt=0.0,
+        le=5.0,
+        description=(
+            "Clustering resolution (higher = more domains). Used by leiden, "
+            "louvain and aestetik with leiden/louvain. Not used by graphst, "
+            "which searches the resolution that yields n_domains, or by "
+            "banksy (see banksy_cluster_resolution)."
+        ),
+    )
+    use_highly_variable: bool = Field(
+        default=True,
+        description=(
+            "Restrict the input to adata.var['highly_variable'] genes when that "
+            "column exists (all methods)."
+        ),
+    )
+    refine_domains: bool = Field(
+        default=True,
+        description=(
+            "Post-process the labels of any method by relabelling a spot to "
+            "the majority label of its 10 nearest spots when the share of "
+            "differing neighbours reaches refinement_threshold. Stored as an "
+            "extra '<domain_key>_refined' column."
+        ),
+    )
     refinement_threshold: float = Field(
         default=0.5,
         ge=0.0,
         le=1.0,
-        description="Neighbor agreement threshold for domain refinement.",
+        description=(
+            "Share of the 10 nearest spots that must carry a different label "
+            "before refine_domains relabels a spot. Used only when "
+            "refine_domains=True."
+        ),
     )
 
     # Clustering-specific parameters for leiden/louvain methods
     cluster_n_neighbors: Optional[int] = Field(
-        default=None, gt=0, description="Neighbors for clustering (leiden/louvain)."
+        default=None,
+        ge=2,
+        le=200,
+        description=(
+            "k of the expression k-NN graph (leiden/louvain only). None reuses "
+            "an existing neighbour graph (e.g. from compute_embeddings) or "
+            "builds one with k=15; a value rebuilds the graph unless the "
+            "stored one already has this k."
+        ),
     )
     cluster_spatial_weight: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="Spatial information weight (leiden/louvain).",
+        description=(
+            "Weight of the spatial graph when combined with the expression "
+            "graph (leiden/louvain only). None uses 0.3."
+        ),
     )
 
     # STAGATE specific parameters
-    stagate_use_gpu: bool = True  # Whether to use GPU/MPS acceleration
-    stagate_rad_cutoff: Optional[float] = (
-        None  # Radius cutoff for spatial neighbors (default: 150)
+    stagate_use_gpu: bool = Field(
+        default=True,
+        description="Use CUDA/MPS when available, else CPU (stagate only).",
     )
-    stagate_random_seed: Optional[int] = None  # Random seed (default: 42)
+    stagate_rad_cutoff: Optional[float] = Field(
+        default=None,
+        gt=0.0,
+        description=(
+            "Radius of the STAGATE spatial graph, as a distance in the units "
+            "of obsm['spatial'] (stagate only). None derives it from the spot "
+            "spacing (3**0.25 x the median distance to the 6th nearest spot), "
+            "which links about 6 neighbours per Visium spot as in STAGATE's "
+            "Visium analyses, in array, pixel or micron coordinates alike."
+        ),
+    )
+    stagate_random_seed: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Seed for STAGATE training and its GMM clustering (stagate only). "
+            "None uses 42."
+        ),
+    )
 
     # GraphST specific parameters
-    graphst_use_gpu: bool = False  # Whether to use GPU acceleration
-    graphst_clustering_method: Literal["mclust", "leiden", "louvain"] = (
-        "leiden"  # Clustering method for GraphST
+    graphst_use_gpu: bool = Field(
+        default=False,
+        description="Use CUDA/MPS when available, else CPU (graphst only).",
     )
-    graphst_refinement: bool = True  # Whether to refine domains using spatial info
-    graphst_radius: int = 50  # Radius for spatial refinement
-    graphst_random_seed: int = 42  # Random seed for GraphST
-    graphst_n_clusters: Optional[int] = (
-        None  # Number of clusters (if None, uses n_domains)
+    graphst_clustering_method: Literal["mclust", "leiden", "louvain"] = Field(
+        default="leiden",
+        description=(
+            "Clustering of GraphST embeddings (graphst only). 'mclust' fits a "
+            "Gaussian mixture with the cluster count; 'leiden'/'louvain' search "
+            "the resolution that yields the cluster count. 'louvain' requires "
+            "the louvain package."
+        ),
+    )
+    graphst_refinement: bool = Field(
+        default=True,
+        description=(
+            "Apply GraphST's own label refinement (majority vote over the "
+            "graphst_radius nearest spots) after clustering (graphst only)."
+        ),
+    )
+    graphst_radius: int = Field(
+        default=50,
+        ge=1,
+        le=500,
+        description=(
+            "Number of nearest spots in GraphST's refinement vote; a count, "
+            "not a distance, so it does not depend on coordinate units. Used "
+            "only when graphst_refinement=True (graphst only)."
+        ),
+    )
+    graphst_random_seed: int = Field(
+        default=42,
+        ge=0,
+        description=(
+            "Seed for GraphST training and clustering (graphst only); "
+            "identical calls give identical domains."
+        ),
+    )
+    graphst_n_clusters: Optional[int] = Field(
+        default=None,
+        gt=0,
+        le=50,
+        description="Cluster count for GraphST (graphst only). None uses n_domains.",
     )
 
     # BANKSY specific parameters
@@ -1463,7 +1562,13 @@ class SpatialDomainParameters(StrictParameters):
     timeout: Optional[int] = Field(
         default=None,
         gt=0,
-        description="Maximum backend runtime in seconds. None uses 600 seconds.",
+        le=86400,
+        description=(
+            "Maximum backend runtime in seconds (all methods except leiden/"
+            "louvain, which run in-process). None uses 3600 seconds for "
+            "stagate and graphst (neural network training) and 600 seconds "
+            "otherwise."
+        ),
     )
 
     @field_validator("aestetik_window_size")

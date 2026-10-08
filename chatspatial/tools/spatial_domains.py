@@ -47,6 +47,56 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Wall-clock budget per backend when ``params.timeout`` is None. STAGATE (1,000
+# epochs) and GraphST (600 epochs) train a graph neural network over every spot;
+# on CPU one 10x Visium section takes tens of minutes, so the 600-second budget
+# that suits the other backends would cut them off mid-training. The budget
+# stays finite so a genuine hang still ends in an explicit timeout error.
+_DEFAULT_TIMEOUT_SECONDS = 600
+_TRAINING_TIMEOUT_SECONDS = {"stagate": 3600, "graphst": 3600}
+
+# STAGATE's own Visium analyses (DLPFC rad_cutoff=150 and mouse brain
+# rad_cutoff=300, each on full-resolution pixel coordinates) link every spot to
+# the first ring of its hexagonal lattice: ~5.8 neighbours per spot on average.
+# A fixed distance cannot reproduce that across coordinate units (array grid
+# indices vs pixels vs microns), so the default radius is derived from the data:
+# the median distance to the 6th nearest spot (the first-ring distance on a
+# hexagonal lattice) scaled to the geometric midpoint between the first ring
+# (1 spacing) and the second ring (sqrt(3) spacings).
+_STAGATE_RING_NEIGHBORS = 6
+_STAGATE_RADIUS_FACTOR = 3**0.25
+
+
+def _resolve_timeout(params: SpatialDomainParameters) -> int:
+    """Return the wall-clock budget in seconds for the selected backend."""
+    if params.timeout is not None:
+        return params.timeout
+    return _TRAINING_TIMEOUT_SECONDS.get(params.method, _DEFAULT_TIMEOUT_SECONDS)
+
+
+def _stagate_auto_radius(coords: np.ndarray) -> float:
+    """Derive a unit-free STAGATE radius from the spot spacing of ``coords``."""
+    from sklearn.neighbors import NearestNeighbors
+
+    n_spots = coords.shape[0]
+    if n_spots < 2:
+        raise DataError("STAGATE needs at least two spots to build a spatial graph")
+    k = min(_STAGATE_RING_NEIGHBORS, n_spots - 1)
+    distances, _ = NearestNeighbors(n_neighbors=k + 1).fit(coords).kneighbors(coords)
+    ring_distance = distances[:, k]
+    ring_distance = ring_distance[ring_distance > 0]
+    if ring_distance.size == 0:
+        raise DataError("All spots share identical spatial coordinates")
+    return float(np.median(ring_distance) * _STAGATE_RADIUS_FACTOR)
+
+
+def _mean_radius_neighbors(coords: np.ndarray, radius: float) -> float:
+    """Average number of other spots within ``radius`` (STAGATE graph degree)."""
+    from scipy.spatial import cKDTree
+
+    counts = cKDTree(coords).query_ball_point(coords, r=radius, return_length=True)
+    return float(np.mean(np.asarray(counts) - 1))
+
 
 def _domain_count_control(params: SpatialDomainParameters) -> str | None:
     """Name the parameter that actually decides how many domains a backend returns.
@@ -469,7 +519,7 @@ async def _identify_domains_spagcn(
                         r_seed=params.spagcn_random_seed,
                     )
 
-            timeout_seconds = params.timeout if params.timeout is not None else 600
+            timeout_seconds = _resolve_timeout(params)
             try:
                 domain_labels = await run_sync_with_timeout(
                     _run_spagcn,
@@ -524,19 +574,27 @@ async def _identify_domains_clustering(
     expression and physical space.
     """
     try:
-        # Get parameters from params, use defaults if not provided
-        n_neighbors = (
-            params.cluster_n_neighbors if params.cluster_n_neighbors is not None else 15
-        )
         spatial_weight = (
             params.cluster_spatial_weight
             if params.cluster_spatial_weight is not None
             else 0.3
         )
 
-        # Ensure PCA and neighbors are computed (lazy computation)
+        # Ensure PCA and neighbors are computed (lazy computation). An explicit
+        # cluster_n_neighbors must be honoured, so a stored graph built with a
+        # different k is rebuilt; without one, an existing graph is reused.
         ensure_pca(adata)
-        ensure_neighbors(adata, n_neighbors=n_neighbors)
+        ensure_neighbors(
+            adata,
+            n_neighbors=(
+                params.cluster_n_neighbors
+                if params.cluster_n_neighbors is not None
+                else 15
+            ),
+            require_n_neighbors=params.cluster_n_neighbors is not None,
+        )
+        stored_k = adata.uns.get("neighbors", {}).get("params", {}).get("n_neighbors")
+        n_neighbors = int(stored_k) if stored_k is not None else None
 
         # Add spatial information to the neighborhood graph
         detected_spatial_key = get_spatial_key(adata)
@@ -732,11 +790,24 @@ async def _identify_domains_stagate(
         # No need to copy again - methods receive independent data that can be modified
         adata_stagate = adata
 
-        # Calculate spatial graph
-        # STAGATE_pyG uses smaller default radius (50 instead of 150)
-        rad_cutoff = (
-            params.stagate_rad_cutoff if params.stagate_rad_cutoff is not None else 50
-        )
+        # Calculate spatial graph. The radius is a distance in the units of
+        # obsm['spatial'], so the default is derived from the spot spacing.
+        coords = np.asarray(adata_stagate.obsm["spatial"], dtype=float)[:, :2]
+        if params.stagate_rad_cutoff is not None:
+            rad_cutoff = float(params.stagate_rad_cutoff)
+            rad_cutoff_source = "user"
+        else:
+            rad_cutoff = _stagate_auto_radius(coords)
+            rad_cutoff_source = "auto (spot spacing)"
+        mean_neighbors = _mean_radius_neighbors(coords, rad_cutoff)
+        if mean_neighbors < 1 or mean_neighbors > 50:
+            await ctx.warning(
+                f"STAGATE rad_cutoff={rad_cutoff:.4g} ({rad_cutoff_source}) links "
+                f"{mean_neighbors:.1f} neighbours per spot on average; STAGATE's "
+                "Visium analyses use about 6. rad_cutoff is a distance in the "
+                "units of obsm['spatial']; leave stagate_rad_cutoff unset to "
+                "derive it from the spot spacing."
+            )
         with suppress_output():
             STAGATE_pyG.Cal_Spatial_Net(adata_stagate, rad_cutoff=rad_cutoff)
 
@@ -753,11 +824,16 @@ async def _identify_domains_stagate(
         )
         device = torch.device(device_str)
 
-        timeout_seconds = params.timeout if params.timeout is not None else 600
+        timeout_seconds = _resolve_timeout(params)
+        random_seed = (
+            params.stagate_random_seed if params.stagate_random_seed is not None else 42
+        )
 
         def _train_stagate():
             with suppress_output():
-                return STAGATE_pyG.train_STAGATE(adata_stagate, device=device)
+                return STAGATE_pyG.train_STAGATE(
+                    adata_stagate, device=device, random_seed=random_seed
+                )
 
         adata_stagate = await run_sync_with_timeout(
             _train_stagate,
@@ -775,9 +851,6 @@ async def _identify_domains_stagate(
         # This eliminates R dependency while producing identical results (ARI = 1.0)
         from ..utils.compute import gmm_clustering
 
-        random_seed = (
-            params.stagate_random_seed if params.stagate_random_seed is not None else 42
-        )
         embedding_data = adata_stagate.obsm["STAGATE"]
 
         gmm_labels = gmm_clustering(
@@ -801,6 +874,9 @@ async def _identify_domains_stagate(
             "target_n_clusters": n_clusters_target,
             "clustering_method": clustering_method,
             "rad_cutoff": rad_cutoff,
+            "rad_cutoff_source": rad_cutoff_source,
+            "mean_neighbors": round(mean_neighbors, 3),
+            "random_seed": random_seed,
             "device": str(device),
             "framework": "PyTorch Geometric (tensor edge index)",
         }
@@ -809,7 +885,7 @@ async def _identify_domains_stagate(
 
     except TimeoutError as e:
         raise ProcessingError(
-            f"STAGATE training timeout after {params.timeout if params.timeout is not None else 600} seconds"
+            f"STAGATE training timeout after {_resolve_timeout(params)} seconds"
         ) from e
     except ChatSpatialError:
         raise
@@ -858,6 +934,17 @@ async def _identify_domains_graphst(
             else params.n_domains
         )
 
+        community_detection = None
+        if params.graphst_clustering_method == "louvain":
+            # scanpy's Louvain needs the 'louvain' package for a resolution
+            # search; fail before training rather than run Leiden in its place.
+            require("louvain", ctx, feature="GraphST Louvain clustering")
+            community_detection = sc.tl.louvain
+        elif params.graphst_clustering_method == "leiden":
+            community_detection = sc.tl.leiden
+        # scanpy stores each algorithm's labels under its own name.
+        community_key = params.graphst_clustering_method
+
         # Initialize model
         model = GraphST(
             adata_graphst,
@@ -865,9 +952,21 @@ async def _identify_domains_graphst(
             random_seed=params.graphst_random_seed,
         )
 
-        timeout_seconds = params.timeout if params.timeout is not None else 600
+        timeout_seconds = _resolve_timeout(params)
+
+        graphst_seed = params.graphst_random_seed
+        fix_seed = require_module(
+            "GraphST",
+            "GraphST.preprocess",
+            ctx,
+            feature="GraphST spatial domain identification",
+        ).fix_seed
 
         def _train_graphst():
+            # Training runs in a freshly spawned process whose NumPy and torch
+            # generators are unseeded; GraphST draws a feature permutation
+            # every epoch and initializes weights there, so seed it in-process.
+            fix_seed(graphst_seed)
             with suppress_output():
                 return model.train()
 
@@ -927,6 +1026,7 @@ async def _identify_domains_graphst(
                         )
                         adata_graphst.obs["domain"] = new_type
                 else:
+                    assert community_detection is not None
                     # BINARY SEARCH for resolution (replaces GraphST's linear search)
                     # This reduces iterations from 290 to ~10-15
                     sc.pp.neighbors(adata_graphst, n_neighbors=50, use_rep="emb_pca")
@@ -937,12 +1037,14 @@ async def _identify_domains_graphst(
 
                     for _ in range(max_iterations):
                         mid = (low + high) / 2
-                        sc.tl.leiden(
+                        community_detection(
                             adata_graphst,
                             resolution=mid,
                             random_state=params.graphst_random_seed,
                         )
-                        current_clusters = len(adata_graphst.obs["leiden"].unique())
+                        current_clusters = len(
+                            adata_graphst.obs[community_key].unique()
+                        )
 
                         diff = abs(current_clusters - n_clusters)
                         if diff < best_diff:
@@ -961,12 +1063,12 @@ async def _identify_domains_graphst(
                             break
 
                     # Final clustering with best resolution
-                    sc.tl.leiden(
+                    community_detection(
                         adata_graphst,
                         resolution=best_res,
                         random_state=params.graphst_random_seed,
                     )
-                    adata_graphst.obs["domain"] = adata_graphst.obs["leiden"]
+                    adata_graphst.obs["domain"] = adata_graphst.obs[community_key]
 
                     # Apply refinement if requested
                     if params.graphst_refinement:
@@ -997,12 +1099,13 @@ async def _identify_domains_graphst(
 
         if params.graphst_refinement:
             statistics["refinement_radius"] = params.graphst_radius
+        statistics["random_seed"] = params.graphst_random_seed
 
         return domain_labels, embeddings_key, statistics
 
     except TimeoutError as e:
         raise ProcessingError(
-            f"GraphST training timeout after {params.timeout if params.timeout is not None else 600} seconds"
+            f"GraphST training timeout after {_resolve_timeout(params)} seconds"
         ) from e
     except ChatSpatialError:
         raise
@@ -1062,7 +1165,7 @@ async def _identify_domains_banksy(
         # x_col/y_col only used for plotting (disabled), obsm_key is the actual key
         coord_keys = ("x", "y", "spatial")
 
-        timeout_seconds = params.timeout if params.timeout is not None else 600
+        timeout_seconds = _resolve_timeout(params)
 
         def _run_banksy():
             with suppress_output():
@@ -1133,7 +1236,7 @@ async def _identify_domains_banksy(
 
     except TimeoutError as e:
         raise ProcessingError(
-            f"BANKSY timeout after {params.timeout if params.timeout is not None else 600} seconds"
+            f"BANKSY timeout after {_resolve_timeout(params)} seconds"
         ) from e
     except ChatSpatialError:
         raise
@@ -1367,7 +1470,7 @@ async def _identify_domains_aestetik(
         else:
             n_cluster = params.resolution
 
-        timeout_seconds = params.timeout if params.timeout is not None else 600
+        timeout_seconds = _resolve_timeout(params)
 
         def _fit_aestetik():
             previous_inputs = _install_aestetik_compatibility_inputs(
@@ -1456,7 +1559,7 @@ async def _identify_domains_aestetik(
 
     except TimeoutError as e:
         raise ProcessingError(
-            f"AESTETIK timeout after {params.timeout if params.timeout is not None else 600} seconds"
+            f"AESTETIK timeout after {_resolve_timeout(params)} seconds"
         ) from e
     except ChatSpatialError:
         raise
