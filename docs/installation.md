@@ -16,7 +16,8 @@ instead.
 ## Requirements
 
 - **uv** for the recommended zero-environment setup
-- **Python 3.11-3.14** (3.12 recommended) for persistent environments
+- **Python 3.11-3.14** (3.12 recommended) for persistent environments;
+  3.11-3.13 on Intel Macs (see Platform Notes below)
 - **MCP Python SDK 2.x** (installed automatically with ChatSpatial)
 - **8GB+ RAM** (16GB+ for large datasets)
 - **macOS, Linux, or Windows**
@@ -286,29 +287,34 @@ If both commands work, continue to [Quick Start](quickstart.md).
 
 ### macOS (Intel / x86_64)
 
-Some dependencies in `chatspatial[full]` do not publish pre-built wheels for
-Intel Macs:
+Use Python 3.11, 3.12, or 3.13. Several compiled dependencies (numba and
+llvmlite, cryptography, gseapy, and a few BiocPy packages) no longer publish
+x86_64 macOS wheels. On Intel Macs, ChatSpatial's package metadata selects the
+last release of each that still ships one, so both the default install and
+`chatspatial[full]` install from pre-built wheels. No Rust, LLVM, or compiler
+setup is needed.
 
-- **gseapy** requires the Rust toolchain to compile from source
-- **llvmlite** (via numba) requires LLVM to compile from source
+Two method groups are not available on Intel Macs:
 
-Install those prerequisites before the full optional stack:
+- **PyTorch-based methods** (scVI/scANVI, Cell2location, Tangram, SpaGCN,
+  STAGATE, GraphST, STalign, RCTD-py, AESTETIK). PyTorch's last Intel macOS
+  release, 2.2.2, requires NumPy 1.x, which the current scanpy/squidpy/zarr
+  stack no longer supports.
+- **gseapy enrichment on Python 3.12 and 3.13.** Its last Intel macOS wheel
+  supports Python 3.11 only, so use Python 3.11 if you need it.
+
+Python 3.14 is not supported on Intel Macs because numba has no Intel wheel for
+it. All other methods install from wheels as on other platforms.
 
 ```bash
-# Install Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source "$HOME/.cargo/env"
-
-# Install LLVM for llvmlite
-brew install llvm
-export LLVM_CONFIG="$(brew --prefix llvm)/bin/llvm-config"
-
-# Then install ChatSpatial with all optional Python methods
-uv pip install 'chatspatial[full]'
+uvx --python 3.11 --from chatspatial chatspatial server
+# or, in a persistent environment
+uv venv --python 3.11 && uv pip install 'chatspatial[full]'
 ```
 
-Apple Silicon Macs (M1/M2/M3/M4) have pre-built wheels for all dependencies and
-do not require these steps.
+These methods explain why when you call them on an Intel Mac. Apple Silicon
+Macs (M1/M2/M3/M4) are not affected and install the current releases of all
+dependencies.
 
 ### Windows
 
