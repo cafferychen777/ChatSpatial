@@ -21,6 +21,8 @@ Usage:
 
 import importlib
 import importlib.util
+import platform
+import sys
 import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -369,6 +371,56 @@ DEPENDENCY_REGISTRY: dict[str, DependencyInfo] = {
 }
 
 
+# The extras in pyproject.toml omit these packages on Intel macOS (x86_64)
+# because upstream publishes no usable x86_64 macOS wheel there. Maps import
+# name to the first Python (major, minor) affected; None means every version.
+_TORCH_INTEL_MACOS_REASON = (
+    "PyTorch's last Intel macOS wheel (2.2.2) requires NumPy 1.x, which the "
+    "rest of the stack no longer supports"
+)
+_INTEL_MACOS_OMITTED: dict[str, tuple[Optional[tuple[int, int]], str]] = {
+    **{
+        module: (None, _TORCH_INTEL_MACOS_REASON)
+        for module in (
+            "torch",
+            "scvi",
+            "cell2location",
+            "rctd",
+            "tangram",
+            "SpaGCN",
+            "STAGATE_pyG",
+            "GraphST",
+            "aestetik",
+            "STalign",
+        )
+    },
+    "gseapy": ((3, 12), "gseapy's last Intel macOS wheel (1.1.2) is for Python 3.11"),
+}
+
+
+def _host() -> tuple[str, str, tuple[int, int]]:
+    return sys.platform, platform.machine(), (sys.version_info[0], sys.version_info[1])
+
+
+def _platform_note(module_name: str) -> str:
+    """Explain why an extra could not provide a package on this platform."""
+    omitted = _INTEL_MACOS_OMITTED.get(module_name)
+    system, machine, version = _host()
+    if omitted is None or system != "darwin" or machine != "x86_64":
+        return ""
+    first_affected, reason = omitted
+    if first_affected is not None and version < first_affected:
+        return ""
+    alternative = "an Apple Silicon or Linux machine"
+    if first_affected is not None:
+        major, minor = first_affected
+        alternative = f"Python {major}.{minor - 1} on this Mac, or {alternative}"
+    return (
+        f"\nNote: ChatSpatial's extras skip {module_name} on Intel macOS "
+        f"(x86_64): {reason}. Use {alternative}."
+    )
+
+
 # =============================================================================
 # Core Functions (using @lru_cache for thread-safe caching)
 # =============================================================================
@@ -495,6 +547,7 @@ def require(
         f"{name} is required{feature_msg}.\n\n"
         f"Install: {info.install_cmd}\n"
         f"Description: {info.description}"
+        f"{_platform_note(info.module_name)}"
     )
 
 

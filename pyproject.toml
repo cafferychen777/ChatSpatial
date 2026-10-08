@@ -64,17 +64,35 @@ dependencies = [
     # MCP server framework
     "pydantic>=2.12.0,<3.0",
     "click>=8.0.0",
-    
+
+    # Intel macOS (x86_64): numba 0.63 / llvmlite 0.46 moved osx-64 to Tier 2
+    # and cryptography 49 (via mcp -> pyjwt[crypto]) removed it, so neither
+    # publishes x86_64 macOS wheels. Without these caps the resolver picks
+    # their sdists and the install fails compiling llvmlite against LLVM or
+    # cryptography with Rust. Each cap is the last release with an x86_64
+    # macOS wheel; numba 0.62.x pins llvmlite 0.45.x. numba 0.62 has no
+    # Python 3.14 wheel, so Intel Macs need Python 3.11-3.13.
+    "numba<0.63; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "cryptography<49; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+
     # Heavy method-specific packages live in optional extras below. The default
     # install includes every default backend; optional methods report clear
     # installation guidance only when their extra has not been installed.
 ]
 
+# Intel macOS (x86_64). PyTorch stopped publishing x86_64 macOS wheels after
+# 2.2.2, which is built against NumPy 1.x and cannot run under the NumPy 2
+# stack (zarr 3, current squidpy/spatialdata) that ChatSpatial needs, so the
+# PyTorch-based backends are omitted on Intel Macs. gseapy's Rust extension has
+# x86_64 macOS wheels only up to 1.1.2 on Python 3.11, so Intel Python 3.12+
+# omits it. The remaining Intel-only caps select the last release that still
+# ships an x86_64 macOS wheel: biopython 1.86, knncolle 0.3.0, iranges 0.5.4,
+# and dolomite-base 0.5.1. Linux, Windows, and Apple Silicon are unaffected.
 [project.optional-dependencies]
 # Deep learning methods (scVI, scANVI, VeloVI, DestVI, Cell2location backend)
 deep-learning = [
-    "torch>=2.0.0,<3.0",
-    "scvi-tools>=1.0.0,<2.0",
+    "torch>=2.0.0,<3.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "scvi-tools>=1.0.0,<2.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
 
 # RNA velocity methods
@@ -92,6 +110,7 @@ trajectory = [
 cell-communication = [
     "liana>=1.4.0,<2.0; python_version < '3.14'",
     "cellphonedb>=5.0.0,<6.0",
+    "biopython<1.87; sys_platform == 'darwin' and platform_machine == 'x86_64'",
 ]
 
 # Focused FastCCC statistical runtime. The maintained distribution omits the
@@ -117,21 +136,25 @@ spatial-stats = [
 # Spatial deconvolution methods
 deconvolution = [
     "flashdeconv>=0.2.0",
-    "cell2location>=0.1.4",
+    "cell2location>=0.1.4; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
 
 # Cell type annotation and spatial mapping methods.
 annotation = [
-    "tangram-sc>=1.0.0",
+    "tangram-sc>=1.0.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "singler>=0.4.0; sys_platform != 'win32'",
     "singlecellexperiment>=0.4.0; sys_platform != 'win32'",
     "celldex>=0.3.0; sys_platform != 'win32'",
     "mllmcelltype>=0.1.0",
+    "knncolle<0.3.1; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "iranges<0.6; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "dolomite-base<0.5.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
 ]
 
 # Gene-set enrichment and enrichment-map visualization.
 enrichment = [
-    "gseapy>=1.0.0",
+    "gseapy>=1.0.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "gseapy>=1.0.0,<1.1.3; sys_platform == 'darwin' and platform_machine == 'x86_64' and python_version < '3.12'",
     "enrichmap>=0.1.0",
     "requests>=2.31.0,<3.0",
 ]
@@ -148,10 +171,10 @@ differential = [
 
 # Pairwise and multi-slice spatial registration.
 registration = [
-    "torch>=2.0.0,<3.0",
+    "torch>=2.0.0,<3.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "POT>=0.9.0",
     "paste-modern>=1.4.0.post1,<1.5",
-    "stalign-modern>=1.0.post1,<1.1",
+    "stalign-modern>=1.0.post1,<1.1; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
 
 # Optional statistically rigorous spatial-variable-gene backend.
@@ -162,7 +185,7 @@ spatial-genes = [
 # PyTorch port of RCTD. Kept separate because it downloads a large likelihood
 # table on first use and has a faster release cadence than the core package.
 rctd-python = [
-    "rctd-py>=0.3.7,<0.4",
+    "rctd-py>=0.3.7,<0.4; sys_platform != 'darwin' or platform_machine != 'x86_64'",
 ]
 
 # Bridges for methods implemented in R. Kept out of [full] because rpy2 must
@@ -178,8 +201,8 @@ r-backends = [
 # constraints that cannot be expressed as one portable environment.
 full = [
     # Deep learning and dynamics
-    "torch>=2.0.0,<3.0",
-    "scvi-tools>=1.0.0,<2.0",
+    "torch>=2.0.0,<3.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "scvi-tools>=1.0.0,<2.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "scvelo-modern>=0.3.4.post2,<0.4",
     "cellrank>=2.3.2,<3.0; python_version >= '3.12'",
     "palantir>=1.0.0",
@@ -199,31 +222,38 @@ full = [
 
     # Deconvolution and annotation
     "flashdeconv>=0.2.0",
-    "cell2location>=0.1.4",
-    "tangram-sc>=1.0.0",
+    "cell2location>=0.1.4; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "tangram-sc>=1.0.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "singler>=0.4.0; sys_platform != 'win32'",
     "singlecellexperiment>=0.4.0; sys_platform != 'win32'",
     "celldex>=0.3.0; sys_platform != 'win32'",
     "mllmcelltype>=0.1.0",
 
     # Enrichment, CNV, and differential expression
-    "gseapy>=1.0.0",
+    "gseapy>=1.0.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "gseapy>=1.0.0,<1.1.3; sys_platform == 'darwin' and platform_machine == 'x86_64' and python_version < '3.12'",
     "enrichmap>=0.1.0",
     "requests>=2.31.0,<3.0",
     "infercnvpy>=0.4.0",
     "pydeseq2>=0.4.0",
 
     # Spatial domains and variable genes
-    "graphst-modern>=1.1.1.post3,<1.2",
-    "stagate-modern>=1.0.0.post1,<1.1",
-    "spagcn-modern>=1.3.0,<1.4",
+    "graphst-modern>=1.1.1.post3,<1.2; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "stagate-modern>=1.0.0.post1,<1.1; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "spagcn-modern>=1.3.0,<1.4; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "pybanksy>=1.3.5,<2.0; python_version < '3.14'",
     "spatialde-modern>=1.1.3.post2,<1.2",
 
     # Spatial registration
     "POT>=0.9.0",
     "paste-modern>=1.4.0.post1,<1.5",
-    "stalign-modern>=1.0.post1,<1.1",
+    "stalign-modern>=1.0.post1,<1.1; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+
+    # Intel macOS wheel caps (see the note above [project.optional-dependencies])
+    "biopython<1.87; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "knncolle<0.3.1; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "iranges<0.6; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "dolomite-base<0.5.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
 ]
 
 # SCTransform normalization (variance-stabilizing transformation)
@@ -236,10 +266,10 @@ full = [
 # built-in Leiden implementation and does not require the obsolete louvain
 # extension. BANKSY does not yet publish Python 3.14-compatible metadata.
 spatial-domains = [
-    "torch>=2.0.0,<3.0",
-    "graphst-modern>=1.1.1.post3,<1.2",
-    "stagate-modern>=1.0.0.post1,<1.1",
-    "spagcn-modern>=1.3.0,<1.4",
+    "torch>=2.0.0,<3.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "graphst-modern>=1.1.1.post3,<1.2; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "stagate-modern>=1.0.0.post1,<1.1; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "spagcn-modern>=1.3.0,<1.4; sys_platform != 'darwin' or platform_machine != 'x86_64'",
     "pybanksy>=1.3.5,<2.0; python_version < '3.14'",
 ]
 
@@ -248,7 +278,7 @@ spatial-domains = [
 # torchvision/lightning stack that the other spatial-domain backends do not
 # need. The environment marker keeps the 3.14 CI leg resolvable.
 aestetik = [
-    "aestetik>=0.3.1,<0.4; python_version < '3.14'",
+    "aestetik>=0.3.1,<0.4; python_version < '3.14' and (sys_platform != 'darwin' or platform_machine != 'x86_64')",
 ]
 
 # Dependencies used by the manuscript reproducibility scripts. Core scientific
