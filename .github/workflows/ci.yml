@@ -137,14 +137,24 @@ jobs:
         run: scripts/quality/check_lint.sh
 
   test:
-    name: Python ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
+    name: Python ${{ matrix.python-version }}${{ matrix.os == 'macos-15-intel' && ' (Intel macOS)' || '' }}
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ["3.11", "3.12", "3.13", "3.14"]
+        # Intel macOS no longer receives new wheels from numba, PyTorch,
+        # gseapy, and other compiled dependencies. 3.11 is the only Intel
+        # Python with a gseapy wheel; 3.13 is the newest numba supports there.
+        # macos-15-intel is GitHub's last x86_64 macOS image (until Aug 2027).
+        include:
+          - os: macos-15-intel
+            python-version: "3.11"
+          - os: macos-15-intel
+            python-version: "3.13"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -158,7 +168,22 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
       - name: Install
+        if: matrix.os != 'macos-15-intel'
         run: uv pip install -e ".[dev,reproducibility]" --system
+
+      # Every compiled dependency must arrive as an x86_64 wheel; a source
+      # build that succeeds here (the runner has Rust and compilers) would
+      # still fail for most users. The --no-binary packages publish only
+      # sdists on every platform (annoy compiles everywhere; the rest are
+      # pure Python).
+      - name: Install every method extra from wheels (Intel macOS)
+        if: matrix.os == 'macos-15-intel'
+        run: >-
+          uv pip install -e ".[full,dev,reproducibility]" --system
+          --only-binary :all:
+          --no-binary chatspatial --no-binary annoy --no-binary asciitree
+          --no-binary cell2location --no-binary docrep --no-binary fbpca
+          --no-binary gypsum-client --no-binary loompy --no-binary pims
 
       - name: Verify dependency graph
         run: python -m pip check
@@ -169,11 +194,21 @@ jobs:
           python -c "from chatspatial.server import mcp; print('MCP OK')"
           python -c "import scanpy, squidpy, leidenalg; print('Core deps OK')"
 
+      - name: Verify method imports (Intel macOS)
+        if: matrix.os == 'macos-15-intel'
+        run: |
+          python -c "import SpatialDE, banksy, fastccc, liana, scvelo, palantir, infercnvpy, pydeseq2, harmonypy, bbknn, scanorama, singler, celldex, flashdeconv, paste, ot, esda, libpysal, mllmcelltype, enrichmap; print('Method extras OK')"
+          if [ "${{ matrix.python-version }}" = "3.11" ]; then
+            python -c "import gseapy; print('gseapy', gseapy.__version__)"
+          else
+            python -c "import cellrank; print('cellrank', cellrank.__version__)"
+          fi
+
       - name: Test CLI
         run: python -m chatspatial --help
 
       - name: Test full default suite
-        if: matrix.python-version == '3.12'
+        if: matrix.python-version == '3.12' || matrix.os == 'macos-15-intel'
         run: python -m pytest
 
       - name: Verify reproducibility scripts import cleanly
