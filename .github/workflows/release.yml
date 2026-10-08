@@ -144,3 +144,13 @@ jobs:
       contents: read
       packages: write # Pass GHCR publication authority to the Docker workflow.
     uses: ./.github/workflows/docker.yml
+    secrets: inherit # DOCKERHUB_USERNAME / DOCKERHUB_TOKEN for the Docker Hub mirror.
+
+  verify-reproduction:
+    name: Reproduce key results from the published image
+    needs: publish-docker
+    permissions:
+      contents: read
+    uses: ./.github/workflows/reproduce.yml
+    with:
+      digest: ${{ needs.publish-docker.outputs.repro-digest }}

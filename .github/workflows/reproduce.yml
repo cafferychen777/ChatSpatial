@@ -1,0 +1,113 @@
+name: Reproduce key results
+
+# Clean-environment check of the published reproduction image: pull it by
+# digest on fresh GitHub-hosted runners and run the one-command reproduction.
+# Called by the release workflow after the image is published, or run by hand
+# with the digest of any published -repro image.
+
+on:
+  workflow_call:
+    inputs:
+      digest:
+        description: Index digest (sha256:...) of the published reproduction image
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      digest:
+        description: Index digest (sha256:...) of the published reproduction image
+        required: true
+        type: string
+
+permissions: {}
+
+env:
+  GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/chatspatial
+  DOCKERHUB_IMAGE: docker.io/${{ vars.DOCKERHUB_NAMESPACE || 'cafferychen777' }}/chatspatial
+  DIGEST: ${{ inputs.digest }}
+
+jobs:
+  reproduce:
+    name: Reproduce on ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86-64 pulls from Docker Hub, Linux arm64 from GHCR, so both
+          # registries are exercised with the same digest.
+          - name: Linux x86-64
+            runner: ubuntu-latest
+            registry: dockerhub
+          - name: Linux arm64
+            runner: ubuntu-24.04-arm
+            registry: ghcr
+    steps:
+      - name: Pull the digest-pinned image
+        run: |
+          if [ "${{ matrix.registry }}" = dockerhub ]; then ref="${DOCKERHUB_IMAGE}@${DIGEST}"; else ref="${GHCR_IMAGE}@${DIGEST}"; fi
+          echo "REF=$ref" >> "$GITHUB_ENV"
+          time docker pull "$ref"
+
+      - name: Run the one-command reproduction
+        run: |
+          # The input archive is a few GB unpacked; keep it off the small root disk.
+          sudo mkdir -p /mnt/repro-data /mnt/repro-out
+          sudo chmod 777 /mnt/repro-data /mnt/repro-out
+          extra=()
+          if [ -n "${{ vars.REPRO_DATA_URL }}" ]; then
+            extra=(-e "CHATSPATIAL_REPRO_DATA_URL=${{ vars.REPRO_DATA_URL }}")
+          fi
+          start=$(date +%s)
+          docker run --rm \
+            -v /mnt/repro-data:/data/chatspatial-repro \
+            -v /mnt/repro-out:/outputs \
+            -e CHATSPATIAL_IMAGE_DIGEST="${DIGEST}" "${extra[@]}" \
+            "$REF" chatspatial-reproduce
+          echo "Wall time including download: $(( $(date +%s) - start )) s" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Summarise
+        if: always()
+        run: |
+          f=/mnt/repro-out/reproduction/reproduction_summary.csv
+          if [ -f "$f" ]; then
+            { echo "### ${{ matrix.name }} (${REF})"; echo '```'; column -s, -t < "$f"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload reproduction outputs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reproduction-${{ matrix.registry }}-${{ runner.arch }}
+          path: /mnt/repro-out/reproduction
+          if-no-files-found: warn
+
+  # GitHub's Apple-silicon macOS runners cannot run Docker (no nested
+  # virtualization), so the container cannot be executed there. This job
+  # performs the part that is possible on ARM macOS: a daemon-less pull of the
+  # linux/arm64 image by digest from both registries, confirming that each
+  # registry serves the same index and the arm64 image that Docker Desktop on
+  # Apple silicon would run.
+  macos-arm-pull:
+    name: Pull check on ARM macOS
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - name: Install crane
+        run: brew install crane
+
+      - name: Pull linux/arm64 by digest from both registries
+        run: |
+          set -euo pipefail
+          uname -m
+          for ref in "${GHCR_IMAGE}@${DIGEST}" "${DOCKERHUB_IMAGE}@${DIGEST}"; do
+            test "$(crane digest "$ref")" = "${DIGEST}"
+            crane manifest "$ref" | jq -e '[.manifests[].platform | "\(.os)/\(.architecture)"] | index("linux/arm64")'
+            crane pull --platform linux/arm64 "$ref" image.tar
+            ls -lh image.tar && rm image.tar
+            echo "pulled $ref (linux/arm64)" | tee -a "$GITHUB_STEP_SUMMARY"
+          done

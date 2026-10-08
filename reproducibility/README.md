@@ -25,6 +25,7 @@ reproducibility/
 ├── README.md
 ├── .gitignore
 ├── requirements-paper.txt             # Manuscript-era top-level requirements
+├── Dockerfile                         # Reproduction image (-repro tag)
 ├── scripts/                           # All experiment and analysis scripts
 │   ├── reproducibility_analysis.py    # Schema constraint coverage analysis
 │   ├── determinism_experiment.py      # Single-model determinism experiment
@@ -46,7 +47,8 @@ reproducibility/
 │   ├── dlpfc_benchmark_analysis.py   # DLPFC benchmark analysis
 │   ├── casestudy_reproducibility.py  # Case-study workflow concordance
 │   ├── compute_case_study_stats.py   # Effect sizes and confidence intervals
-│   └── build_supplementary_tables.py # Generate Supplementary Tables S1-S4
+│   ├── build_supplementary_tables.py # Generate Supplementary Tables S1-S4
+│   └── reproduce_key_results.py      # One-command, LLM-free reproduction
 ├── data/                              # Experiment results (CSV/TXT summaries)
 │   ├── reproducibility_analysis.csv
 │   ├── determinism_experiment.csv
@@ -403,6 +405,36 @@ Bridges the ablation to the specific case-study workflow by repeating the OSCC C
 **Metric:** Pairwise Pearson r of flattened proportion matrices with bootstrap 95% CIs
 
 **Output:** `data/casestudy_reproducibility/`
+
+---
+
+## One-Command Reproduction of Key Results
+
+`scripts/reproduce_key_results.py` replays the tool calls that the language
+models recorded during the experiments, without calling any LLM, and compares
+the regenerated numbers with the reference values in `data/`:
+
+| Step | Result | Reference |
+|------|--------|-----------|
+| `dlpfc` | DLPFC ground-truth ARI, slices 151673/151507/151669 (Experiment 9, ChatSpatial arm) | pooled ARI 0.374 |
+| `card` | OSCC CARD cross-model concordance and schema-validation outcome of all 160 recorded calls (Experiment 10) | Pearson r = 1.000; 80/80 full-schema calls valid, 0/80 no-schema |
+| `replay` | Optional replay of an additional recorded tool-call log (`--replay-log`) | exact-match rate |
+
+The reproduction image (`-repro` tag, built from `Dockerfile` in this
+directory on top of the published ChatSpatial image) contains R + CARD and the
+manuscript-era SpaGCN 1.2.7 backend. The maintained `spagcn-modern` backend
+used by current ChatSpatial releases yields different SpaGCN partitions, so the
+DLPFC numbers are reproduced with the backend that produced them.
+
+```bash
+docker run --rm -v "$PWD/data:/data/chatspatial-repro" -v "$PWD/out:/outputs" \
+  ghcr.io/cafferychen777/chatspatial@<repro-digest> chatspatial-reproduce
+```
+
+Inputs (the prepared DLPFC and OSCC h5ad files, the Puram reference, the
+recorded call logs and the recorded CARD proportions) are downloaded on first
+use from `CHATSPATIAL_REPRO_DATA_URL`, or read from `--data-dir`. Results are
+written to `/outputs/reproduction/reproduction_summary.csv`.
 
 ---
 
