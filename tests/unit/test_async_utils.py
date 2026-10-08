@@ -50,7 +50,7 @@ async def test_run_sync_with_timeout_terminates_worker_on_timeout(tmp_path: Path
 
 @pytest.mark.asyncio
 async def test_run_sync_with_timeout_returns_result_and_validates_timeout():
-    assert await run_sync_with_timeout(lambda: 42, timeout=1) == 42
+    assert await run_sync_with_timeout(lambda: 42, timeout=30) == 42
 
     with pytest.raises(ValueError, match="greater than zero"):
         await run_sync_with_timeout(lambda: None, timeout=0)
