@@ -713,3 +713,58 @@ def test_card_success_with_imputation_adds_imputation_statistics(
     assert stats["imputation"]["enabled"] is True
     assert stats["imputation"]["n_imputed_locations"] == 2
     assert stats["imputation"]["resolution_increase"] == "1.0x"
+
+
+def test_normalize_rctd_weights_matches_spacexr_normalize_weights():
+    raw = pd.DataFrame(
+        {"A": [0.30, 0.90, 0.0], "B": [0.18, 0.15, 0.0]},
+        index=["s1", "s2", "filtered"],
+    )
+    normalized, record = rctd_module.normalize_rctd_weights(raw, source="test")
+
+    # spacexr::normalize_weights = sweep(weights, 1, rowSums(weights), "/")
+    np.testing.assert_allclose(normalized.loc["s1"].to_numpy(), [0.625, 0.375])
+    np.testing.assert_allclose(normalized.loc["s2"].sum(), 1.0)
+    assert normalized.loc["filtered"].tolist() == [0.0, 0.0]
+    assert record["n_spots_normalized"] == 2
+    assert record["n_zero_weight_spots"] == 1
+    assert record["raw_row_sum_min"] == pytest.approx(0.48)
+    assert record["raw_row_sum_max"] == pytest.approx(1.05)
+    assert raw.loc["s1", "A"] == 0.30  # input is not mutated
+
+
+@pytest.mark.parametrize("mode", ["full", "doublet", "multi"])
+def test_rctd_returns_per_spot_proportions_and_records_normalization(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, mode: str
+):
+    data = _prepared_data(minimal_spatial_adata)
+    _install_fake_r_modules(monkeypatch, ro_r=lambda _code: None)
+    monkeypatch.setattr(rctd_module, "_run_rctd_subprocess", lambda *_a: None)
+    # Unnormalized full-mode weights as spacexr returns them (row sums 0.48-1.05).
+    raw = pd.DataFrame(
+        np.tile([[0.30, 0.18], [0.90, 0.15]], (data.spatial.n_obs // 2, 1)),
+        index=data.spatial.obs_names,
+        columns=["A", "B"],
+    )
+    monkeypatch.setattr(rctd_module, "_extract_rctd_results", lambda *_a: raw)
+
+    proportions, stats = rctd_module.deconvolve(data, mode=mode, max_multi_types=1)
+
+    np.testing.assert_allclose(proportions.sum(axis=1), 1.0)
+    record = stats["weights_normalization"]
+    assert record["rule"].startswith("per-spot sum-to-one")
+    assert record["source"] == rctd_module._RCTD_WEIGHT_SOURCES[mode]
+    assert record["raw_row_sum_min"] == pytest.approx(0.48)
+
+
+def test_rctd_doublet_extraction_fills_reject_spots_from_full_fit():
+    calls: list[str] = []
+
+    def _ro_r(code: str):
+        calls.append(code)
+        return None
+
+    ro = SimpleNamespace(r=_ro_r, conversion=SimpleNamespace(rpy2py=lambda x: x))
+    rctd_module._extract_rctd_results("doublet", ro)
+    assert 'spot_class == "reject"' in calls[0]
+    assert "myRCTD@results$weights" in calls[0]

@@ -553,6 +553,7 @@ def _store_rctd_backend_outputs(
         "max_multi_types",
         "max_cores",
         "n_filtered_spots",
+        "weights_normalization",
     )
     provenance = {
         key: stats[key]

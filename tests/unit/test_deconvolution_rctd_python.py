@@ -321,3 +321,30 @@ def test_store_and_clear_rctd_backend_outputs(minimal_spatial_adata) -> None:
     assert "rctd_converged" not in adata.obs
     assert "rctd_doublet_weights" not in adata.obsm
     assert "rctd_backend" not in adata.uns
+
+
+def test_rctd_python_normalizes_full_fit_weights_per_spot(
+    minimal_spatial_adata,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data = _prepared_data(minimal_spatial_adata)
+    mask = np.ones(data.n_spots, dtype=bool)
+    mask[0] = False
+    result = SimpleNamespace(
+        weights=np.tile([0.30, 0.18], (int(mask.sum()), 1)),
+        cell_type_names=["A", "B"],
+        converged=np.ones(int(mask.sum()), dtype=bool),
+        pixel_mask=mask,
+    )
+    monkeypatch.setattr(
+        rctd_python, "require", lambda *_a, **_k: _fake_module(result, {})
+    )
+    monkeypatch.setattr(rctd_python, "_ensure_likelihood_cache", lambda _module: None)
+
+    proportions, stats = rctd_python.deconvolve(data, mode="full", device="cpu")
+
+    np.testing.assert_allclose(proportions.iloc[1:].sum(axis=1), 1.0)
+    np.testing.assert_allclose(proportions.iloc[1].to_numpy(), [0.625, 0.375])
+    assert proportions.iloc[0].tolist() == [0.0, 0.0]  # filtered spot
+    assert stats["weights_normalization"]["n_zero_weight_spots"] == 1
+    assert stats["weights_normalization"]["raw_row_sum_max"] == pytest.approx(0.48)

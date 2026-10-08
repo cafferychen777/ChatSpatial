@@ -24,6 +24,17 @@ from ...utils.exceptions import (
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
 
 _VALID_MODES = frozenset({"full", "doublet", "multi"})
+# Which spacexr result each mode's proportions are read from. Doublet-mode
+# spots classified "reject" have no confident one- or two-type fit, so they
+# take the full fit that spacexr also computes for every spot.
+_RCTD_WEIGHT_SOURCES = {
+    "full": "results$weights (unconstrained full fit)",
+    "doublet": (
+        "results$weights_doublet for singlet/doublet spots; "
+        "results$weights (full fit) for spots classified 'reject'"
+    ),
+    "multi": "results[[i]]$sub_weights",
+}
 _RCTD_SUBPROCESS_CODE = r"""
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 3L) {
@@ -43,6 +54,49 @@ myRCTD <- run.RCTD(input_bundle$rctd, doublet_mode = args[[3L]])
 random_seed <- get0(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
 saveRDS(list(rctd = myRCTD, random_seed = random_seed), args[[2L]])
 """
+
+
+def normalize_rctd_weights(
+    weights: pd.DataFrame,
+    *,
+    source: str,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Rescale RCTD weights to per-spot proportions, as spacexr's normalize_weights.
+
+    RCTD fits non-negative weights without a sum-to-one constraint (full mode
+    and the full fit inside doublet/multi mode use ``constrain = FALSE``), so the
+    raw weights of a spot sum to the fraction of its counts the fitted profiles
+    explain rather than to one. spacexr provides ``normalize_weights`` (divide
+    each row by its sum) to turn them into cell-type proportions; this applies
+    the same rule. Rows that sum to zero carry no composition and are left at
+    zero (they mark spots the backend did not analyze).
+
+    Args:
+        weights: Spots x cell types non-negative weights.
+        source: Which RCTD output the weights come from, recorded verbatim.
+
+    Returns:
+        Tuple of (row-normalized proportions, provenance record).
+    """
+    values = weights.to_numpy(dtype=float, copy=True)
+    row_sums = values.sum(axis=1)
+    positive = np.isfinite(row_sums) & (row_sums > 0)
+    values[positive] = values[positive] / row_sums[positive, None]
+    analyzed_sums = row_sums[positive]
+    record: dict[str, Any] = {
+        "rule": "per-spot sum-to-one (spacexr::normalize_weights)",
+        "source": source,
+        "n_spots_normalized": int(positive.sum()),
+        "n_zero_weight_spots": int((np.isfinite(row_sums) & (row_sums <= 0)).sum()),
+    }
+    if analyzed_sums.size:
+        record.update(
+            raw_row_sum_min=float(analyzed_sums.min()),
+            raw_row_sum_median=float(np.median(analyzed_sums)),
+            raw_row_sum_max=float(analyzed_sums.max()),
+        )
+    normalized = pd.DataFrame(values, index=weights.index, columns=weights.columns)
+    return normalized, record
 
 
 def _run_rctd_subprocess(
@@ -315,6 +369,10 @@ def _deconvolve_r(
             neg_count = (proportions < 0).sum().sum()
             raise ProcessingError(f"RCTD error: {neg_count} negative values")
 
+        proportions, normalization = normalize_rctd_weights(
+            proportions, source=_RCTD_WEIGHT_SOURCES[mode]
+        )
+
         # Create statistics
         stats = create_deconvolution_stats(
             proportions,
@@ -327,6 +385,7 @@ def _deconvolve_r(
             max_cores=max_cores,
             confidence_threshold=confidence_threshold,
             doublet_threshold=doublet_threshold,
+            weights_normalization=normalization,
         )
 
         return proportions, stats
@@ -381,6 +440,11 @@ def _extract_rctd_results(mode: str, robjects: Any) -> pd.DataFrame:
                             first_idx <- which(cell_type_names == first_type)
                             weights_matrix[i, first_idx] <- 1.0
                         }
+                    } else if(spot_class == "reject") {
+                        full_weights <- myRCTD@results$weights
+                        weights_matrix[i, ] <- as.numeric(
+                            full_weights[spot_names[i], cell_type_names]
+                        )
                     }
                 }
             } else {

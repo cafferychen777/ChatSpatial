@@ -26,6 +26,7 @@ from ...utils.exceptions import (
     ProcessingError,
 )
 from .base import PreparedDeconvolutionData, create_deconvolution_stats
+from .rctd import normalize_rctd_weights
 
 _VALID_MODES = frozenset({"full", "doublet", "multi"})
 _MIN_CELLS_PER_TYPE = 25
@@ -385,10 +386,15 @@ def deconvolve(
 
         full_weights = np.zeros((data.n_spots, len(cell_type_names)), dtype=float)
         full_weights[mask] = np.maximum(weights, 0.0)
-        proportions = pd.DataFrame(
-            full_weights,
-            index=data.spatial.obs_names,
-            columns=cell_type_names,
+        # rctd-py returns spacexr's unconstrained full-fit weights in every
+        # mode; filtered spots stay all-zero and are marked in rctd_status.
+        proportions, normalization = normalize_rctd_weights(
+            pd.DataFrame(
+                full_weights,
+                index=data.spatial.obs_names,
+                columns=cell_type_names,
+            ),
+            source="rctd-py result.weights (unconstrained full fit)",
         )
         backend_outputs = _build_backend_outputs(
             result,
@@ -414,6 +420,7 @@ def deconvolve(
             doublet_threshold=doublet_threshold,
             max_multi_types=max_multi_types,
             n_filtered_spots=int((~mask).sum()),
+            weights_normalization=normalization,
             _backend_outputs=backend_outputs,
         )
         return proportions, stats
