@@ -5,6 +5,40 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.5.5] - 2026-10-08
+
+### Changed
+
+- SpaGCN runs in its published 1.2.7 mode by default (`spagcn_compat="spagcn-1.2.7"`,
+  through spagcn-modern 1.4.0), so labels match the original SpaGCN release spot for
+  spot. The corrected model with trained cluster centers remains available as
+  `spagcn_compat="modern"`.
+- The STAGATE neighborhood radius now defaults to a value derived from the spot
+  spacing, so it gives the intended neighborhood in array, scaled-pixel and
+  full-resolution coordinates. An explicit `stagate_rad_cutoff` is used as given.
+- STAGATE and GraphST default to a 3600 s timeout; other methods keep 600 s.
+- The `identify_spatial_domains` schema now states the effective default of every
+  optional parameter, which methods each shared parameter applies to, and bounds
+  for resolution, radii, seeds, neighbor counts, cluster counts and timeouts.
+
+### Fixed
+
+- RCTD reported unnormalized weights as cell-type proportions in full mode. Weights
+  are now normalized per spot, following spacexr `normalize_weights`, and the
+  normalization is recorded in the result.
+- GraphST ignored its random seed because training ran in an unseeded subprocess.
+  Identical calls now return identical labels.
+- `cluster_n_neighbors` was ignored when a neighbor graph already existed.
+- `graphst_clustering_method="louvain"` ran Leiden.
+- `stagate_random_seed` applied only to the final clustering, not to training.
+
+### Installation
+
+- Intel macOS installs from wheels on Python 3.11 to 3.13. Dependencies that no
+  longer publish x86-64 macOS wheels are capped on that platform only, and
+  PyTorch-based methods are not installed there (use the container). CI now tests
+  an Intel macOS runner.
+
 ## [v1.5.4] - 2026-09-28
 
 ### Changed
