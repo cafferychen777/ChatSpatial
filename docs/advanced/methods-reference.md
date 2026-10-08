@@ -164,6 +164,13 @@ Find tissue domains and spatial niches.
 | `method` | `spagcn` | `spagcn`, `stagate`, `graphst`, `banksy`, `aestetik`, `leiden`, `louvain` |
 | `n_domains` | 7 | Expected number of domains |
 | `resolution` | 0.5 | Clustering resolution |
+| `spagcn_compat` | `spagcn-1.2.7` | SpaGCN behavior: `spagcn-1.2.7` or `modern` |
+
+SpaGCN runs in `spagcn-1.2.7` mode by default and reproduces the labels of the
+published SpaGCN 1.2.7 implementation, whose cluster centers stay fixed during
+training. `modern` trains the centers with the DEC Student's t kernel; the
+SpaGCN hyperparameters were tuned for 1.2.7, so this mode gives different
+domains.
 
 SpaGCN, STAGATE, and AESTETIK `kmeans`/`bgm` use `n_domains`. BANKSY and the
 Leiden/Louvain paths are resolution-driven; adjust `banksy_cluster_resolution`

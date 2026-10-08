@@ -517,6 +517,7 @@ async def _identify_domains_spagcn(
                         b=params.spagcn_b,
                         p=params.spagcn_p,
                         r_seed=params.spagcn_random_seed,
+                        compat=params.spagcn_compat,
                     )
 
             timeout_seconds = _resolve_timeout(params)
@@ -549,6 +550,7 @@ async def _identify_domains_spagcn(
             "s_parameter": params.spagcn_s,
             "b_parameter": params.spagcn_b,
             "p_parameter": params.spagcn_p,
+            "compat": params.spagcn_compat,
             "use_histology": use_histology,
         }
 
