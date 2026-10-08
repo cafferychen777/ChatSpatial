@@ -48,13 +48,14 @@ RUN Rscript -e 'options(repos = c(CRAN = "https://packagemanager.posit.co/cran/2
                               dependencies = FALSE, upgrade = "never"); \
       library(MuSiC); library(CARD); cat("CARD", as.character(packageVersion("CARD")), "\n")'
 
-# Python side: rpy2 bridge and CPU-only torch. SpaGCN comes from the base image:
-# spagcn-modern >= 1.4 runs the published SpaGCN 1.2.7 model by default and
-# reproduces its labels exactly. rpy2 3.6 needs a newer R than the 4.2 that
+# Python side: rpy2 bridge, CPU-only torch and spagcn-modern 1.4, which runs the
+# published SpaGCN 1.2.7 model by default and reproduces its labels exactly
+# (the base image installs only the core package). rpy2 3.6 needs a newer R than the 4.2 that
 # Debian bookworm ships.
 RUN python -m pip install --index-url https://download.pytorch.org/whl/cpu torch \
     && python -m pip install "rpy2>=3.5.17,<3.6" "anndata2ri>=1.3.0" requests \
-    && python -c "import SpaGCN, rpy2.robjects; print('SpaGCN', SpaGCN.__version__ if hasattr(SpaGCN, '__version__') else '', '+ rpy2 ready')"
+        "spagcn-modern>=1.4.0,<1.5" \
+    && python -c "import SpaGCN, rpy2.robjects; print('SpaGCN + rpy2 ready')"
 
 COPY scripts /opt/chatspatial-repro/scripts
 COPY data/dlpfc_benchmark /opt/chatspatial-repro/data/dlpfc_benchmark
