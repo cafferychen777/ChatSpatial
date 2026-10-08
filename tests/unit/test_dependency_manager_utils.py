@@ -526,3 +526,31 @@ def test_validate_scvi_tools_supports_known_components(
     )
 
     assert resolved is fake_scvi
+
+
+@pytest.mark.parametrize(
+    ("name", "host", "expected"),
+    [
+        ("torch", ("darwin", "x86_64", (3, 11)), "Use an Apple Silicon or Linux"),
+        ("torch", ("darwin", "arm64", (3, 11)), None),
+        ("torch", ("linux", "x86_64", (3, 11)), None),
+        ("gseapy", ("darwin", "x86_64", (3, 11)), None),
+        ("gseapy", ("darwin", "x86_64", (3, 12)), "Use Python 3.11 on this Mac"),
+        ("gseapy", ("darwin", "arm64", (3, 13)), None),
+    ],
+)
+def test_missing_package_explains_intel_macos_wheel_gap(
+    monkeypatch: pytest.MonkeyPatch, name: str, host, expected: str | None
+):
+    monkeypatch.setattr(dm, "_try_import", lambda _module_name: None)
+    monkeypatch.setattr(dm, "_host", lambda: host)
+
+    with pytest.raises(DependencyError) as exc:
+        dm.require(name, feature="this method")
+    message = str(exc.value)
+
+    assert f"Install: {dm.DEPENDENCY_REGISTRY[name].install_cmd}" in message
+    if expected is None:
+        assert "Intel macOS" not in message
+    else:
+        assert "skip" in message and expected in message

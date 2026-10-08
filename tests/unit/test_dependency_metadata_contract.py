@@ -15,6 +15,21 @@ from chatspatial.utils.dependency_manager import DEPENDENCY_REGISTRY
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def _environment(system: str, machine: str, python: str) -> dict[str, str]:
+    return {
+        "sys_platform": system,
+        "platform_machine": machine,
+        "python_version": python,
+        "python_full_version": f"{python}.0",
+    }
+
+
+LINUX = "linux", "x86_64"
+APPLE_SILICON = "darwin", "arm64"
+INTEL_MAC = "darwin", "x86_64"
+PYTHONS = ("3.11", "3.12", "3.13", "3.14")
+
+
 def _project_metadata() -> dict[str, object]:
     with (REPO_ROOT / "pyproject.toml").open("rb") as file:
         return tomllib.load(file)["project"]
@@ -146,8 +161,8 @@ def test_aestetik_extra_is_bounded_and_excludes_python_314() -> None:
     assert requirement.specifier.contains("0.3.1")
     assert not requirement.specifier.contains("0.4.0")
     assert requirement.marker is not None
-    assert requirement.marker.evaluate({"python_version": "3.13"})
-    assert not requirement.marker.evaluate({"python_version": "3.14"})
+    assert requirement.marker.evaluate(_environment(*LINUX, "3.13"))
+    assert not requirement.marker.evaluate(_environment(*LINUX, "3.14"))
     assert "aestetik" not in _requirements(extras["full"])
 
 
@@ -206,6 +221,33 @@ def test_full_is_exact_union_of_composable_method_families() -> None:
 
 
 @pytest.mark.unit
+def test_intel_macos_caps_do_not_touch_other_platforms() -> None:
+    """Intel macOS wheel caps must leave Linux and Apple Silicon unchanged."""
+    project = _project_metadata()
+    groups = {"dependencies": project["dependencies"]}
+    groups.update(project["optional-dependencies"])
+    intel_only = [
+        Requirement(item)
+        for items in groups.values()
+        for item in items
+        if "platform_machine == 'x86_64'" in item and "sys_platform == 'darwin'" in item
+    ]
+
+    assert {requirement.name for requirement in intel_only} >= {
+        "numba",
+        "cryptography",
+        "gseapy",
+    }
+    for requirement in intel_only:
+        assert requirement.marker is not None
+        for platform_tags in (LINUX, APPLE_SILICON):
+            for python in PYTHONS:
+                assert not requirement.marker.evaluate(
+                    _environment(*platform_tags, python)
+                ), requirement
+
+
+@pytest.mark.unit
 def test_extras_do_not_redeclare_transitive_or_unused_packages() -> None:
     extras = _project_metadata()["optional-dependencies"]
     direct = set().union(*(_requirements(items) for items in extras.values()))
@@ -259,3 +301,38 @@ def test_dev_extra_includes_request_type_stubs() -> None:
     dev = _requirements(project["optional-dependencies"]["dev"])
 
     assert "types-requests" in dev
+
+
+@pytest.mark.unit
+def test_pytorch_backends_are_skipped_only_on_intel_macos() -> None:
+    """PyTorch's last Intel macOS wheel needs NumPy 1.x, so Intel Macs skip it."""
+    extras = _project_metadata()["optional-dependencies"]
+    torch_backends = {
+        "torch",
+        "scvi-tools",
+        "cell2location",
+        "tangram-sc",
+        "graphst-modern",
+        "stagate-modern",
+        "spagcn-modern",
+        "stalign-modern",
+        "rctd-py",
+        "aestetik",
+    }
+    seen = set()
+    for items in extras.values():
+        for name, requirements in _requirements(items).items():
+            if name not in torch_backends:
+                continue
+            seen.add(name)
+            for requirement in requirements:
+                assert requirement.marker is not None, requirement
+                for python in ("3.11", "3.12", "3.13"):
+                    assert not requirement.marker.evaluate(
+                        _environment(*INTEL_MAC, python)
+                    )
+                    for platform_tags in (LINUX, APPLE_SILICON):
+                        assert requirement.marker.evaluate(
+                            _environment(*platform_tags, python)
+                        )
+    assert seen == torch_backends
