@@ -1361,6 +1361,16 @@ class SpatialDomainParameters(StrictParameters):
     )
     spagcn_use_histology: bool = True
     spagcn_random_seed: int = 100
+    spagcn_compat: Literal["spagcn-1.2.7", "modern"] = Field(
+        default="spagcn-1.2.7",
+        description=(
+            "SpaGCN model behavior. 'spagcn-1.2.7' reproduces the published "
+            "SpaGCN 1.2.7 results (fixed cluster centers, Louvain "
+            "initialization). 'modern' trains the cluster centers with the "
+            "DEC Student's t kernel; the default hyperparameters were tuned "
+            "for 1.2.7 and give different domains."
+        ),
+    )
 
     # General clustering parameters
     resolution: float = 0.5

@@ -105,13 +105,14 @@ def test_unused_system_stacks_are_not_advertised_as_extras() -> None:
 
 @pytest.mark.unit
 def test_spatial_domain_extra_uses_maintained_spagcn_graph_stack() -> None:
-    """SpaGCN must use Leiden without pulling the obsolete Louvain extension."""
+    """SpaGCN 1.4 reproduces SpaGCN 1.2.7 without the obsolete Louvain extension."""
     project = _project_metadata()
     requirements = _requirements(project["optional-dependencies"]["spatial-domains"])
 
     spagcn = requirements["spagcn-modern"][0]
-    assert spagcn.specifier.contains("1.3.0")
-    assert not spagcn.specifier.contains("1.4.0")
+    assert spagcn.specifier.contains("1.4.0")
+    assert not spagcn.specifier.contains("1.3.0")
+    assert not spagcn.specifier.contains("1.5.0")
     assert requirements["graphst-modern"][0].specifier.contains("1.1.1.post3")
     assert requirements["stagate-modern"][0].specifier.contains("1.0.0.post1")
     banksy = requirements["pybanksy"][0]

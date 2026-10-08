@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import scipy.sparse as sp
+from pydantic import ValidationError
 
 from chatspatial.models.data import SpatialDomainParameters
 from chatspatial.tools import spatial_domains as sd
@@ -613,6 +614,56 @@ async def test_identify_domains_spagcn_success_with_dummy_histology_fallback(
     assert stats["method"] == "spagcn"
     assert stats["use_histology"] is False
     assert any("unstable or noisy" in w for w in ctx.warnings)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [({}, "spagcn-1.2.7"), ({"spagcn_compat": "modern"}, "modern")],
+)
+async def test_identify_domains_spagcn_passes_compat_mode(
+    minimal_spatial_adata, monkeypatch: pytest.MonkeyPatch, overrides, expected
+):
+    adata = minimal_spatial_adata.copy()
+    ctx = DummyCtx(adata)
+
+    class _FakeSpg:
+        @staticmethod
+        def prefilter_genes(_adata, min_cells=3):
+            del _adata, min_cells
+
+        @staticmethod
+        def prefilter_specialgenes(_adata):
+            del _adata
+
+    monkeypatch.setattr(sd, "require", lambda *_a, **_k: _FakeSpg)
+
+    import sys
+    import types
+
+    calls = []
+
+    def _fake_ez_mode(ad, *args, **kwargs):
+        calls.append(kwargs)
+        return ["0"] * ad.n_obs
+
+    ez_mod = types.ModuleType("SpaGCN.ez_mode")
+    ez_mod.detect_spatial_domains_ez_mode = _fake_ez_mode
+    pkg = types.ModuleType("SpaGCN")
+    pkg.ez_mode = ez_mod
+    monkeypatch.setitem(sys.modules, "SpaGCN", pkg)
+    monkeypatch.setitem(sys.modules, "SpaGCN.ez_mode", ez_mod)
+
+    params = SpatialDomainParameters(method="spagcn", **overrides)
+    _, _, stats = await sd._identify_domains_spagcn(adata, params, ctx)
+
+    assert calls[0]["compat"] == expected
+    assert stats["compat"] == expected
+
+
+def test_spagcn_compat_rejects_unknown_mode():
+    with pytest.raises(ValidationError):
+        SpatialDomainParameters(method="spagcn", spagcn_compat="1.3")
 
 
 @pytest.mark.asyncio
