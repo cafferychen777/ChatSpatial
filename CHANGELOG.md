@@ -5,6 +5,15 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.5.7] - 2026-10-09
+
+### Fixed
+
+- `preprocess_data` failed on sections that contain a spot with zero counts: the
+  spot's mitochondrial percentage is undefined (0/0), which made the reported
+  median and maximum NaN and the result failed validation. The QC summary now
+  ignores undefined values; such spots are still removed by the usual filters.
+
 ## [v1.5.6] - 2026-10-09
 
 ### Fixed
