@@ -82,11 +82,19 @@ def _calculate_qc_metrics(adata) -> tuple[str | None, dict[str, int | float]]:
         "median_genes_per_cell": float(np.median(adata.obs.n_genes_by_counts)),
         "median_umi_per_cell": float(np.median(adata.obs.total_counts)),
     }
-    if mito_pct_col:
+    # Spots with zero counts have an undefined mitochondrial percentage (0/0).
+    # They are removed by the later filters, so they must not decide the summary.
+    mito_pct = (
+        adata.obs[mito_pct_col].to_numpy(dtype=float, na_value=np.nan)
+        if mito_pct_col
+        else np.array([])
+    )
+    mito_pct = mito_pct[np.isfinite(mito_pct)]
+    if mito_pct_col and mito_pct.size:
         metrics.update(
             {
-                "median_mito_pct": float(np.median(adata.obs[mito_pct_col])),
-                "max_mito_pct": float(np.max(adata.obs[mito_pct_col])),
+                "median_mito_pct": float(np.median(mito_pct)),
+                "max_mito_pct": float(np.max(mito_pct)),
                 "n_mt_genes": int(adata.var["mt"].sum()),
             }
         )

@@ -1670,3 +1670,27 @@ async def test_embeddings_are_kept_when_the_gene_set_is_unchanged(
 
     assert "X_pca" in ctx.saved_adata.obsm
     assert not [m for m in ctx.warnings if "Discarded" in m]
+
+
+@pytest.mark.unit
+def test_qc_metrics_ignore_zero_count_spots_in_mito_summary():
+    """A spot with no counts has an undefined mito percentage and must not make it NaN."""
+    counts = np.array(
+        [
+            [5, 1, 4, 0],
+            [0, 0, 0, 0],
+            [3, 2, 1, 6],
+        ],
+        dtype=float,
+    )
+    adata = AnnData(sp.csr_matrix(counts))
+    adata.var_names = ["MT-CO1", "GENE1", "GENE2", "GENE3"]
+    adata.obs_names = ["s1", "s2", "s3"]
+
+    mito_col, metrics = preprocessing_mod._calculate_qc_metrics(adata)
+
+    assert mito_col == "pct_counts_mt"
+    assert np.isnan(adata.obs.loc["s2", mito_col])
+    assert np.isfinite(metrics["median_mito_pct"])
+    assert np.isfinite(metrics["max_mito_pct"])
+    assert metrics["max_mito_pct"] == pytest.approx(50.0)
