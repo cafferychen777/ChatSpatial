@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from . import __version__
 from .utils.adata_utils import get_spatial_key, has_tissue_image
 from .utils.exceptions import DataNotFoundError, ParameterError
+from .utils.mcp_utils import expose_anticipated_errors
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -41,12 +42,18 @@ class SpatialMCPAdapter:
 
 
 class StrictMCPServer(MCPServer):
-    """MCP server whose generated top-level JSON models reject extras.
+    """MCP server with strict top-level JSON models and client-visible errors.
 
     MCP SDK 2.0.0 generates permissive argument models for function signatures,
     and for scalar output wrappers, even when nested Pydantic models are strict.
     Tightening both models at registration time keeps discovery and runtime
     validation aligned and prevents unknown values from being silently discarded.
+
+    MCP SDK 2.1.0 and later forward an exception's message to the client only
+    for ``ToolError``. Each registered tool is therefore wrapped so that
+    ChatSpatial's anticipated errors are raised as ``ToolError`` with their type
+    and message, while unexpected exceptions keep the SDK's generic response.
+    The module-level tool functions stay unwrapped for direct Python callers.
     """
 
     def add_tool(
@@ -55,7 +62,7 @@ class StrictMCPServer(MCPServer):
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        super().add_tool(fn, *args, **kwargs)
+        super().add_tool(expose_anticipated_errors(fn), *args, **kwargs)
 
         explicit_name = kwargs.get("name")
         if explicit_name is None and args:

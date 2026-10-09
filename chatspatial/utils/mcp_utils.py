@@ -8,30 +8,43 @@ Error Handling Design:
 All tool errors are raised as exceptions, which MCPServer converts to
 ``CallToolResult(isError=True)`` protocol responses automatically.
 
-The ``mcp_tool_error_handler`` decorator enriches error messages before
-they reach MCPServer:
+Since MCP SDK 2.1.0, MCPServer forwards the text of an exception to the client
+only when the exception is a ``ToolError``. Any other exception is reported as
+``Error executing tool <name>`` and its text stays in the server log. The
+``expose_anticipated_errors`` wrapper, applied to every tool registered on the
+ChatSpatial server, therefore re-raises anticipated errors as ``ToolError``
+with the original type name and message, chained to the original exception:
 
-User-understandable errors (clean message, no traceback):
-- ParameterError, DataError, DataNotFoundError, DataCompatibilityError
-- DependencyError, ValueError (legacy)
+Client-visible errors (``CLIENT_VISIBLE_ERRORS``, type and message, no traceback):
+- The ChatSpatialError hierarchy (ParameterError, DataError, DataNotFoundError,
+  DataCompatibilityError, ProcessingError, DependencyError)
+- ValueError (legacy), FileNotFoundError and PermissionError, which ChatSpatial
+  still raises for invalid inputs, missing input files and unwritable outputs
 
-Code/algorithm errors:
-- Preserve the concise exception message for the client
-- Record the complete traceback in server logs
-- Expose a traceback only when explicitly enabled for local debugging
+Unexpected errors:
+- Reach the client only as ``Error executing tool <name>`` (MCP SDK >= 2.1.0;
+  SDK 2.0.x appends the exception message)
+- Never carry a traceback unless explicitly enabled for local debugging
+
+The ``mcp_tool_error_handler`` decorator records the complete traceback of
+every non-user error in the server log before the exception reaches MCPServer.
 """
 
 import contextvars
+import inspect
 import logging
 import sys
 import threading
 import traceback
-from collections.abc import AsyncIterator, Iterable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from functools import wraps
 from typing import Any, TextIO
 
+from mcp.server.mcpserver.exceptions import ToolError
+
 from .exceptions import (
+    ChatSpatialError,
     DataError,
     DependencyError,
     ParameterError,
@@ -46,6 +59,16 @@ USER_ERRORS = (
     DataError,
     DependencyError,
     ValueError,  # Legacy compatibility
+)
+
+# Exceptions whose message is written for the user and must reach the MCP
+# client. ProcessingError belongs here as well: it is raised deliberately with a
+# message that names the failed step, even though its traceback is logged.
+CLIENT_VISIBLE_ERRORS = (
+    ChatSpatialError,
+    ValueError,  # Legacy compatibility
+    FileNotFoundError,  # Missing input paths in load_data and reload_data
+    PermissionError,  # Unwritable output directories
 )
 
 
@@ -196,3 +219,42 @@ def mcp_tool_error_handler(include_traceback: bool = False):
         return wrapper
 
     return decorator
+
+
+def expose_anticipated_errors(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Re-raise client-visible errors as ``ToolError`` for MCP registration.
+
+    ``ToolError`` is the MCP SDK's supported signal for an anticipated tool
+    failure: MCPServer returns its message to the client, whereas the SDK
+    replaces the message of any other exception with a generic text since
+    release 2.1.0. The original exception remains available as ``__cause__``
+    for server-side logging. Unexpected exceptions pass through unchanged, so
+    the SDK keeps their details on the server.
+    """
+
+    def translate(exc: Exception) -> ToolError:
+        return ToolError(f"{type(exc).__name__}: {exc}")
+
+    if inspect.iscoroutinefunction(func):
+
+        @wraps(func)
+        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return await func(*args, **kwargs)
+            except ToolError:
+                raise
+            except CLIENT_VISIBLE_ERRORS as exc:
+                raise translate(exc) from exc
+
+        return async_wrapper
+
+    @wraps(func)
+    def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return func(*args, **kwargs)
+        except ToolError:
+            raise
+        except CLIENT_VISIBLE_ERRORS as exc:
+            raise translate(exc) from exc
+
+    return sync_wrapper

@@ -7,14 +7,17 @@ import logging
 import sys
 
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 
 from chatspatial.models.analysis import PreprocessingResult
 from chatspatial.utils.exceptions import (
+    DataError,
     DependencyError,
     ParameterError,
     ProcessingError,
 )
 from chatspatial.utils.mcp_utils import (
+    expose_anticipated_errors,
     mcp_tool_error_handler,
     suppress_output,
     suppress_output_async,
@@ -91,6 +94,54 @@ async def test_error_handler_for_basemodel_reraises():
         raise ProcessingError("must bubble up")
 
     with pytest.raises(ProcessingError, match="must bubble up"):
+        await tool()
+
+
+@pytest.mark.asyncio
+async def test_expose_anticipated_errors_raises_tool_error_with_type_and_cause():
+    original = DataError("No raw integer counts found")
+
+    @expose_anticipated_errors
+    async def tool() -> str:
+        raise original
+
+    with pytest.raises(ToolError) as exc:
+        await tool()
+
+    assert str(exc.value) == "DataError: No raw integer counts found"
+    assert exc.value.__cause__ is original
+
+
+def test_expose_anticipated_errors_wraps_sync_tools():
+    @expose_anticipated_errors
+    def tool() -> str:
+        raise ParameterError("n_clusters must be > 0")
+
+    with pytest.raises(ToolError, match="ParameterError: n_clusters must be > 0"):
+        tool()
+
+
+@pytest.mark.asyncio
+async def test_expose_anticipated_errors_passes_tool_error_through_unchanged():
+    original = ToolError("already client facing")
+
+    @expose_anticipated_errors
+    async def tool() -> str:
+        raise original
+
+    with pytest.raises(ToolError) as exc:
+        await tool()
+
+    assert exc.value is original
+
+
+@pytest.mark.asyncio
+async def test_expose_anticipated_errors_leaves_unexpected_errors_to_the_sdk():
+    @expose_anticipated_errors
+    async def tool() -> str:
+        raise RuntimeError("internal detail")
+
+    with pytest.raises(RuntimeError, match="internal detail"):
         await tool()
 
 
