@@ -135,7 +135,7 @@ All datasets used in this study are publicly available. No custom datasets were 
 | Gene Count | ~15,000 genes per sample |
 | Data Format | Space Ranger output (filtered feature-barcode matrices + spatial coordinates) |
 | Download | GEO supplementary files or Zenodo mirror (DOI: [10.5281/zenodo.8079095](https://doi.org/10.5281/zenodo.8079095)) |
-| Manuscript Role | Case study (Results Section 2.3.1, Figure 2): spatial domain identification (Tumor Core vs. Leading Edge), CARD deconvolution with scRNA-seq reference, CellChat ligand-receptor analysis, Moran's I spatial autocorrelation |
+| Manuscript Role | Case study (Results Section 2.3.1, Figure 2): spatial domain identification (Tumor Core vs. Leading Edge), FlashDeconv deconvolution with scRNA-seq reference, CellChat ligand-receptor analysis, Moran's I spatial autocorrelation |
 
 This dataset is used in:
 - `casestudy_reproducibility.py` (CARD deconvolution concordance, 160 trials)
@@ -151,7 +151,7 @@ This dataset is used in:
 | Technology | Smart-seq2 scRNA-seq |
 | Cells | 5,902 cells from 18 HNSCC patients |
 | Cell Types | Tumor cells, fibroblasts, macrophages, T cells, B cells, dendritic cells, mast cells, endothelial cells, myocytes |
-| Manuscript Role | Reference atlas for CARD deconvolution in the OSCC case study; cell type annotations used to estimate spot-level cell type proportions |
+| Manuscript Role | Reference atlas for FlashDeconv deconvolution in the OSCC case study; cell type annotations used to estimate spot-level cell type proportions |
 
 ### Case Study 2: High-Grade Serous Ovarian Carcinoma (HGSOC)
 
