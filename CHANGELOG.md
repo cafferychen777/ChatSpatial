@@ -5,6 +5,20 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.5.6] - 2026-10-09
+
+### Fixed
+
+- With mcp 2.1.0 or later (2.3.0 is what `chatspatial[full]==1.5.5` installs),
+  MCP clients received every ChatSpatial error only as `Error executing tool <name>`.
+  The SDK forwards an exception's message only when it is a `ToolError`, so
+  messages such as `DataError: No raw integer counts found ...` never reached the
+  model. ChatSpatial errors (`DataError`, `DataNotFoundError`,
+  `DataCompatibilityError`, `ParameterError`, `ProcessingError`,
+  `DependencyError`) and the legacy `ValueError`, `FileNotFoundError` and
+  `PermissionError` now reach the client with their type and full message on every
+  supported mcp 2.x release. Unexpected internal errors still return no traceback.
+
 ## [v1.5.5] - 2026-10-08
 
 ### Changed
