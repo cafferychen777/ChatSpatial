@@ -5,6 +5,15 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.5.8] - 2026-10-10
+
+### Fixed
+
+- SpaGCN failed with a shape mismatch when a spot had zero counts in the selected
+  genes, because normalization removed the spot from the expression matrix but not
+  from the spatial adjacency matrix. ChatSpatial now requires spagcn-modern 1.4.1,
+  which keeps every spot; results for all other inputs are unchanged.
+
 ## [v1.5.7] - 2026-10-09
 
 ### Fixed
