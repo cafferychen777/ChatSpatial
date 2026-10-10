@@ -281,12 +281,12 @@ aestetik = [
     "aestetik>=0.3.1,<0.4; python_version < '3.14' and (sys_platform != 'darwin' or platform_machine != 'x86_64')",
 ]
 
-# Dependencies used by the manuscript reproducibility scripts. Core scientific
-# packages such as NumPy, pandas, Scanpy, and scikit-learn are already required
-# by ChatSpatial itself, so this extra only declares the additional packages.
+# Dependencies of the scripts in reproducibility/scripts that the LLM-free
+# reproduction image runs. Core scientific packages such as NumPy, pandas,
+# Scanpy, and scikit-learn are already required by ChatSpatial itself, so this
+# extra only declares the additional package.
 reproducibility = [
     "requests>=2.31.0,<3.0",
-    "statsmodels>=0.13.0,<1.0",
 ]
 
 # Development dependencies

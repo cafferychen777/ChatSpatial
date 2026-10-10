@@ -575,7 +575,10 @@ async def run_experiment():
             f"exec={sum(r['exec_success'] for r in cond_recs)/n:.0%}"
         )
 
-    print("\nDone! Run ablation_analysis.py to compute concordance metrics.")
+    print(
+        "\nDone! Run ablation_analysis.py from ChatSpatial-Reproducibility "
+        "to compute concordance metrics."
+    )
 
 
 if __name__ == "__main__":

@@ -5,6 +5,19 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `reproducibility/` now holds only what the LLM-free reproduction image
+  (`-repro` tag) needs: the Dockerfile, `reproduce_key_results.py` with the
+  experiment modules it imports, and the DLPFC and CARD reference values. The
+  other manuscript experiment and analysis scripts, the aggregate result tables,
+  the supplementary tables and `requirements-paper.txt` moved to
+  [ChatSpatial-Reproducibility](https://github.com/cafferychen777/ChatSpatial-Reproducibility).
+  The `reproducibility` extra no longer lists statsmodels, which only the moved
+  scripts used.
+
 ## [v1.5.9] - 2026-10-10
 
 ### Fixed

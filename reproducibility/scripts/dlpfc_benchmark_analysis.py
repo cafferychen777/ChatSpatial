@@ -173,12 +173,14 @@ def analyze():
             print(f"  {PER_TRIAL_CSV}")
             print(f"  {SUMMARY_PATH}")
             print(
-                "To recompute raw-level metrics, run scripts/dlpfc_benchmark.py first."
+                "To recompute raw-level metrics, run dlpfc_benchmark.py from "
+                "ChatSpatial-Reproducibility first."
             )
             return
         raise FileNotFoundError(
             f"{RAW_PATH} is required to recompute DLPFC benchmark metrics. "
-            "Run scripts/dlpfc_benchmark.py first, or use the committed aggregate CSV/TXT outputs."
+            "Run dlpfc_benchmark.py from ChatSpatial-Reproducibility first, "
+            "or use the committed aggregate CSV/TXT outputs."
         )
 
     records = load_raw()

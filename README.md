@@ -71,7 +71,7 @@ Then:
 1. **Run your first analysis** — [Quick Start](docs/quickstart.md)
 2. **Choose optional method families or a persistent environment** — [Installation Guide](docs/installation.md)
 3. **Configure another MCP client** — [Configuration Guide](docs/advanced/configuration.md)
-4. **Inspect or reproduce the manuscript results** — [Reproducibility workspace](reproducibility/README.md)
+4. **Reproduce the manuscript key results without an LLM** — [Reproduction image](reproducibility/README.md)
 
 **Docker quick start:**
 
@@ -133,13 +133,21 @@ Current coverage includes 66 methods across 15 analytical categories, exposed th
 
 ## Reproducibility
 
-The manuscript experiment scripts, small aggregate result tables, and
-supplementary tables are versioned in [`reproducibility/`](reproducibility/README.md).
-Large datasets, raw provider checkpoints, generated analysis directories, and
-manuscript source files are intentionally kept outside Git. The reproducibility
-workspace documents both the manuscript-era package baseline and the
-current-checkout development workflow so historical evidence is not silently
-regenerated with a different ChatSpatial release.
+Each release publishes a reproduction image under the `-repro` tag. It
+re-executes the DLPFC spatial-domain and OSCC CARD deconvolution tool calls
+recorded during the manuscript experiments, without calling any LLM, and
+compares the results with the reported values:
+
+```bash
+docker run --rm -v "$PWD/out:/outputs" \
+  cafferyyang777/chatspatial@sha256:ac3ba1ed8235c3d53ca72005d8ad2556cac007f5ddb932ae3e1d1241fa2cf9d8 \
+  chatspatial-reproduce
+```
+
+[`reproducibility/`](reproducibility/README.md) contains the image definition
+and describes what it checks. The experiment and analysis scripts for the
+manuscript are in
+[ChatSpatial-Reproducibility](https://github.com/cafferychen777/ChatSpatial-Reproducibility).
 
 ---
 

@@ -1,15 +1,6 @@
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
-dist/
-build/
-*.egg
-
-# Environment
-.env
-.venv/
-env/
 
 # Large data files
 *.h5ad
@@ -17,22 +8,12 @@ env/
 *.loom
 *.zarr/
 
-# OS
-.DS_Store
-Thumbs.db
-
-# IDE
-.vscode/
-.idea/
-
-# Curated, compact evidence is versioned even though the package-level ignore
-# rules exclude scientific data files by default.
+# The reference values that the reproduction image compares against are
+# versioned even though the package-level ignore rules exclude scientific data
+# files by default.
 !README.md
-!requirements-paper.txt
-!data/**/README.md
 !data/**/*.csv
 !data/**/*.txt
-!supplementary_tables/**/*.csv
 
 # Raw and generated outputs are local only.
 outputs/

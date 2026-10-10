@@ -6,7 +6,7 @@ manuscript experiments, without calling any LLM, and compares the regenerated
 numbers with the reference values committed under ``reproducibility/data``:
 
   dlpfc   DLPFC ground-truth ARI (slices 151673, 151507, 151669; ChatSpatial
-          arm of ``dlpfc_benchmark.py``; manuscript pooled ARI 0.374).
+          arm of the DLPFC benchmark; manuscript pooled ARI 0.374).
   card    OSCC CARD cross-model concordance (full-schema arm of
           ``casestudy_reproducibility.py``; four models, Pearson r = 1.000),
           plus the schema-validation outcome of every recorded call and the
@@ -15,8 +15,11 @@ numbers with the reference values committed under ``reproducibility/data``:
           ``--replay-log`` (JSONL, one call per line; see ``run_replay``).
           Skipped when no log is supplied.
 
-Analysis code is reused from the original experiment scripts; this file only
-replays the recorded calls and compares outputs.
+Analysis code is reused from the four experiment modules kept next to this
+file (``ablation_e2e``, ``ablation_invocation``, ``casestudy_reproducibility``,
+``dlpfc_benchmark_analysis``); this file only replays the recorded calls and
+compares outputs. The other experiment scripts of the manuscript are in
+https://github.com/cafferychen777/ChatSpatial-Reproducibility.
 
 Inputs are read from ``--data-dir`` (default ``/data/chatspatial-repro``).
 If they are missing and ``--data-url`` (or ``CHATSPATIAL_REPRO_DATA_URL``)

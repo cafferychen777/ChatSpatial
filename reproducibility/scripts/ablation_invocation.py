@@ -10,7 +10,8 @@ by comparing three conditions:
 
 Trial matrix: 8 prompts x 3 models x 10 reps x 3 conditions = 720 API calls.
 
-Extends the existing determinism_multimodel.py experiment with:
+Extends the determinism_multimodel.py experiment (ChatSpatial-Reproducibility)
+with:
   - Three schema conditions (the ablation variable)
   - Pydantic model validation (executability measurement)
   - Incremental JSONL checkpointing
