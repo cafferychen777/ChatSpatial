@@ -76,7 +76,7 @@ Then:
 **Docker quick start:**
 
 ```bash
-docker pull ghcr.io/cafferychen777/chatspatial:v1.4.0
+docker pull cafferyyang777/chatspatial:latest
 ```
 
 **Minimal example prompt:**
