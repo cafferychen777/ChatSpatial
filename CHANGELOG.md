@@ -5,6 +5,17 @@ All notable changes to ChatSpatial will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.5.9] - 2026-10-10
+
+### Fixed
+
+- The Gaussian mixture used in place of mclust EEE (STAGATE, and GraphST with
+  `graphst_clustering_method="mclust"`) started EM from single seed points, so the
+  tied covariance began near zero and EM stopped early at a poor fit that merged most
+  spots into a few clusters. It now starts from a full k-means partition. On DLPFC
+  section 151673, STAGATE improves from ARI 0.14 to 0.65 and GraphST with mclust from
+  0.22 to 0.57; other methods are unchanged.
+
 ## [v1.5.8] - 2026-10-10
 
 ### Fixed
