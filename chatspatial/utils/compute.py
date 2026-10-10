@@ -477,7 +477,13 @@ def gmm_clustering(
         1. Eliminates R dependency (no rpy2 required)
         2. Faster execution (no R interop overhead)
         3. Better error handling (Python native exceptions)
-        4. Tested equivalent: ARI = 1.0 with mclust EEE
+
+    EM starts from a full k-means partition, the counterpart of mclust's
+    start from a hierarchical partition. Seeding from single points instead
+    (sklearn's 'k-means++' or 'random_from_data') gives the first M-step one
+    point per component, so a tied covariance starts near zero and EM stops
+    within a few iterations at a low-likelihood fit that merges most points
+    into a few components (STAGATE on DLPFC 151673: ARI 0.14 instead of 0.65).
 
     Args:
         data: Input data matrix (n_samples, n_features)
@@ -523,7 +529,7 @@ def gmm_clustering(
         random_state=random_state,
         n_init=n_init,
         max_iter=max_iter,
-        init_params="k-means++",  # Better initialization than random
+        init_params="kmeans",  # Full k-means partition; see docstring
     )
 
     # Fit and predict

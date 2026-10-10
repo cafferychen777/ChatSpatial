@@ -228,6 +228,36 @@ def test_gmm_clustering_returns_one_indexed_labels():
     assert len(labels) == 20
 
 
+@pytest.mark.parametrize("seed", [0, 1])
+def test_gmm_clustering_recovers_separated_clusters_with_shared_covariance(seed):
+    """Tied-covariance EM must start from a k-means partition, not single points.
+
+    Seeding each component with one point (sklearn's 'k-means++' init) makes
+    the first tied covariance nearly zero, and EM then stalls in a few
+    iterations at a fit that merges most clusters. That fit returned ARI ~0.1
+    for STAGATE embeddings of DLPFC sections whose published ARI is ~0.5, and
+    ARI ~0.2 on these separated clusters.
+    """
+    from sklearn.metrics import adjusted_rand_score
+
+    rng = np.random.default_rng(seed)
+    n_dims = 30
+    sizes = [300, 250, 200, 150, 125, 100, 75]
+    mixing = rng.normal(size=(n_dims, n_dims)) / np.sqrt(n_dims)
+    centers = rng.normal(scale=1.5, size=(len(sizes), n_dims))
+    data = np.vstack(
+        [
+            rng.normal(size=(size, n_dims)) @ mixing.T + center
+            for size, center in zip(sizes, centers, strict=True)
+        ]
+    )
+    truth = np.repeat(np.arange(len(sizes)), sizes)
+
+    labels = compute.gmm_clustering(data, n_clusters=len(sizes), random_state=42)
+
+    assert adjusted_rand_score(truth, labels) > 0.95
+
+
 class TestEnsureHighlyVariableGenes:
     """Scanpy's mean-binned dispersion is undefined on degenerate inputs.
 
