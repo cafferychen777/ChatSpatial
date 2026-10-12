@@ -2,7 +2,7 @@
 ChatSpatial
 
 Schema-enforced orchestration framework for spatial transcriptomics analysis.
-Integrates 66 methods across 15 analytical categories via Model Context Protocol.
+Integrates 65 methods across 13 analytical categories via Model Context Protocol.
 """
 
 import tomllib
