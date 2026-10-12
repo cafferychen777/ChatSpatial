@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.5.10] - 2026-10-11
+
 ### Changed
 
+- The MCP server instructions and description, package docstring, README,
+  documentation, CITATION.cff and MCP Registry metadata now state 65 methods
+  across 13 analytical categories (previously 66 across 15). A method is one
+  selectable value of the `method` or `analysis_type` parameter of the 14
+  analysis tools. No behaviour, schema or default changes.
 - `reproducibility/` now holds only what the LLM-free reproduction image
   (`-repro` tag) needs: the Dockerfile, `reproduce_key_results.py` with the
   experiment modules it imports, and the DLPFC and CARD reference values. The
