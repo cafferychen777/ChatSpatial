@@ -87,13 +87,14 @@ def test_export_sanitizes_uns_dataframe_object_columns(tmp_path: Path):
     assert "ccc_cellphonedb" in loaded.uns
     assert list(loaded_results.columns) == ["gene_a", "gene_b", "T|T"]
     assert list(loaded_results.index) == ["10", "11", "12", "13"]
-    assert loaded_results["gene_a"].tolist() == ["CXCL12", "", "", "123"]
+    assert loaded_results["gene_a"].iloc[[0, 3]].tolist() == ["CXCL12", "123"]
+    assert loaded_results["gene_a"].iloc[[1, 2]].isna().all()
     assert np.issubdtype(loaded_results["T|T"].dtype, np.number)
     loaded_gsea = loaded.uns["gsea_results"]
-    assert loaded_gsea["ES"].tolist() == ["", "{'unexpected': 'object'}"]
+    assert pd.isna(loaded_gsea["ES"].iloc[0])
+    assert loaded_gsea["ES"].iloc[1] == "{'unexpected': 'object'}"
     assert np.issubdtype(loaded_gsea["NES"].dtype, np.number)
-    assert loaded_gsea["FDR q-val"].tolist() == [0.05, 0.2]
-    assert np.issubdtype(loaded_gsea["FDR q-val"].dtype, np.number)
+    assert loaded_gsea["FDR q-val"].tolist() == ["0.05", "0.20"]
     assert adata.uns["ccc"]["results"].index.tolist() == [10, 11, 12, 13]
 
 
@@ -119,7 +120,7 @@ def test_export_wraps_underlying_write_errors(tmp_path: Path):
         def write_h5ad(self, *_args, **_kwargs):
             raise RuntimeError("disk full")
 
-    with pytest.raises(IOError, match="Failed to export data"):
+    with pytest.raises(DataError, match="Failed to export data"):
         persistence.export_adata(
             "broken", _BrokenAnnData(), tmp_path / "x" / "broken.h5ad"
         )
@@ -140,7 +141,7 @@ def test_export_failure_preserves_previous_complete_file(tmp_path: Path) -> None
     destination.parent.mkdir()
     destination.write_bytes(b"previous complete dataset")
 
-    with pytest.raises(IOError, match="Failed to export data"):
+    with pytest.raises(DataError, match="Failed to export data"):
         persistence.export_adata("dataset", _PartiallyWritingAnnData(), destination)
 
     assert destination.read_bytes() == b"previous complete dataset"
@@ -173,7 +174,7 @@ def test_load_adata_wraps_underlying_read_errors(
         lambda _path: (_ for _ in ()).throw(RuntimeError("bad format")),
     )
 
-    with pytest.raises(IOError, match="Failed to load data"):
+    with pytest.raises(DataError, match="Failed to load data"):
         persistence.load_adata_from_active("unused", corrupt_path)
 
 
@@ -216,3 +217,60 @@ def test_check_reload_identity_warns_when_cells_were_filtered_out(tmp_path: Path
     )
     assert message is not None
     assert "keeps 4 of 6 cells" in message
+
+
+@pytest.mark.parametrize("storage", ["python", "pyarrow"])
+def test_nullable_metadata_roundtrip_preserves_values_and_source(tmp_path, storage):
+    if storage == "pyarrow":
+        pytest.importorskip("pyarrow")
+    adata = _make_adata(n_obs=5, n_vars=5)
+    values = ["001", "", None, "nan", "β cell"]
+    adata.obs["label"] = pd.array(values, dtype=f"string[{storage}]")
+    adata.var["label"] = pd.array(values, dtype=f"string[{storage}]")
+    adata.obs.index = pd.Index(adata.obs.index, dtype="string")
+    adata.var.index = pd.Index(adata.var.index, dtype="string")
+    adata.obs["ordered"] = pd.Categorical(
+        ["b", "a", None, "b", "a"],
+        categories=pd.Index(["b", "a", "unused"], dtype="string"),
+        ordered=True,
+    )
+    adata.raw = adata.copy()
+    adata.uns["nested"] = {"table": pd.DataFrame({"label": values})}
+    before = adata.copy()
+    setting = ad.settings.allow_write_nullable_strings
+    path = persistence.export_adata("nullable", adata, tmp_path / "nullable.h5ad")
+    result = ad.read_h5ad(path)
+    for frame in [
+        result.obs,
+        result.var,
+        result.raw.var,
+        result.uns["nested"]["table"],
+    ]:
+        assert frame["label"].iloc[[0, 1, 3, 4]].tolist() == [
+            "001",
+            "",
+            "nan",
+            "β cell",
+        ]
+        assert pd.isna(frame["label"].iloc[2])
+    assert result.obs["ordered"].cat.ordered
+    assert result.obs["ordered"].cat.categories.tolist() == ["b", "a", "unused"]
+    pd.testing.assert_frame_equal(adata.obs, before.obs)
+    pd.testing.assert_frame_equal(adata.var, before.var)
+    pd.testing.assert_frame_equal(
+        adata.uns["nested"]["table"], before.uns["nested"]["table"]
+    )
+    assert ad.settings.allow_write_nullable_strings == setting
+
+
+def test_export_failure_restores_anndata_setting(tmp_path, monkeypatch):
+    def fail(*args, **kwargs):
+        assert ad.settings.allow_write_nullable_strings is True
+        raise OSError("disk full")
+
+    monkeypatch.setattr(ad.AnnData, "write_h5ad", fail)
+    with ad.settings.override(allow_write_nullable_strings=False):
+        with pytest.raises(DataError, match="OSError: disk full") as caught:
+            persistence.export_adata("broken", _make_adata(), tmp_path / "out.h5ad")
+        assert isinstance(caught.value.__cause__, OSError)
+        assert ad.settings.allow_write_nullable_strings is False

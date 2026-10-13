@@ -45,6 +45,7 @@ from ..utils.exceptions import (  # noqa: E402
     ParameterError,
     ProcessingError,
 )
+from ..utils.gene_annotations import mitochondrial_mask
 from ..utils.mcp_utils import suppress_output  # noqa: E402
 
 # =============================================================================
@@ -139,9 +140,8 @@ def _select_testable_genes(
         return mask
 
     if params.filter_mt_genes:
-        mask &= ~np.array(
-            [name.startswith(("MT-", "mt-")) for name in names], dtype=bool
-        )
+        mt_mask, _ = mitochondrial_mask(adata, names)
+        mask &= ~mt_mask
 
     if params.filter_ribo_genes:
         mask &= ~np.array(

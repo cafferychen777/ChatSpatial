@@ -29,6 +29,7 @@ from ..utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
+from ..utils.gene_annotations import mitochondrial_mask
 
 
 def _compute_safe_percent_top(n_genes: int) -> list[int] | None:
@@ -58,9 +59,12 @@ def _compute_safe_percent_top(n_genes: int) -> list[int] | None:
     return sorted(set(result)) or None
 
 
-def _calculate_qc_metrics(adata) -> tuple[str | None, dict[str, int | float]]:
+def _calculate_qc_metrics(
+    adata,
+) -> tuple[str | None, dict[str, int | float | bool | str]]:
     """Annotate gene classes and return pre-filtering QC statistics."""
-    adata.var["mt"] = adata.var_names.str.startswith(("MT-", "mt-"))
+    adata.var["mt"], mito_source = mitochondrial_mask(adata)
+    n_mt_genes = int(adata.var["mt"].sum())
     adata.var["ribo"] = adata.var_names.str.startswith(("RPS", "RPL", "Rps", "Rpl"))
     try:
         sc.pp.calculate_qc_metrics(
@@ -75,8 +79,18 @@ def _calculate_qc_metrics(adata) -> tuple[str | None, dict[str, int | float]]:
             f"Data: {adata.n_obs}×{adata.n_vars}, type: {type(adata.X).__name__}"
         ) from exc
 
-    mito_pct_col = "pct_counts_mt" if "pct_counts_mt" in adata.obs else None
-    metrics: dict[str, int | float] = {
+    mito_pct_col = (
+        "pct_counts_mt" if n_mt_genes and "pct_counts_mt" in adata.obs else None
+    )
+    if not n_mt_genes:
+        # An empty identified gene set is not evidence of zero mitochondrial RNA.
+        for column in ("total_counts_mt", "log1p_total_counts_mt", "pct_counts_mt"):
+            if column in adata.obs:
+                adata.obs[column] = np.nan
+    metrics: dict[str, int | float | bool | str] = {
+        "n_mt_genes": n_mt_genes,
+        "mito_annotation_source": mito_source,
+        "mito_qc_available": mito_pct_col is not None,
         "n_cells_before_filtering": int(adata.n_obs),
         "n_genes_before_filtering": int(adata.n_vars),
         "median_genes_per_cell": float(np.median(adata.obs.n_genes_by_counts)),
@@ -114,7 +128,9 @@ async def _filter_and_subsample(
     if params.filter_cells_min_genes is not None and params.filter_cells_min_genes > 0:
         sc.pp.filter_cells(adata, min_genes=params.filter_cells_min_genes)
 
+    qc_metrics["mito_filter_applied"] = False
     if params.filter_mito_pct is not None and mito_pct_col:
+        qc_metrics["mito_filter_applied"] = True
         high_mito_mask = adata.obs[mito_pct_col] > params.filter_mito_pct
         n_high_mito = int(high_mito_mask.sum())
         if n_high_mito:
@@ -122,8 +138,11 @@ async def _filter_and_subsample(
             qc_metrics["n_spots_filtered_mito"] = n_high_mito
     elif params.filter_mito_pct is not None:
         await ctx.warning(
-            "Mitochondrial filtering requested but no mito genes detected. "
-            "This may indicate non-standard gene naming or imaging-based data."
+            "Mitochondrial filtering requested but mitochondrial QC is unavailable. "
+            "Filtering was skipped; an unidentified gene set does not mean 0% "
+            "mitochondrial expression. Supply a boolean adata.var['mt'] annotation "
+            "for non-standard identifiers, or disable filter_mito_pct for panels "
+            "that do not measure mitochondrial genes."
         )
 
     if adata.n_obs == 0 or adata.n_vars == 0:

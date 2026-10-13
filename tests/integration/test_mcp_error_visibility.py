@@ -157,3 +157,38 @@ async def test_unexpected_error_does_not_leak_traceback_or_private_detail():
     if SDK_MASKS_UNEXPECTED_ERRORS:
         assert "/Users/" not in text
         assert "RuntimeError" not in text
+
+
+@pytest.mark.integration
+async def test_export_io_failure_reaches_client_and_preserves_file(
+    tmp_path,
+    spatial_dataset_path,
+    reset_data_manager,
+    monkeypatch,
+):
+    import anndata
+
+    from chatspatial.server import load_data
+
+    dataset = await load_data(str(spatial_dataset_path), "generic")
+    target = tmp_path / "saved.h5ad"
+    target.write_bytes(b"previous complete file")
+
+    def fail_write(self, filename, **kwargs):
+        from pathlib import Path
+
+        Path(filename).write_bytes(b"partial")
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(anndata.AnnData, "write_h5ad", fail_write)
+    async with Client(mcp) as client:
+        result = await client.call_tool(
+            "export_data",
+            {"data_id": dataset.id, "path": str(target)},
+        )
+    text = _error_text(result)
+    assert "DataError: Failed to export data" in text
+    assert "No space left on device" in text
+    assert str(target) in text
+    assert "Traceback" not in text
+    assert target.read_bytes() == b"previous complete file"

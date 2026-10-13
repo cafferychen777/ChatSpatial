@@ -11,20 +11,31 @@ Design Principles:
 """
 
 from pathlib import Path
+from threading import RLock
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
-from pandas.api.types import is_object_dtype, is_string_dtype
+from pandas.api.types import is_object_dtype
 
+from .exceptions import DataError
 from .path_utils import atomic_output_path, validate_path_component
+
+# AnnData's settings override is process-global; serialize our scoped writes.
+_H5AD_WRITE_LOCK = RLock()
 
 
 def _coerce_object_series_for_h5ad(series: pd.Series) -> pd.Series:
+    # Text identifiers such as "001" must not become numbers on export.
+    if (
+        series.dropna().map(lambda value: isinstance(value, str)).any()
+        or series.isna().all()
+    ):
+        return series.astype("string")
     numeric = pd.to_numeric(series, errors="coerce")
     non_null = series.notna()
     if non_null.any() and numeric[non_null].notna().all():
         return numeric
-    return series.where(non_null, "").map(str)
+    return series.map(str).where(non_null, pd.NA).astype("string")
 
 
 if TYPE_CHECKING:
@@ -63,7 +74,7 @@ def _sanitize_dataframe_for_h5ad(df: pd.DataFrame) -> pd.DataFrame:
     sanitized.columns = sanitized.columns.map(str)
     for column in sanitized.columns:
         series = sanitized[column]
-        if is_object_dtype(series.dtype) or is_string_dtype(series.dtype):
+        if is_object_dtype(series.dtype):
             sanitized[column] = _coerce_object_series_for_h5ad(series)
     return sanitized
 
@@ -100,13 +111,21 @@ def export_adata(data_id: str, adata: "AnnData", path: Path | None = None) -> Pa
         Path where data was exported
 
     Raises:
-        IOError: If export fails
+        DataError: If export fails
     """
+    import anndata
+
     export_path = get_active_path(data_id) if path is None else Path(path).expanduser()
 
     try:
         export_adata_obj = _prepare_export_adata(adata)
-        with atomic_output_path(export_path) as staging_path:
+        # Nullable strings have been supported since our minimum AnnData 0.11.
+        # Older releases require opt-in even when reading this encoding works.
+        with (
+            _H5AD_WRITE_LOCK,
+            anndata.settings.override(allow_write_nullable_strings=True),
+            atomic_output_path(export_path) as staging_path,
+        ):
             export_adata_obj.write_h5ad(
                 staging_path,
                 compression="gzip",
@@ -114,7 +133,9 @@ def export_adata(data_id: str, adata: "AnnData", path: Path | None = None) -> Pa
             )
         return export_path
     except Exception as e:
-        raise IOError(f"Failed to export data to {export_path}: {e}") from e
+        raise DataError(
+            f"Failed to export data to {export_path}: {type(e).__name__}: {e}"
+        ) from e
 
 
 def check_reload_identity(
@@ -174,7 +195,7 @@ def load_adata_from_active(data_id: str, path: Path | None = None) -> "AnnData":
 
     Raises:
         FileNotFoundError: If file doesn't exist
-        IOError: If load fails
+        DataError: If load fails
     """
     import anndata
 
@@ -186,4 +207,6 @@ def load_adata_from_active(data_id: str, path: Path | None = None) -> "AnnData":
     try:
         return anndata.read_h5ad(load_path)
     except Exception as e:
-        raise IOError(f"Failed to load data from {load_path}: {e}") from e
+        raise DataError(
+            f"Failed to load data from {load_path}: {type(e).__name__}: {e}"
+        ) from e

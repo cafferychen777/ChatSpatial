@@ -310,6 +310,20 @@ after the container exits.
 
 ---
 
+## H5AD Save and Resume Compatibility
+
+ChatSpatial enables AnnData's nullable-string encoding during export, supported
+by AnnData 0.11 and newer. This lets standard and optional-method environments
+read and re-export each other's string metadata even when their pandas/AnnData
+versions differ. Text identifiers, missing values, and ordered categories are
+preserved; numeric-looking strings are not inferred as numbers during export.
+Older AnnData consumers below 0.11 may need an upgrade to read this encoding.
+
+Exports use a temporary file followed by an atomic replacement. A failed write
+keeps the previous complete file. Export and reload failures include the path
+and underlying reason in the MCP response so the user can address errors such
+as insufficient disk space or invalid files.
+
 ## Verify Configuration
 
 ```bash

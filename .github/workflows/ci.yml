@@ -59,6 +59,27 @@ jobs:
             done
           done
 
+  persistence-compatibility:
+    name: H5AD cross-version round trips
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - name: Install both supported scientific stacks
+        run: |
+          uv venv --python 3.12 .venv-current
+          uv venv --python 3.12 .venv-compat
+          uv pip install --python .venv-current/bin/python -e . pytest pytest-asyncio 'anndata>=0.13,<0.14' 'pandas>=3,<4'
+          uv pip install --python .venv-compat/bin/python -e . 'anndata>=0.12,<0.13' 'pandas>=2.3,<3'
+      - name: Verify bidirectional interchange without changing values
+        env:
+          CHATSPATIAL_COMPAT_PYTHON: ${{ github.workspace }}/.venv-compat/bin/python
+        run: .venv-current/bin/python -m pytest tests/integration/test_persistence_cross_environment.py -v
+
   r-backend-install:
     name: Install R bridge
     runs-on: ubuntu-latest

@@ -65,6 +65,19 @@ Normalize, filter, and prepare data.
 | `remove_mito_genes` | True | Exclude mito genes from HVG |
 | `batch_key` | `batch` | Batch column for batch-aware normalization |
 
+Mitochondrial QC uses a boolean `adata.var["mt"]` annotation when supplied,
+including for Ensembl identifiers. Without annotations, gene symbols beginning
+with `MT-` or `MT.` are recognized case-insensitively. Gene identifiers are not
+renamed. The same annotations govern HVG exclusion and spatial-gene filtering;
+raw-layer annotations cover genes absent from the active matrix.
+
+If no mitochondrial genes are identified, mitochondrial percentages are
+unavailable, not zero. Requested mitochondrial filtering is skipped with a
+warning. The result reports `n_mt_genes`, `mito_annotation_source`,
+`mito_qc_available`, and `mito_filter_applied`; unavailable percentage summaries
+are omitted. Supply a boolean annotation before saving/loading the input H5AD,
+or disable mitochondrial filtering for panels without mitochondrial genes.
+
 PCA, neighbor, UMAP, and clustering parameters belong to
 `compute_embeddings`; `preprocess_data` does not accept or retain them.
 

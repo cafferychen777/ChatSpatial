@@ -82,8 +82,12 @@ docker pull cafferyyang777/chatspatial:latest
 **Minimal example prompt:**
 
 ```text
-Load /absolute/path/to/spatial_data.h5ad and show me the tissue structure
+Load /absolute/path/to/spatial_data.h5ad and plot gene expression at the spatial coordinates
 ```
+
+The [Quick Start](docs/quickstart.md) provides a downloadable sample and a
+Leiden workflow that runs with the standard installation. Its sample has spatial
+coordinates but no H&E image. SpaGCN requires the optional `spatial-domains` extra.
 
 If you use Docker, mount host data to `/data` and prompt with the container path, for example `/data/spatial_data.h5ad`.
 
