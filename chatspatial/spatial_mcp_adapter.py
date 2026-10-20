@@ -626,7 +626,7 @@ def create_spatial_mcp_server(
         Tuple of (MCPServer instance, SpatialMCPAdapter instance)
     """
     # Server instructions for LLM guidance on tool usage
-    instructions = """ChatSpatial provides spatial transcriptomics analysis through 65 methods across 13 analytical categories.
+    instructions = """ChatSpatial provides spatial transcriptomics analysis through 67 methods across 13 analytical categories.
 
 CORE WORKFLOW PATTERN:
 1. Always start with load_data() to import spatial transcriptomics data
@@ -651,6 +651,8 @@ TOOL RELATIONSHIPS:
 - Spatial domain identification → Enables spatial statistics (neighborhood enrichment, co-occurrence)
 - Cell type annotation → Required for cell communication analysis
 - Deconvolution results → Can be used for downstream spatial statistics
+- Spatial domains → annotate_cell_types(method="marker_score") labels domains by marker-gene scores
+- Deconvolved proportions → annotate_cell_types(method="threshold") labels spots, e.g. the low-tumor reference for analyze_cnv
 - Integration → Recommended before cross-sample comparative analyses
 
 PARAMETER GUIDANCE:
@@ -665,7 +667,7 @@ For multi-step analyses, preserve data_id across operations to maintain analysis
         title="ChatSpatial",
         description=(
             "Schema-enforced spatial transcriptomics analysis with 20 tools "
-            "covering 65 methods across 13 analytical categories."
+            "covering 67 methods across 13 analytical categories."
         ),
         instructions=instructions,
         website_url="https://github.com/cafferychen777/ChatSpatial",

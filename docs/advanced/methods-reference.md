@@ -6,7 +6,7 @@ behavior. MCP clients expose the full schema for method-specific advanced
 options.
 
 ChatSpatial's public interface is a set of 20 schema-validated MCP tools. Those
-tools orchestrate 65 spatial transcriptomics methods across 13 analytical
+tools orchestrate 67 spatial transcriptomics methods across 13 analytical
 categories. In this page, **tool** means the MCP entry point you or an AI client
 can call; **method** means an algorithm or analysis backend selected through a
 parameter such as `method`, `analysis_type`, `plot_type`, or `subtype`.
@@ -125,7 +125,14 @@ Analyze spatial patterns and autocorrelation.
 | `cluster_key` | None | Required for group-based analyses |
 | `genes` | None | Specific genes to analyze |
 | `n_top_genes` | 20 | Top HVGs to analyze (if genes not specified) |
+| `gene_selection` | `hvg` | `hvg` (top `n_top_genes` HVGs) or `all` (every gene; `moran` and `geary` only) |
 | `n_neighbors` | 8 | Spatial neighbors |
+
+With `gene_selection="all"`, Moran's I or Geary's C is computed for every gene
+of the expression matrix. The result returns the top genes only; the full
+per-gene table (`I` or `C`, `pval_norm`, FDR `pval_norm_fdr`, and `rank`, 1 =
+strongest autocorrelation) is stored in `adata.uns[results_key]` (`moranI` or
+`gearyC`) and exported with the dataset.
 
 **Analysis types**:
 
@@ -221,7 +228,8 @@ Assign cell types.
 | `method` | `tangram` | See methods below |
 | `reference_data_id` | None | Reference dataset (for transfer methods) |
 | `cell_type_key` | None | Cell type column in reference |
-| `marker_genes` | None | Marker dict (for CellAssign) |
+| `marker_genes` | None | Label -> marker genes (for CellAssign and marker_score) |
+| `cluster_label` | None | Cluster or domain column (for mLLMCellType and marker_score) |
 | `sctype_tissue` | None | scType tissue name, required unless custom markers are provided |
 | `sctype_db_` | None | Local scType database path, or remote URL when explicitly allowed |
 | `sctype_custom_markers` | None | Custom scType marker sets |
@@ -249,6 +257,53 @@ Assign cell types.
 | `sctype` | No | Automatic (R) |
 | `singler` | No | Reference-based (R) |
 | `mllmcelltype` | No | LLM-based |
+| `marker_score` | No | Labels groups of `cluster_label` by marker-gene scores |
+| `threshold` | No | Labels observations by a cutoff on a numeric obs column |
+
+**marker_score**: for each label of `marker_genes`, in the given order, every
+group of `cluster_label` is scored by the mean log-normalized expression
+(log1p of counts scaled to 10,000 per observation) of the label's marker genes
+present in the data. Absent markers are skipped with a warning; a label with no
+marker present is an error. The `marker_score_n_top` (default 2) highest-scoring
+groups receive the label. With `marker_score_exclusion="rank_then_drop"`
+(default) groups already labeled are dropped from that top list, so a label can
+receive fewer groups; with `"drop_then_rank"` they are removed before ranking.
+Other groups receive `marker_score_unassigned_label` (default `Other`). The
+result reports `group_labels`, `group_scores` and `markers_used`, and the score
+table is stored in `adata.uns["<output_key>_group_scores"]`.
+
+```json
+{
+  "method": "marker_score",
+  "cluster_label": "spatial_domains_leiden",
+  "marker_genes": {
+    "TC": ["KRT14", "KRT5", "MKI67", "PCNA", "TOP2A"],
+    "LE": ["VIM", "FN1", "COL1A1", "COL1A2", "SPARC", "TGFBI"]
+  },
+  "output_key": "tc_le_region"
+}
+```
+
+**threshold**: labels each observation `threshold_pass_label` (default `pass`)
+when `<value> <threshold_comparison> threshold_value` holds and
+`threshold_fail_label` (default `fail`) otherwise; observations without a value
+stay unlabeled. `deconvolve_data` writes one proportion column per cell type,
+`deconvolution_<method>_<cell type>`, which can be thresholded directly.
+
+```json
+{
+  "method": "threshold",
+  "threshold_key": "deconvolution_rctd_Tumor_cells",
+  "threshold_value": 0.15,
+  "threshold_comparison": ">=",
+  "threshold_pass_label": "tumor_enriched",
+  "threshold_fail_label": "low_tumor",
+  "output_key": "tumor_class"
+}
+```
+
+Both methods write their labels to `output_key` (default
+`cell_type_marker_score` or `cell_type_threshold`).
 
 ---
 
@@ -315,6 +370,22 @@ Analyze ligand-receptor interactions.
 | `species` | required | `human`, `mouse`, `zebrafish` |
 | `cell_type_key` | required | Cell type column |
 | `liana_resource` | `consensus` | LR database (`mouseconsensus` for mouse) |
+| `subset_key` | None | obs column that restricts the analysis to some observations |
+| `subset_categories` | None | Values of `subset_key` to keep (set with `subset_key`) |
+
+`subset_key` and `subset_categories` run every method on the selected
+observations only, for example the tumor-core and leading-edge spots of pooled
+sections labeled by their dominant deconvolved cell type:
+
+```json
+{
+  "method": "cellchat_r",
+  "species": "human",
+  "cell_type_key": "dominant_celltype_flashdeconv",
+  "subset_key": "tc_le_region",
+  "subset_categories": ["TC", "LE"]
+}
+```
 
 LIANA is the portable default and supports human, mouse, and zebrafish.
 FastCCC and CellPhoneDB currently require human data. Install LIANA and
@@ -338,6 +409,12 @@ Find differentially expressed genes.
 | `group2` | None | Second group |
 | `method` | `wilcoxon` | `wilcoxon`, `t-test`, `t-test_overestim_var`, `logreg`, `pydeseq2` |
 | `n_top_genes` | 50 | Top genes per group |
+| `exclude_gene_classes` | `[]` | Any of `immunoglobulin`, `ribosomal`, `mitochondrial`, `hla` |
+| `exclude_gene_patterns` | `[]` | Gene-name wildcards removed before testing, e.g. `MALAT1` |
+
+Excluded genes are removed before ranking, so they are never reported as
+markers; the result reports how many genes each class or pattern removed. The
+class rules are the same as for `analyze_cnv`.
 
 Results are grouped per comparison rather than flattened across groups. Each
 row reports both groups' mean expression alongside the fold change, so effect
@@ -417,6 +494,43 @@ Copy number variation detection.
 | `method` | `infercnvpy` | `infercnvpy`, `numbat` |
 | `reference_key` | required | Cell type column |
 | `reference_categories` | required | Normal cell types |
+| `gene_positions` | `auto` | `provided` (adata.var), `annotate` (bundled table), `auto` (provided if present, else annotate) |
+| `species` | `human` | `human` (GRCh38) or `mouse` (GRCm39) table for `annotate` |
+| `exclude_gene_classes` | `[]` | Any of `immunoglobulin`, `ribosomal`, `mitochondrial`, `hla` |
+| `exclude_gene_patterns` | `[]` | Gene-name wildcards removed from the CNV input, e.g. `IGH*` |
+| `cluster_cells` | False | Leiden clustering of the CNV profiles |
+| `query_categories` | None | Categories of `reference_key` to cluster; others get no cluster label |
+
+**Gene positions**: infercnvpy needs the chromosome, start and end of every
+gene. When `adata.var` lacks them, ChatSpatial annotates them from bundled
+Ensembl release 110 tables (GRCh38 or GRCm39, chromosomes 1-22/1-19, X and Y;
+the annotation behind the 10x Genomics 2024-A references). Genes are matched on
+the Ensembl gene ID when `adata.var` holds one (`gene_ids`, `gene_id`,
+`ensembl_id`, `ensembl_gene_id`, or Ensembl IDs as gene names), and the rest on
+the gene symbol. The result reports how many genes matched each way, and the
+positions are written to `adata.var`.
+
+**Gene exclusion**: excluded genes are removed from the CNV input only; the
+dataset keeps them. Class rules match gene names case-insensitively:
+`immunoglobulin` covers the V, D, J and constant segments of the IGH, IGK and
+IGL loci (`IG[HKL][VDJC]*`, `IGH[AGMDE]*`, except `IGHMBP2`), `JCHAIN`, `IGLL1`
+and `IGLL5`; `ribosomal` covers `RPL*` and `RPS*` except `RPS6K*` and
+`RPS19BP1`; `mitochondrial` covers `MT-*`; `hla` covers `HLA-*` and mouse
+`H2-*`.
+
+**Query clustering**: inference always uses every observation with
+`reference_categories` as the baseline. With `query_categories`, only those
+observations are clustered, so tumor clones are not mixed with the reference.
+
+```json
+{
+  "reference_key": "tumor_class",
+  "reference_categories": ["low_tumor"],
+  "exclude_gene_classes": ["immunoglobulin", "ribosomal", "mitochondrial", "hla"],
+  "cluster_cells": true,
+  "query_categories": ["tumor_enriched"]
+}
+```
 
 ---
 
@@ -431,6 +545,15 @@ Batch integration.
 | `data_ids` | required | Two or more distinct dataset IDs |
 | `method` | `harmony` | `harmony`, `bbknn`, `scanorama`, `scvi` |
 | `batch_key` | `batch` | Batch column |
+| `batch_correction` | True | False concatenates the samples without correction |
+
+With `batch_correction=false`, the samples are pooled without batch correction
+and need not be preprocessed: the pooled dataset keeps the genes present in
+every sample, their counts in `layers["counts"]` (from each sample's
+`layers["counts"]`, else `X`; `adata.raw` only when neither holds counts),
+`X` = log1p of the counts scaled to 10,000 per
+observation, every obs column and the spatial coordinates; `batch_key` holds the
+source dataset ID. Use it to pool sections for cell communication.
 
 ---
 

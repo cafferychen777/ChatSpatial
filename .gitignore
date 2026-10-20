@@ -180,6 +180,7 @@ bower_components/
 *.csv.gz
 *.tsv
 *.tsv.gz
+!chatspatial/resources/gene_positions/*.tsv.gz
 *.txt
 !constraints/shared-py312.txt
 !constraints/release-build.txt

@@ -401,16 +401,43 @@ async def analyze_cell_communication(
     source_adata = await ctx.get_adata(data_id)
 
     try:
+        # Restrict the analysis to a subset of observations when requested.
+        # The backends run on an isolated copy of the subset; results are
+        # published on the full dataset.
+        subset_mask = _subset_mask(source_adata, params)
+        analysis_source = (
+            source_adata
+            if subset_mask is None
+            else _subset_for_analysis(source_adata, subset_mask, params)
+        )
+
         # === Method-specific validation ===
-        await _validate_ccc_params(source_adata, params, ctx)
+        await _validate_ccc_params(analysis_source, params, ctx)
 
         # CCC backends and result publication both write incrementally. Keep
         # those mutations on a candidate until analysis, metadata, and export
         # have all completed successfully.
         adata = source_adata.copy()
+        analysis_adata = adata if subset_mask is None else analysis_source
 
         # === Run analysis (returns CCCStorage) ===
-        storage = await _run_ccc_analysis(adata, params, ctx)
+        storage = await _run_ccc_analysis(analysis_adata, params, ctx)
+        if subset_mask is not None:
+            storage.statistics["subset_key"] = params.subset_key
+            storage.statistics["subset_categories"] = list(
+                params.subset_categories or []
+            )
+            storage.statistics["n_obs_analyzed"] = int(subset_mask.sum())
+            # Per-observation scores cover the subset only; place them in the
+            # full observation axis with missing values elsewhere.
+            for key in ("spatial_scores", "spatial_pvals"):
+                values = storage.method_data.get(key)
+                if values is not None:
+                    expanded = np.full(
+                        (adata.n_obs, values.shape[1]), np.nan, dtype=float
+                    )
+                    expanded[subset_mask] = values
+                    storage.method_data[key] = expanded
 
         # === Extract autocrine loops and integrate into storage ===
         _integrate_autocrine_detection(storage, params.plot_top_pairs)
@@ -464,6 +491,12 @@ async def analyze_cell_communication(
             parameters={
                 "cell_type_key": params.cell_type_key,
                 "min_cells": params.min_cells,
+                "subset_key": params.subset_key,
+                "subset_categories": (
+                    list(params.subset_categories)
+                    if params.subset_categories is not None
+                    else None
+                ),
             },
             results_keys=results_keys,
             statistics={
@@ -491,6 +524,7 @@ async def analyze_cell_communication(
             top_autocrine_loops=storage.autocrine.top_pairs,
             results_key=method_ccc_key,
             statistics=storage.statistics,
+            n_obs_analyzed=int(subset_mask.sum()) if subset_mask is not None else None,
         )
         await ctx.set_adata(data_id, adata)
         return result
@@ -499,6 +533,38 @@ async def analyze_cell_communication(
         raise
     except Exception as e:
         raise ProcessingError(f"Error in cell communication analysis: {e}") from e
+
+
+def _subset_mask(
+    adata: Any, params: CellCommunicationParameters
+) -> Optional[np.ndarray]:
+    """Return the observations selected by subset_key/subset_categories."""
+    if params.subset_key is None or params.subset_categories is None:
+        return None
+    validate_obs_column(adata, params.subset_key, "Subset column")
+    values = adata.obs[params.subset_key]
+    present = values.notna().to_numpy()
+    labels = values.astype(str).to_numpy()
+    available = set(labels[present])
+    missing = sorted(set(params.subset_categories) - available)
+    if missing:
+        raise ParameterError(
+            f"subset_categories {missing} not found in adata.obs['{params.subset_key}']. "
+            f"Available: {sorted(available)[:20]}"
+        )
+    mask = present & np.isin(labels, list(params.subset_categories))
+    return mask
+
+
+def _subset_for_analysis(
+    adata: Any, mask: np.ndarray, params: CellCommunicationParameters
+) -> Any:
+    """Copy the selected observations, dropping cell types absent from them."""
+    subset = adata[mask].copy()
+    key = params.cell_type_key
+    if key in subset.obs and isinstance(subset.obs[key].dtype, pd.CategoricalDtype):
+        subset.obs[key] = subset.obs[key].cat.remove_unused_categories()
+    return subset
 
 
 async def _validate_ccc_params(

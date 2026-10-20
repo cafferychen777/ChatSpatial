@@ -16,6 +16,9 @@ IntPair = Annotated[list[PositiveInt], Field(min_length=2, max_length=2)]
 FloatPair = Annotated[list[float], Field(min_length=2, max_length=2)]
 StringPair = Annotated[list[str], Field(min_length=2, max_length=2)]
 
+# Gene classes excluded by name (rules in chatspatial/utils/gene_classes.py).
+GeneClass = Literal["immunoglobulin", "ribosomal", "mitochondrial", "hla"]
+
 # =============================================================================
 # Spatial Data Type Definitions (Single Source of Truth)
 # =============================================================================
@@ -275,6 +278,23 @@ class DifferentialExpressionParameters(StrictParameters):
     min_cells: Annotated[int, Field(gt=0, le=1000)] = Field(
         3,
         description="Minimum cells per group. Increase to 10-30 for more robust results.",
+    )
+
+    exclude_gene_classes: list[GeneClass] = Field(
+        default_factory=list,
+        description=(
+            "Gene classes removed before testing, so they are never reported as markers: "
+            "immunoglobulin (IGH/IGK/IGL V, D, J and constant genes, JCHAIN, IGLL1, IGLL5), "
+            "ribosomal (RPL*/RPS* except RPS6K* and RPS19BP1), mitochondrial (MT-*), "
+            "hla (HLA-*, mouse H2-*). Same rules as analyze_cnv; case-insensitive."
+        ),
+    )
+    exclude_gene_patterns: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Gene-name wildcard patterns removed before testing "
+            "(case-sensitive, e.g. ['IGH*', 'MALAT1'])."
+        ),
     )
 
 
@@ -638,12 +658,30 @@ class AnnotationParameters(StrictParameters):
     """Cell type annotation parameters model"""
 
     method: Literal[
-        "tangram", "scanvi", "cellassign", "mllmcelltype", "sctype", "singler"
+        "tangram",
+        "scanvi",
+        "cellassign",
+        "mllmcelltype",
+        "sctype",
+        "singler",
+        "marker_score",
+        "threshold",
     ] = Field(
         default="tangram",
-        description="tangram/scanvi: require reference_data_id. cellassign: requires marker_genes. singler: uses celldex reference.",
+        description=(
+            "tangram/scanvi: require reference_data_id. cellassign: requires marker_genes. "
+            "singler: uses celldex reference. marker_score: labels the groups of cluster_label "
+            "(e.g. spatial domains) by marker_genes scores. threshold: labels observations by "
+            "a cutoff on a numeric obs column (e.g. a deconvolved proportion)."
+        ),
     )
-    marker_genes: Optional[dict[str, list[str]]] = None
+    marker_genes: Optional[dict[str, list[str]]] = Field(
+        default=None,
+        description=(
+            "Label -> marker genes. Required for cellassign and marker_score. "
+            "For marker_score the order matters: labels are assigned in the given order."
+        ),
+    )
     reference_data_id: Optional[str] = (
         None  # For Tangram method - ID of reference single-cell dataset
     )
@@ -656,8 +694,12 @@ class AnnotationParameters(StrictParameters):
     tangram_mode: Literal["cells", "clusters"] = (
         "cells"  # Tangram mapping mode: 'cells' (cell-level) or 'clusters' (cluster-level)
     )
-    cluster_label: Optional[str] = (
-        None  # For mLLMCellType method - cluster label in spatial data. Only required when method='mllmcelltype'
+    cluster_label: Optional[str] = Field(
+        default=None,
+        description=(
+            "Categorical obs column with cluster or domain labels (e.g. 'spatial_domains_leiden'). "
+            "Required for mllmcelltype and marker_score."
+        ),
     )
     cell_type_key: Optional[str] = Field(
         default=None,
@@ -814,6 +856,90 @@ class AnnotationParameters(StrictParameters):
     )
     n_threads: int = 4  # Number of threads for parallel processing
 
+    # marker_score parameters (labels groups of cluster_label by marker scores).
+    # A group's score for a label is the mean log-normalized expression
+    # (log1p of counts scaled to 10,000 per observation) of the label's marker
+    # genes over the group's observations.
+    marker_score_n_top: Annotated[int, Field(ge=1, le=50)] = Field(
+        default=2,
+        description="marker_score: number of top-scoring groups assigned to each label.",
+    )
+    marker_score_exclusion: Literal["rank_then_drop", "drop_then_rank"] = Field(
+        default="rank_then_drop",
+        description=(
+            "marker_score: handling of groups already given an earlier label. "
+            "'rank_then_drop': take the top marker_score_n_top groups by this label's score, "
+            "then drop those already labeled (the label may get fewer groups). "
+            "'drop_then_rank': remove labeled groups first, then take the top groups of the rest."
+        ),
+    )
+    marker_score_unassigned_label: str = Field(
+        default="Other",
+        min_length=1,
+        description="marker_score: label for groups that no label claims.",
+    )
+
+    # threshold parameters (labels observations by a cutoff on a numeric obs column)
+    threshold_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "threshold: numeric obs column to compare with threshold_value. deconvolve_data "
+            "writes one proportion column per cell type, named deconvolution_<method>_<cell type>."
+        ),
+    )
+    threshold_value: Optional[float] = Field(
+        default=None,
+        description="threshold: cutoff compared with threshold_key. Required for threshold.",
+    )
+    threshold_comparison: Literal[">=", ">", "<=", "<"] = Field(
+        default=">=",
+        description="threshold: an observation passes when <value> <comparison> threshold_value.",
+    )
+    threshold_pass_label: str = Field(
+        default="pass",
+        min_length=1,
+        description="threshold: label for observations that pass the comparison.",
+    )
+    threshold_fail_label: str = Field(
+        default="fail",
+        min_length=1,
+        description="threshold: label for observations that fail the comparison.",
+    )
+    output_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "marker_score/threshold: obs column that receives the labels. "
+            "Default: cell_type_marker_score or cell_type_threshold."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_rule_based_methods(self) -> Self:
+        if self.method == "marker_score":
+            if not self.cluster_label:
+                raise ValueError("method='marker_score' requires cluster_label.")
+            if not self.marker_genes:
+                raise ValueError(
+                    "method='marker_score' requires marker_genes (label -> genes)."
+                )
+            empty = [label for label, genes in self.marker_genes.items() if not genes]
+            if empty:
+                raise ValueError(f"marker_genes has labels without genes: {empty}.")
+            if self.marker_score_unassigned_label in self.marker_genes:
+                raise ValueError(
+                    "marker_score_unassigned_label must differ from the marker_genes labels."
+                )
+        elif self.method == "threshold":
+            if not self.threshold_key:
+                raise ValueError("method='threshold' requires threshold_key.")
+            if self.threshold_value is None:
+                raise ValueError("method='threshold' requires threshold_value.")
+            if self.threshold_pass_label == self.threshold_fail_label:
+                raise ValueError(
+                    "threshold_pass_label and threshold_fail_label must differ."
+                )
+        return self
+
 
 class SpatialStatisticsParameters(StrictParameters):
     """Spatial statistics parameters model"""
@@ -857,6 +983,15 @@ class SpatialStatisticsParameters(StrictParameters):
     n_top_genes: Annotated[int, Field(gt=0, le=500)] = Field(
         20,
         description="Number of top HVGs to analyze (default 20, up to 500 for comprehensive analysis)",
+    )
+    gene_selection: Literal["hvg", "all"] = Field(
+        "hvg",
+        description=(
+            "Genes analyzed when genes is None. 'hvg': top n_top_genes highly variable genes. "
+            "'all': every gene of the expression matrix (moran and geary only); the per-gene "
+            "table (rank, statistic, p, FDR q) is stored in adata.uns[results_key], and only "
+            "the top genes are returned."
+        ),
     )
 
     # Parallel processing parameters
@@ -920,6 +1055,18 @@ class SpatialStatisticsParameters(StrictParameters):
     gene_pairs: Optional[list[StringPair]] = Field(
         None, description="Gene pairs for bivariate analysis"
     )
+
+    @model_validator(mode="after")
+    def _validate_gene_selection(self) -> Self:
+        if self.gene_selection == "all":
+            if self.analysis_type not in ("moran", "geary"):
+                raise ValueError(
+                    "gene_selection='all' applies to moran and geary; per-spot "
+                    "analyses write columns per gene and need an explicit genes list."
+                )
+            if self.genes is not None:
+                raise ValueError("Use either genes or gene_selection='all', not both.")
+        return self
 
 
 class RNAVelocityParameters(StrictParameters):
@@ -1037,6 +1184,17 @@ class IntegrationParameters(StrictParameters):
         description="Integration method. 'scvi' requires scvi-tools and supports GPU.",
     )
     batch_key: str = "batch"
+    batch_correction: bool = Field(
+        default=True,
+        description=(
+            "False: concatenate the samples without batch correction (method and n_pcs "
+            "are ignored; inputs need not be preprocessed). Keeps the genes shared by all "
+            "samples, their counts (layers['counts'], else X, else adata.raw) in "
+            "layers['counts'], X = log1p of counts scaled to 10,000 "
+            "per observation, every obs column and the spatial coordinates; batch_key "
+            "holds the source dataset ID. Use it to pool sections, e.g. for cell communication."
+        ),
+    )
     n_pcs: int = Field(
         default=30, gt=0, le=100, description="Principal components for integration."
     )
@@ -1753,6 +1911,19 @@ class CellCommunicationParameters(StrictParameters):
     # Cell type key (unified naming with other tools)
     cell_type_key: str  # REQUIRED: Which column to use for cell types. LLM will infer from metadata. Common values: 'cell_type', 'celltype', 'leiden', 'louvain', 'seurat_clusters'
 
+    # ========== Observation Subset ==========
+    subset_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "obs column that restricts the analysis to observations whose value is in "
+            "subset_categories (e.g. 'tc_le_region'). Set both or neither."
+        ),
+    )
+    subset_categories: Optional[list[str]] = Field(
+        default=None,
+        description="Values of subset_key to keep, e.g. ['TC', 'LE'].",
+    )
+
     # ========== LIANA Specific Parameters ==========
     liana_local_metric: Literal["cosine", "pearson", "spearman", "jaccard"] = "cosine"
     liana_global_metric: Literal["morans", "lee"] = "morans"
@@ -1939,6 +2110,14 @@ class CellCommunicationParameters(StrictParameters):
         description="Filter to DEGs only. FastCCC only.",
     )
 
+    @model_validator(mode="after")
+    def _validate_subset(self) -> Self:
+        if (self.subset_key is None) != (self.subset_categories is None):
+            raise ValueError("Set both subset_key and subset_categories, or neither.")
+        if self.subset_categories is not None and not self.subset_categories:
+            raise ValueError("subset_categories must name at least one value.")
+        return self
+
 
 class EnrichmentParameters(StrictParameters):
     """Parameters for gene set enrichment analysis"""
@@ -2036,6 +2215,43 @@ class CNVParameters(StrictParameters):
         None,
         description="Chromosomes to exclude (e.g., ['chrX', 'chrY']).",
     )
+    gene_positions: Literal["auto", "provided", "annotate"] = Field(
+        "auto",
+        description=(
+            "Source of gene chromosome/start/end. 'provided': adata.var columns. "
+            "'annotate': bundled Ensembl 110 table for species (GRCh38 or GRCm39), matched "
+            "on Ensembl gene ID when var has one, otherwise on gene symbol. "
+            "'auto': provided if all three columns exist, otherwise annotate. infercnvpy only."
+        ),
+    )
+    species: Literal["human", "mouse"] = Field(
+        "human",
+        description="Species of the bundled gene-position table used by gene_positions.",
+    )
+    exclude_gene_classes: list[GeneClass] = Field(
+        default_factory=list,
+        description=(
+            "Gene classes removed from the CNV input before inference: immunoglobulin "
+            "(IGH/IGK/IGL V, D, J and constant genes, JCHAIN, IGLL1, IGLL5), ribosomal "
+            "(RPL*/RPS* except RPS6K* and RPS19BP1), mitochondrial (MT-*), hla (HLA-*, "
+            "mouse H2-*). Names match case-insensitively. infercnvpy only."
+        ),
+    )
+    exclude_gene_patterns: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Gene-name wildcard patterns removed from the CNV input before inference "
+            "(case-sensitive, e.g. ['IGH*', 'MALAT1']). infercnvpy only."
+        ),
+    )
+    query_categories: Optional[list[str]] = Field(
+        None,
+        description=(
+            "Categories of reference_key whose observations are clustered by CNV profile "
+            "(cluster_cells=True), e.g. ['tumor_enriched']. Inference still uses every "
+            "observation; others get no cnv_clusters label. None clusters all observations."
+        ),
+    )
     dynamic_threshold: Optional[float] = Field(
         1.5,
         gt=0.0,
@@ -2066,6 +2282,29 @@ class CNVParameters(StrictParameters):
     numbat_skip_nj: bool = Field(
         False, description="Skip neighbor-joining tree reconstruction (default: False)"
     )
+
+    @model_validator(mode="after")
+    def _validate_infercnvpy_options(self) -> Self:
+        if self.method == "numbat" and (
+            self.exclude_gene_classes or self.exclude_gene_patterns
+        ):
+            raise ValueError(
+                "exclude_gene_classes and exclude_gene_patterns apply to infercnvpy only."
+            )
+        if self.query_categories is None:
+            return self
+        if not self.query_categories:
+            raise ValueError("query_categories must name at least one category.")
+        if not self.cluster_cells:
+            raise ValueError(
+                "query_categories applies to CNV clustering; set cluster_cells=True."
+            )
+        overlap = set(self.query_categories) & set(self.reference_categories)
+        if overlap:
+            raise ValueError(
+                f"query_categories and reference_categories overlap: {sorted(overlap)}."
+            )
+        return self
 
 
 class RegistrationParameters(StrictParameters):

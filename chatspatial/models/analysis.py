@@ -81,6 +81,10 @@ class DifferentialExpressionResult(BaseAnalysisResult):
     comparison: str
     n_genes: int
     top_genes_by_group: dict[str, list[str]] = Field(default_factory=dict)
+    n_genes_excluded: Optional[dict[str, int]] = Field(
+        default=None,
+        description="Genes removed before testing by each excluded gene class or pattern.",
+    )
 
     # Detailed statistics - excluded from MCP response
     statistics: SkipJsonSchema[dict[str, Any]] = Field(
@@ -115,6 +119,18 @@ class AnnotationResult(BaseAnalysisResult):
     counts: dict[str, int]
     confidence_scores: Optional[dict[str, float]] = None
     tangram_mapping_score: Optional[float] = None  # For Tangram method - mapping score
+    group_labels: Optional[dict[str, str]] = Field(
+        default=None,
+        description="marker_score: label given to each group of cluster_label.",
+    )
+    group_scores: Optional[dict[str, dict[str, float]]] = Field(
+        default=None,
+        description="marker_score: score of each group for each label.",
+    )
+    markers_used: Optional[dict[str, list[str]]] = Field(
+        default=None,
+        description="marker_score: marker genes found in the data for each label.",
+    )
 
 
 class SpatialStatisticsResult(BaseAnalysisResult):
@@ -153,6 +169,9 @@ class SpatialStatisticsResult(BaseAnalysisResult):
     # per-spot columns instead of one table -- the metadata entry naming every
     # column they wrote.
     results_key: Optional[str] = None
+    # Spatial graph the statistic used: squidpy's recorded construction
+    # parameters plus "source" (existing, computed or rebuilt).
+    spatial_graph: Optional[dict[str, Any]] = None
 
     # Detailed statistics - excluded from MCP response
     statistics: SkipJsonSchema[Optional[dict[str, Any]]] = Field(
@@ -192,6 +211,7 @@ class IntegrationResult(BaseAnalysisResult):
     # Representation downstream tools should use. None for bbknn, which
     # corrects the neighbor graph instead of producing an embedding.
     embedding_key: Optional[str] = None
+    n_genes: Optional[int] = Field(default=None, ge=0)
 
 
 class SpatialRegistrationResult(BaseAnalysisResult):
@@ -366,6 +386,9 @@ class CellCommunicationResult(BaseAnalysisResult):
     # Storage key (unified location)
     results_key: str = "ccc"  # adata.uns["ccc"]
 
+    # Observations analyzed when subset_key/subset_categories restrict the run
+    n_obs_analyzed: Optional[int] = None
+
     # Detailed statistics - excluded from MCP response
     statistics: SkipJsonSchema[dict[str, Any]] = Field(
         default_factory=dict,
@@ -470,6 +493,21 @@ class CNVResult(BaseAnalysisResult):
     n_genes_analyzed: int  # Number of genes analyzed
     cnv_score_key: Optional[str] = None  # Key in adata.obsm (e.g., "X_cnv")
     visualization_available: bool = False  # Whether visualization is available
+    gene_positions: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Source of gene positions: 'adata.var', or the bundled table with the "
+            "number of genes matched by Ensembl ID and by symbol."
+        ),
+    )
+    n_genes_excluded: Optional[dict[str, int]] = Field(
+        default=None,
+        description="Genes matched by each excluded gene class or name pattern.",
+    )
+    n_query_cells: Optional[int] = Field(
+        default=None,
+        description="Observations clustered when query_categories restricts clustering.",
+    )
 
     # Detailed statistics - excluded from MCP response
     statistics: SkipJsonSchema[Optional[dict[str, Any]]] = Field(

@@ -440,6 +440,7 @@ async def test_analyze_spatial_statistics_moran_success_path_updates_metadata_an
     assert captured["method"] == "moran"
     assert captured["parameters"] == {
         "n_neighbors": 7,
+        "spatial_graph_source": "computed",
         "genes": ["gene_0"],
         "n_perms": 10,
     }
@@ -546,7 +547,7 @@ async def test_analyze_spatial_statistics_passes_alternative_spatial_key(
 
     captured: dict[str, object] = {}
 
-    def _capture_key(_a, n_neighs=6, spatial_key="spatial"):
+    def _capture_key(_a, n_neighs=6, spatial_key="spatial", **_kwargs):
         captured["spatial_key"] = spatial_key
 
     params = SpatialStatisticsParameters(analysis_type="moran")

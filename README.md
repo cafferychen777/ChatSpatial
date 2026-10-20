@@ -23,7 +23,7 @@
 
 ChatSpatial replaces ad-hoc LLM code generation with **schema-enforced orchestration**. Instead of generating arbitrary scripts, the LLM selects tools and parameters from a curated registry, making spatial transcriptomics workflows more reproducible across sessions and clients.
 
-ChatSpatial exposes **20 schema-validated MCP tools** that orchestrate **65 spatial transcriptomics methods** across **13 analytical categories**. The tools are the stable natural-language interface; the methods are the analysis backends selected through tool parameters.
+ChatSpatial exposes **20 schema-validated MCP tools** that orchestrate **67 spatial transcriptomics methods** across **13 analytical categories**. The tools are the stable natural-language interface; the methods are the analysis backends selected through tool parameters.
 
 The server implements MCP `2026-07-28` through the official Python SDK v2 and
 continues to serve `2025-11-25` clients through SDK-managed protocol negotiation.
@@ -97,7 +97,7 @@ If you use Docker, mount host data to `/data` and prompt with the container path
 
 ## Capabilities
 
-Current coverage includes 65 methods across 13 analytical categories, exposed through 20 MCP tools. Supports 10x Visium, Xenium, Slide-seq v2, MERFISH, seqFISH.
+Current coverage includes 67 methods across 13 analytical categories, exposed through 20 MCP tools. Supports 10x Visium, Xenium, Slide-seq v2, MERFISH, seqFISH.
 
 | Category | Example methods |
 |----------|---------|
@@ -106,7 +106,7 @@ Current coverage includes 65 methods across 13 analytical categories, exposed th
 | **Spatial Domain Identification** | SpaGCN, STAGATE, GraphST, BANKSY, AESTETIK, Leiden, Louvain |
 | **Deconvolution** | FlashDeconv, Cell2location, RCTD (spacexr or rctd-py), DestVI, Stereoscope, SPOTlight, Tangram, CARD |
 | **Cell-Cell Communication** | LIANA+, CellPhoneDB, CellChat (`cellchat_r`), FastCCC |
-| **Cell Type Annotation** | Tangram, scANVI, CellAssign, mLLMCelltype, scType, SingleR |
+| **Cell Type Annotation** | Tangram, scANVI, CellAssign, mLLMCelltype, scType, SingleR, marker-score and threshold rules |
 | **Differential Expression** | Wilcoxon, t-test, Logistic Regression, pyDESeq2 |
 | **Trajectory Inference** | CellRank, Palantir, DPT |
 | **RNA Velocity** | scVelo, VeloVI |

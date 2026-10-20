@@ -30,6 +30,8 @@ if TYPE_CHECKING:
     from ..spatial_mcp_adapter import ToolContext
 
 from ..utils.adata_utils import (
+    ALTERNATIVE_SPATIAL_KEYS,
+    get_raw_data_source,
     get_spatial_key,
     require_spatial_coords,
     store_analysis_metadata,
@@ -94,6 +96,7 @@ def _concatenate_samples(
     *,
     batch_key: str,
     sample_keys: Sequence[str] | None,
+    join: str = "outer",
 ) -> ad.AnnData:
     """Concatenate inputs without mutation and create globally unique cell IDs."""
     keys = _normalize_sample_keys(adatas, sample_keys)
@@ -114,7 +117,7 @@ def _concatenate_samples(
     combined = ad.concat(
         adatas,
         keys=keys,
-        join="outer",
+        join=join,
         merge="first",
         uns_merge="first",
         index_unique=":",
@@ -673,6 +676,112 @@ def integrate_multiple_samples(
     return combined
 
 
+def concatenate_samples_without_correction(
+    adatas: Sequence[ad.AnnData],
+    *,
+    batch_key: str,
+    sample_keys: Sequence[str],
+) -> ad.AnnData:
+    """Pool samples into one dataset without batch correction.
+
+    Each sample contributes the counts of its current genes (layers["counts"],
+    else X; adata.raw only when neither holds counts), its obs columns and its
+    spatial coordinates. Genes are restricted to those present in every
+    sample, so no gene is zero-filled where it was not measured. Counts go to
+    layers["counts"] and X holds log1p of the counts scaled to 10,000 per
+    observation. When no sample holds integer counts, the inputs are pooled as
+    they are, without a counts layer; a mix of samples with and without counts
+    is refused, because their expression values are on different scales.
+    """
+    sources = []
+    for adata in adatas:
+        source = get_raw_data_source(adata, prefer_complete_genes=False)
+        if not source.is_integer_counts:
+            complete = get_raw_data_source(adata, prefer_complete_genes=True)
+            if complete.is_integer_counts:
+                source = complete
+        sources.append(source)
+
+    without_counts = [
+        key
+        for key, source in zip(sample_keys, sources, strict=True)
+        if not source.is_integer_counts
+    ]
+    if without_counts and len(without_counts) < len(sources):
+        raise DataError(
+            "Cannot pool samples without batch correction: "
+            f"{', '.join(without_counts)} hold no integer counts "
+            "(layers['counts'], X or raw), while the other samples do, so their "
+            "expression values are on different scales. Load these samples with "
+            "their raw counts, or pool only samples of the same kind."
+        )
+    has_counts = not without_counts
+
+    parts = []
+    for adata, source in zip(adatas, sources, strict=True):
+        matrix = source.X
+        matrix = (
+            sparse.csr_matrix(matrix, dtype=np.float32)
+            if sparse.issparse(matrix)
+            else sparse.csr_matrix(np.asarray(matrix, dtype=np.float32))
+        )
+        part = ad.AnnData(
+            X=matrix,
+            obs=adata.obs.copy(),
+            var=pd.DataFrame(index=pd.Index(source.var_names.astype(str))),
+        )
+        if not part.var_names.is_unique:
+            raise DataError(
+                "Concatenation requires unique gene names within each sample."
+            )
+        for key in ALTERNATIVE_SPATIAL_KEYS:
+            if key in adata.obsm:
+                part.obsm[key] = np.asarray(adata.obsm[key])
+        parts.append(part)
+
+    combined = _concatenate_samples(
+        parts, batch_key=batch_key, sample_keys=sample_keys, join="inner"
+    )
+    if combined.n_vars == 0:
+        raise DataError("The samples share no genes; nothing to concatenate.")
+
+    # Keep each sample's image and scale factors so per-sample plots still work.
+    spatial_uns: dict = {}
+    for key, adata in zip(sample_keys, adatas, strict=True):
+        for library_id, library in dict(adata.uns.get("spatial", {}) or {}).items():
+            name = (
+                library_id if library_id not in spatial_uns else f"{key}_{library_id}"
+            )
+            spatial_uns[name] = library
+    if spatial_uns:
+        combined.uns["spatial"] = spatial_uns
+
+    if has_counts:
+        combined.layers["counts"] = combined.X.copy()
+        sc.pp.normalize_total(combined, target_sum=1e4)
+        sc.pp.log1p(combined)
+    combined.uns[INTEGRATION_HAS_COUNTS_KEY] = has_counts
+
+    _store_integration_metadata(
+        combined,
+        method="concatenate",
+        batch_key=batch_key,
+        parameters={
+            "batch_key": batch_key,
+            "batch_correction": False,
+            "gene_join": "inner",
+            "expression": (
+                "X = log1p(counts scaled to 1e4); layers['counts'] = counts"
+                if has_counts
+                else "input expression, not integer counts"
+            ),
+            "genes_per_sample": [int(part.n_vars) for part in parts],
+        },
+        results_keys={"layers": ["counts"]} if has_counts else {},
+    )
+    return combined
+
+
 def rescale_spatial_coordinates(
     combined_adata: ad.AnnData,
     batch_key: str = "batch",
@@ -945,15 +1054,26 @@ async def integrate_samples(
         adatas.append(adata)
 
     # Integrate samples (pass full params for method-specific settings like scVI)
-    combined_adata = await run_sync(
-        integrate_multiple_samples,
-        adatas,
-        batch_key=params.batch_key,
-        method=params.method,
-        n_pcs=params.n_pcs,
-        params=params,
-        sample_keys=data_ids,
-    )
+    analysis_method: str
+    if params.batch_correction:
+        combined_adata = await run_sync(
+            integrate_multiple_samples,
+            adatas,
+            batch_key=params.batch_key,
+            method=params.method,
+            n_pcs=params.n_pcs,
+            params=params,
+            sample_keys=data_ids,
+        )
+        analysis_method = params.method
+    else:
+        combined_adata = await run_sync(
+            concatenate_samples_without_correction,
+            adatas,
+            batch_key=params.batch_key,
+            sample_keys=data_ids,
+        )
+        analysis_method = "concatenate"
 
     if not combined_adata.uns.get(INTEGRATION_HAS_COUNTS_KEY, True):
         await ctx.warning(
@@ -982,20 +1102,12 @@ async def integrate_samples(
 
     # Export results for reproducibility
     # Note: Metadata was stored in helper functions; export uses the appropriate analysis names
-    if params.method == "scvi":
-        await run_sync(
-            export_analysis_result,
-            combined_adata,
-            integrated_id,
-            "integration_scvi",
-        )
-    else:
-        await run_sync(
-            export_analysis_result,
-            combined_adata,
-            integrated_id,
-            f"integration_{params.method}",
-        )
+    await run_sync(
+        export_analysis_result,
+        combined_adata,
+        integrated_id,
+        f"integration_{analysis_method}",
+    )
 
     if params.align_spatial and "spatial_aligned" in combined_adata.obsm:
         await run_sync(
@@ -1007,16 +1119,19 @@ async def integrate_samples(
 
     # The embedding key is what downstream tools need to consume the result,
     # so report it instead of leaving the caller to guess the method's naming.
-    embedding_keys = _integration_results_keys(combined_adata, params.method).get(
-        "obsm", []
+    embedding_keys = (
+        _integration_results_keys(combined_adata, params.method).get("obsm", [])
+        if params.batch_correction
+        else []
     )
     result = IntegrationResult(
         data_id=integrated_id,
         n_samples=len(data_ids),
-        integration_method=params.method,
+        integration_method=analysis_method,
         n_cells=int(combined_adata.n_obs),
         batch_key=params.batch_key,
         embedding_key=embedding_keys[0] if embedding_keys else None,
+        n_genes=int(combined_adata.n_vars),
     )
     await ctx.add_dataset(
         combined_adata,

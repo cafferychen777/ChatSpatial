@@ -283,6 +283,10 @@ async def annotate_cell_types(
         params: Annotation parameters (method, reference_data_id, cell_type_key, etc.)
 
     Note: Reference methods (tangram, scanvi) require reference_data_id to be preprocessed first.
+    Rule-based methods: marker_score labels the groups of cluster_label (e.g. spatial
+    domains) by mean log-normalized marker expression; threshold labels observations
+    by a cutoff on a numeric obs column (e.g. deconvolution_rctd_<cell type>).
+    Both write to output_key.
     """
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
@@ -319,6 +323,9 @@ async def analyze_spatial_statistics(
     Args:
         data_id: Dataset ID
         params: Analysis parameters (analysis_type, cluster_key, genes). See SpatialStatisticsParameters for all types.
+
+    gene_selection='all' computes moran/geary for every gene; the full per-gene
+    table (rank, statistic, p, FDR) is stored at results_key, only top genes are returned.
     """
     # Create ToolContext for clean data access (no redundant dict wrapping)
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
@@ -414,6 +421,11 @@ async def analyze_cnv(
     Args:
         data_id: Dataset identifier
         params: Required - reference_key, reference_categories, and optional method/thresholds.
+
+    Gene positions missing from adata.var are annotated from bundled Ensembl 110
+    tables (species: human GRCh38 or mouse GRCm39). exclude_gene_classes removes
+    immunoglobulin, ribosomal, mitochondrial or HLA genes from the CNV input;
+    query_categories restricts CNV clustering to those reference_key categories.
     """
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
 
@@ -517,6 +529,10 @@ async def integrate_samples(
     Args:
         data_ids: List of dataset IDs to integrate
         params: Integration parameters (method, batch_key, n_pcs, etc.)
+
+    batch_correction=False pools the samples without correction (shared genes,
+    counts in layers['counts'], obs and coordinates kept), e.g. to pool sections
+    for analyze_cell_communication.
     """
     # Create ToolContext for clean data access
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)
@@ -621,6 +637,9 @@ async def analyze_cell_communication(
     Args:
         data_id: Dataset ID
         params: Required - species, cell_type_key, and method. For mouse with liana, set liana_resource='mouseconsensus'.
+
+    subset_key + subset_categories restrict the analysis to those observations
+    (e.g. tc_le_region in ['TC', 'LE']).
     """
     # Create ToolContext for clean data access
     ctx = ToolContext(_data_manager=data_manager, _mcp_context=context)

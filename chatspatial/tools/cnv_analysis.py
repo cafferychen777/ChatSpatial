@@ -3,7 +3,10 @@ Copy Number Variation (CNV) analysis tools for spatial transcriptomics data.
 """
 
 import glob
+import gzip
 import logging
+from functools import lru_cache
+from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -23,6 +26,7 @@ from ..utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
+from ..utils.gene_classes import excluded_gene_mask
 from ..utils.results_export import export_analysis_result
 
 if TYPE_CHECKING:
@@ -88,17 +92,142 @@ def _copy_matrix_data(data):
     return np.array(data, copy=True)
 
 
-def _validate_gene_positions(adata: "ad.AnnData") -> None:
-    required_position_columns = {"chromosome", "start", "end"}
-    missing_position_columns = sorted(
-        required_position_columns - set(adata.var.columns)
+_POSITION_COLUMNS = ("chromosome", "start", "end")
+
+# Bundled Ensembl 110 gene positions (primary chromosomes), built by
+# scripts/data/build_gene_position_tables.py.
+_GENE_POSITION_TABLES = {
+    "human": ("human_grch38_ensembl110.tsv.gz", "Ensembl 110 GRCh38"),
+    "mouse": ("mouse_grcm39_ensembl110.tsv.gz", "Ensembl 110 GRCm39"),
+}
+
+# var columns that may hold Ensembl gene IDs (10x loaders write "gene_ids").
+_GENE_ID_COLUMNS = ("gene_ids", "gene_id", "ensembl_id", "ensembl_gene_id")
+
+
+@lru_cache(maxsize=2)
+def _load_gene_position_table(species: str) -> pd.DataFrame:
+    """Read the bundled gene-position table of a species."""
+    filename = _GENE_POSITION_TABLES[species][0]
+    resource = files("chatspatial").joinpath("resources", "gene_positions", filename)
+    try:
+        with resource.open("rb") as raw, gzip.open(raw, "rt") as handle:
+            table = pd.read_csv(
+                handle,
+                sep="\t",
+                dtype={"gene_id": str, "gene_name": str, "chromosome": str},
+                keep_default_na=False,
+            )
+    except FileNotFoundError as exc:
+        raise DataNotFoundError(
+            f"Bundled gene-position table {filename} is missing from the "
+            "installation. Provide chromosome/start/end in adata.var and use "
+            "gene_positions='provided'."
+        ) from exc
+    return table
+
+
+def _looks_like_ensembl_ids(values: pd.Index) -> bool:
+    sample = pd.Index(values[:200]).astype(str)
+    return len(sample) > 0 and bool(sample.str.match(r"^ENS[A-Z]*G\d").mean() > 0.9)
+
+
+def _annotate_gene_positions(
+    adata: "ad.AnnData", species: str
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Look up chromosome/start/end of each var gene in the bundled table.
+
+    Genes are matched on the Ensembl gene ID (version suffix removed) when
+    adata.var or var_names holds IDs, and the remaining genes on the gene
+    symbol. Symbols that Ensembl assigns to several genes resolve to the first
+    by genomic position.
+    """
+    table = _load_gene_position_table(species)
+    positions = pd.DataFrame(
+        index=adata.var_names, columns=list(_POSITION_COLUMNS), dtype=object
     )
+
+    id_source = None
+    ids = None
+    for column in _GENE_ID_COLUMNS:
+        if column in adata.var.columns and _looks_like_ensembl_ids(
+            pd.Index(adata.var[column])
+        ):
+            id_source, ids = f"var['{column}']", pd.Index(adata.var[column])
+            break
+    if ids is None and _looks_like_ensembl_ids(adata.var_names):
+        id_source, ids = "var_names", adata.var_names
+
+    by_id = table.set_index("gene_id")[list(_POSITION_COLUMNS)]
+    matched = np.zeros(adata.n_vars, dtype=bool)
+    n_matched_id = 0
+    if ids is not None:
+        stripped = ids.astype(str).str.replace(r"\.\d+$", "", regex=True)
+        found = by_id.reindex(stripped)
+        matched = found["chromosome"].notna().to_numpy()
+        positions.loc[matched, :] = found.to_numpy()[matched]
+        n_matched_id = int(matched.sum())
+
+    named = table[table["gene_name"] != ""].drop_duplicates("gene_name")
+    by_symbol = named.set_index("gene_name")[list(_POSITION_COLUMNS)]
+    found = by_symbol.reindex(adata.var_names.astype(str))
+    symbol_hit = found["chromosome"].notna().to_numpy() & ~matched
+    positions.loc[symbol_hit, :] = found.to_numpy()[symbol_hit]
+
+    positions["start"] = pd.to_numeric(positions["start"])
+    positions["end"] = pd.to_numeric(positions["end"])
+    summary = {
+        "source": _GENE_POSITION_TABLES[species][1],
+        "id_source": id_source,
+        "n_matched_by_id": n_matched_id,
+        "n_matched_by_symbol": int(symbol_hit.sum()),
+        "n_unmatched": int(adata.n_vars - n_matched_id - symbol_hit.sum()),
+    }
+    return positions, summary
+
+
+def _resolve_gene_positions(
+    adata: "ad.AnnData", params: "CNVParameters"
+) -> dict[str, Any]:
+    """Ensure adata.var holds chromosome/start/end according to gene_positions.
+
+    Annotated positions are written to adata.var so that later runs and the
+    CNV visualizations read the same coordinates.
+    """
+    if not adata.var_names.is_unique:
+        raise DataCompatibilityError(
+            "CNV inference requires unique gene names for position-aligned results."
+        )
+    has_columns = set(_POSITION_COLUMNS) <= set(adata.var.columns)
+    if params.gene_positions == "provided" or (
+        params.gene_positions == "auto" and has_columns
+    ):
+        _validate_gene_positions(adata)
+        return {"source": "adata.var"}
+
+    positions, summary = _annotate_gene_positions(adata, params.species)
+    if summary["n_unmatched"] == adata.n_vars:
+        raise DataCompatibilityError(
+            f"No gene of the dataset matched the bundled {summary['source']} "
+            "gene-position table by Ensembl gene ID or symbol. Check the species "
+            f"parameter (now '{params.species}'), or provide chromosome/start/end "
+            "in adata.var and use gene_positions='provided'."
+        )
+    adata.var["chromosome"] = pd.Categorical(positions["chromosome"].to_numpy())
+    adata.var["start"] = positions["start"].to_numpy(dtype=float)
+    adata.var["end"] = positions["end"].to_numpy(dtype=float)
+    return summary
+
+
+def _validate_gene_positions(adata: "ad.AnnData") -> None:
+    missing_position_columns = sorted(set(_POSITION_COLUMNS) - set(adata.var.columns))
     if missing_position_columns:
         raise DataCompatibilityError(
             "CNV inference requires genomic positions in adata.var. Missing "
             f"columns: {missing_position_columns} (expected chromosome, start, "
-            "end). ChatSpatial does not annotate gene positions; add them from "
-            "a GTF for your genome build, e.g. "
+            "end). Use gene_positions='annotate' (or 'auto') with species to "
+            "annotate them from the bundled Ensembl table, or add them from a "
+            "GTF for your genome build, e.g. "
             "infercnvpy.io.genomic_position_from_gtf(gtf_path, adata), then "
             "rerun."
         )
@@ -348,6 +477,14 @@ async def infer_cnv(
             f"adata.obs['{params.reference_key}'].\n"
             f"Available categories: {sorted(available_categories)}"
         )
+    if params.query_categories is not None:
+        missing_query = set(params.query_categories) - available_categories
+        if missing_query:
+            raise ParameterError(
+                f"Query categories {missing_query} not found in "
+                f"adata.obs['{params.reference_key}'].\n"
+                f"Available categories: {sorted(available_categories, key=str)}"
+            )
 
     if params.method not in ("infercnvpy", "numbat"):
         raise ParameterError(
@@ -388,7 +525,7 @@ async def _infer_cnv_infercnvpy(
     Returns:
         CNVResult containing CNV analysis results and statistics
     """
-    _validate_gene_positions(adata)
+    position_summary = _resolve_gene_positions(adata, params)
 
     cnv = require("infercnvpy", ctx, feature="CNV analysis")
 
@@ -406,11 +543,18 @@ async def _infer_cnv_infercnvpy(
         )
 
     genes_to_keep = has_complete_position
+    excluded_genes, n_excluded_by_rule = excluded_gene_mask(
+        adata_cnv.var_names, params.exclude_gene_classes, params.exclude_gene_patterns
+    )
+    # Count only genes the exclusion actually removes from the CNV input.
+    n_genes_excluded = int((excluded_genes & genes_to_keep.to_numpy()).sum())
+    genes_to_keep &= ~excluded_genes
     if params.exclude_chromosomes is not None:
         genes_to_keep &= ~adata_cnv.var["chromosome"].isin(params.exclude_chromosomes)
     if not genes_to_keep.any():
         raise DataCompatibilityError(
-            "No genes with usable genomic positions remain after chromosome filtering."
+            "No genes with usable genomic positions remain after chromosome "
+            "and gene-class filtering."
         )
     if not genes_to_keep.all():
         adata_cnv = adata_cnv[:, genes_to_keep].copy()
@@ -427,20 +571,38 @@ async def _infer_cnv_infercnvpy(
         exclude_chromosomes=None,
     )
 
-    # Optional: Cluster cells by CNV pattern
+    # Optional: Cluster cells by CNV pattern, within the query categories when
+    # given. Observations outside them keep a missing cnv_clusters label.
+    is_query = (
+        adata_cnv.obs[params.reference_key].isin(params.query_categories).to_numpy()
+        if params.query_categories is not None
+        else np.ones(adata_cnv.n_obs, dtype=bool)
+    )
     if params.cluster_cells:
+        clustering = adata_cnv if is_query.all() else adata_cnv[is_query].copy()
         try:
-            sc.pp.neighbors(adata_cnv, use_rep="X_cnv", n_neighbors=15)
-            sc.tl.leiden(adata_cnv, key_added="cnv_clusters")
+            sc.pp.neighbors(clustering, use_rep="X_cnv", n_neighbors=15)
+            sc.tl.leiden(clustering, key_added="cnv_clusters")
         except Exception as e:
             await ctx.warning(f"Failed to cluster cells by CNV: {e}")
 
-    # Optional: Compute dendrogram
-    if params.dendrogram and params.cluster_cells:
-        try:
-            sc.tl.dendrogram(adata_cnv, groupby="cnv_clusters")
-        except Exception as e:
-            await ctx.warning(f"Failed to compute dendrogram: {e}")
+        # Optional: Compute dendrogram
+        if params.dendrogram:
+            try:
+                sc.tl.dendrogram(clustering, groupby="cnv_clusters")
+            except Exception as e:
+                await ctx.warning(f"Failed to compute dendrogram: {e}")
+
+        if clustering is not adata_cnv and "cnv_clusters" in clustering.obs:
+            labels = clustering.obs["cnv_clusters"]
+            adata_cnv.obs["cnv_clusters"] = pd.Categorical(
+                labels.reindex(adata_cnv.obs_names),
+                categories=labels.cat.categories,
+            )
+            if "dendrogram_cnv_clusters" in clustering.uns:
+                adata_cnv.uns["dendrogram_cnv_clusters"] = clustering.uns[
+                    "dendrogram_cnv_clusters"
+                ]
 
     # Extract CNV statistics
 
@@ -537,6 +699,7 @@ async def _infer_cnv_infercnvpy(
     is_reference = adata_cnv.obs[params.reference_key].isin(params.reference_categories)
     statistics["n_reference_cells"] = int(is_reference.sum())
     statistics["n_non_reference_cells"] = int((~is_reference).sum())
+    statistics["n_genes_excluded"] = n_genes_excluded
 
     # Get chromosome information
     if "chromosome" in adata_cnv.var.columns:
@@ -582,13 +745,20 @@ async def _infer_cnv_infercnvpy(
     # Store CNV analysis parameters in adata.uns for reference
     analysis_key = _build_cnv_key(params)
     cnv_summary_key = f"cnv_analysis_{analysis_key.removeprefix('cnv_')}"
+    n_query_cells = int(is_query.sum()) if params.query_categories is not None else None
     adata.uns[cnv_summary_key] = {
         "reference_key": params.reference_key,
         "reference_categories": list(params.reference_categories),  # Convert to list
         "window_size": params.window_size,
         "step": params.step,
         "cnv_score_key": cnv_score_key,
+        "gene_positions": position_summary["source"],
+        "exclude_gene_classes": list(params.exclude_gene_classes),
+        "exclude_gene_patterns": list(params.exclude_gene_patterns),
+        "n_genes_excluded": n_genes_excluded,
     }
+    if params.query_categories is not None:
+        adata.uns[cnv_summary_key]["query_categories"] = list(params.query_categories)
 
     # Build results keys for metadata
     results_keys: dict = {"uns": ["cnv", cnv_summary_key]}
@@ -611,6 +781,14 @@ async def _infer_cnv_infercnvpy(
             "reference_categories": list(params.reference_categories),
             "window_size": params.window_size,
             "step": params.step,
+            "gene_positions": position_summary["source"],
+            "exclude_gene_classes": list(params.exclude_gene_classes),
+            "exclude_gene_patterns": list(params.exclude_gene_patterns),
+            "query_categories": (
+                list(params.query_categories)
+                if params.query_categories is not None
+                else None
+            ),
         },
         results_keys=results_keys,
         statistics=statistics,
@@ -629,6 +807,9 @@ async def _infer_cnv_infercnvpy(
         cnv_score_key=cnv_score_key,
         statistics=statistics,
         visualization_available=cnv_score_key is not None,
+        gene_positions=position_summary,
+        n_genes_excluded=n_excluded_by_rule or None,
+        n_query_cells=n_query_cells,
     )
 
 

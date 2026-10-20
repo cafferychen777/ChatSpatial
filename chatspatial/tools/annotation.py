@@ -86,6 +86,9 @@ class AnnotationMethodOutput(NamedTuple):
     counts: dict[str, int]
     confidence: dict[str, float]
     tangram_mapping_score: Optional[float] = None
+    group_labels: Optional[dict[str, str]] = None
+    group_scores: Optional[dict[str, dict[str, float]]] = None
+    markers_used: Optional[dict[str, list[str]]] = None
 
 
 # Supported annotation methods
@@ -93,6 +96,7 @@ class AnnotationMethodOutput(NamedTuple):
 #   - singler/tangram/sctype: Real confidence scores (correlation/probability/scoring)
 #   - scanvi/cellassign: Partial confidence (when soft prediction available)
 #   - mllmcelltype: No numeric confidence (LLM-based)
+#   - marker_score/threshold: Deterministic rules, no confidence
 SUPPORTED_METHODS = {
     "tangram",
     "scanvi",
@@ -100,7 +104,13 @@ SUPPORTED_METHODS = {
     "mllmcelltype",
     "sctype",
     "singler",
+    "marker_score",
+    "threshold",
 }
+
+# Rule-based methods write to a caller-chosen obs column and need neither a
+# reference nor a model.
+_RULE_BASED_METHODS = frozenset({"marker_score", "threshold"})
 
 
 def _extract_singler_reference_labels(ref_obj: Any, ref_id: str) -> Any:
@@ -1507,6 +1517,198 @@ async def _annotate_with_cellassign(
     )
 
 
+def _log_normalized_columns(
+    adata: "ad.AnnData", genes: list[str]
+) -> tuple[np.ndarray, str]:
+    """Return log-normalized expression of ``genes`` as a dense obs x gene array.
+
+    Integer counts (adata.raw, else layers["counts"], else X) are scaled to
+    10,000 per observation over all genes and log1p-transformed, which is what
+    preprocess_data writes to X with normalization='log' and
+    normalize_target_sum=1e4. Data that is not integer counts is used as is.
+    """
+    source = get_raw_data_source(adata, prefer_complete_genes=True)
+    columns = source.var_names.get_indexer(genes)
+    selected = to_dense(source.X[:, columns]).astype(np.float64)
+    if not source.is_integer_counts:
+        return selected, source.source
+    totals = np.asarray(source.X.sum(axis=1), dtype=np.float64).ravel()
+    scale = np.divide(1e4, totals, out=np.zeros_like(totals), where=totals > 0)
+    return np.log1p(selected * scale[:, None]), f"log1p-normalized {source.source}"
+
+
+async def _annotate_with_marker_score(
+    adata: "ad.AnnData",
+    params: AnnotationParameters,
+    ctx: "ToolContext",
+    output_key: str,
+) -> AnnotationMethodOutput:
+    """Label the groups of an obs column by mean marker expression.
+
+    For each label (in the order of ``marker_genes``) the score of a group is
+    the mean log-normalized expression of the label's marker genes over the
+    group's observations. The ``marker_score_n_top`` highest-scoring groups
+    receive the label; groups labeled earlier are handled according to
+    ``marker_score_exclusion``. Remaining groups receive the unassigned label.
+    """
+    cluster_key = params.cluster_label
+    marker_genes = params.marker_genes
+    if cluster_key is None or not marker_genes:
+        raise ParameterError("marker_score requires cluster_label and marker_genes.")
+    validate_obs_column(adata, cluster_key, "Cluster column")
+    if output_key == cluster_key:
+        raise ParameterError("output_key must differ from cluster_label.")
+
+    available = set(get_raw_data_source(adata, prefer_complete_genes=True).var_names)
+    markers_used: dict[str, list[str]] = {}
+    for label, genes in marker_genes.items():
+        present = [g for g in dict.fromkeys(genes) if g in available]
+        missing = [g for g in dict.fromkeys(genes) if g not in available]
+        if not present:
+            raise DataError(
+                f"None of the marker genes for '{label}' are in the dataset: {genes}."
+            )
+        if missing:
+            await ctx.warning(
+                f"marker_score '{label}': {len(missing)} of {len(genes)} marker genes "
+                f"are absent and skipped: {missing}."
+            )
+        markers_used[label] = present
+
+    all_genes = list(dict.fromkeys(g for genes in markers_used.values() for g in genes))
+    expression, expression_source = _log_normalized_columns(adata, all_genes)
+    gene_column = {gene: i for i, gene in enumerate(all_genes)}
+
+    group_series = adata.obs[cluster_key]
+    if isinstance(group_series.dtype, pd.CategoricalDtype):
+        group_order = [str(g) for g in group_series.cat.categories]
+    else:
+        group_order = sorted(group_series.dropna().astype(str).unique())
+    groups = group_series.astype(str).astype(object).where(group_series.notna(), None)
+
+    scores = pd.DataFrame(index=pd.Index(group_order, dtype=object), dtype=float)
+    for label, genes in markers_used.items():
+        per_obs = expression[:, [gene_column[g] for g in genes]].mean(axis=1)
+        scores[label] = (
+            pd.Series(per_obs, index=adata.obs_names)
+            .groupby(groups.to_numpy())
+            .mean()
+            .reindex(scores.index)
+        )
+    # Groups without observations (unused categories) cannot be scored.
+    scores = scores.dropna(how="all")
+
+    group_labels: dict[str, str] = {}
+    for label in markers_used:
+        label_scores = scores[label]
+        if params.marker_score_exclusion == "drop_then_rank":
+            label_scores = label_scores.drop(list(group_labels))
+            top = label_scores.nlargest(params.marker_score_n_top).index
+        else:
+            top = label_scores.nlargest(params.marker_score_n_top).index
+            top = [g for g in top if g not in group_labels]
+        for group in top:
+            group_labels[group] = label
+    unassigned = params.marker_score_unassigned_label
+    group_labels = {
+        group: group_labels.get(group, unassigned) for group in scores.index
+    }
+
+    categories = [*markers_used, unassigned]
+    adata.obs[output_key] = pd.Categorical(
+        groups.map(group_labels).to_numpy(), categories=categories
+    )
+
+    table = scores.copy()
+    table["assigned_label"] = [group_labels[g] for g in table.index]
+    table["n_obs"] = groups.value_counts().reindex(table.index).astype(int)
+    table.index = table.index.astype(str)
+    adata.uns[f"{output_key}_group_scores"] = table
+    adata.uns[f"{output_key}_rule"] = {
+        "cluster_label": cluster_key,
+        "expression_source": expression_source,
+        "n_top": params.marker_score_n_top,
+        "exclusion": params.marker_score_exclusion,
+        "unassigned_label": unassigned,
+    }
+
+    counts = {
+        str(k): int(v)
+        for k, v in adata.obs[output_key].value_counts(sort=False).items()
+    }
+    return AnnotationMethodOutput(
+        cell_types=categories,
+        counts=counts,
+        confidence={},
+        group_labels=group_labels,
+        group_scores={
+            group: {label: round(float(v), 6) for label, v in row.items()}
+            for group, row in scores.iterrows()
+        },
+        markers_used=markers_used,
+    )
+
+
+_THRESHOLD_COMPARISONS = {
+    ">=": np.greater_equal,
+    ">": np.greater,
+    "<=": np.less_equal,
+    "<": np.less,
+}
+
+
+async def _annotate_with_threshold(
+    adata: "ad.AnnData",
+    params: AnnotationParameters,
+    ctx: "ToolContext",
+    output_key: str,
+) -> AnnotationMethodOutput:
+    """Label observations by comparing a numeric obs column with a cutoff."""
+    key = params.threshold_key
+    if key is None or params.threshold_value is None:
+        raise ParameterError("threshold requires threshold_key and threshold_value.")
+    if key not in adata.obs.columns:
+        deconvolution_columns = [
+            c for c in adata.obs.columns if str(c).startswith("deconvolution_")
+        ]
+        hint = (
+            f" Deconvolved proportion columns: {deconvolution_columns[:20]}."
+            if deconvolution_columns
+            else ""
+        )
+        raise DataNotFoundError(f"threshold_key '{key}' not found in adata.obs.{hint}")
+    if output_key == key:
+        raise ParameterError("output_key must differ from threshold_key.")
+    column = adata.obs[key]
+    if not pd.api.types.is_numeric_dtype(column) or pd.api.types.is_bool_dtype(column):
+        raise ParameterError(
+            f"threshold_key '{key}' must be a numeric obs column, found {column.dtype}."
+        )
+
+    values = column.to_numpy(dtype=float)
+    missing = np.isnan(values)
+    passed = _THRESHOLD_COMPARISONS[params.threshold_comparison](
+        np.where(missing, 0.0, values), params.threshold_value
+    )
+    labels = np.where(
+        passed, params.threshold_pass_label, params.threshold_fail_label
+    ).astype(object)
+    labels[missing] = None
+    categories = [params.threshold_pass_label, params.threshold_fail_label]
+    adata.obs[output_key] = pd.Categorical(labels, categories=categories)
+
+    n_missing = int(missing.sum())
+    if n_missing:
+        await ctx.warning(
+            f"{n_missing} observations have no value in '{key}' and are left unlabeled."
+        )
+    counts = {
+        str(k): int(v)
+        for k, v in adata.obs[output_key].value_counts(sort=False).items()
+    }
+    return AnnotationMethodOutput(cell_types=categories, counts=counts, confidence={})
+
+
 def _build_annotation_suffix(
     method: str,
     reference_data_id: str | None,
@@ -1568,6 +1770,10 @@ async def annotate_cell_types(
     suffix = _build_annotation_suffix(params.method, params.reference_data_id)
     output_key = f"cell_type_{suffix}"
     confidence_key = f"confidence_{suffix}"
+    analysis_key = f"annotation_{suffix}"
+    if params.method in _RULE_BASED_METHODS and params.output_key:
+        output_key = params.output_key
+        analysis_key = f"annotation_{suffix}_{params.output_key}"
 
     # Tangram-specific obsm key (parametrized by suffix)
     tangram_ct_pred_key = f"tangram_ct_pred_{suffix}"
@@ -1611,6 +1817,10 @@ async def annotate_cell_types(
             result = await _annotate_with_singler(
                 adata, params, ctx, output_key, confidence_key, reference_adata
             )
+        elif params.method == "marker_score":
+            result = await _annotate_with_marker_score(adata, params, ctx, output_key)
+        elif params.method == "threshold":
+            result = await _annotate_with_threshold(adata, params, ctx, output_key)
         else:  # sctype
             result = await _annotate_with_sctype(
                 adata, params, ctx, output_key, confidence_key
@@ -1657,6 +1867,10 @@ async def annotate_cell_types(
     # Only export tangram_ct_pred (n_cells × n_cell_types) which is reasonably sized
     if params.method == "tangram":
         results_keys_dict["obsm"].append(tangram_ct_pred_key)
+    if params.method == "marker_score":
+        results_keys_dict["uns"].extend(
+            [f"{output_key}_group_scores", f"{output_key}_rule"]
+        )
 
     # Prepare parameters dict (only scientifically important ones)
     parameters_dict: dict[str, object] = {}
@@ -1700,6 +1914,22 @@ async def annotate_cell_types(
         parameters_dict = {
             "fine_tune": params.singler_fine_tune,
         }
+    elif params.method == "marker_score":
+        parameters_dict = {
+            "cluster_label": params.cluster_label,
+            "marker_genes": dict(params.marker_genes or {}),
+            "n_top": params.marker_score_n_top,
+            "exclusion": params.marker_score_exclusion,
+            "unassigned_label": params.marker_score_unassigned_label,
+        }
+    elif params.method == "threshold":
+        parameters_dict = {
+            "threshold_key": params.threshold_key,
+            "threshold_value": params.threshold_value,
+            "comparison": params.threshold_comparison,
+            "pass_label": params.threshold_pass_label,
+            "fail_label": params.threshold_fail_label,
+        }
 
     # Prepare statistics dict (heterogeneous value types)
     statistics_dict: dict[str, int | float] = {"n_cell_types": len(cell_types)}
@@ -1712,7 +1942,6 @@ async def annotate_cell_types(
         reference_info_dict = {"reference_data_id": params.reference_data_id}
 
     # Store metadata (keyed by suffix to allow coexistence of different references)
-    analysis_key = f"annotation_{suffix}"
     store_analysis_metadata(
         adata,
         analysis_name=analysis_key,
@@ -1735,6 +1964,9 @@ async def annotate_cell_types(
         counts=counts,
         confidence_scores=confidence_scores,
         tangram_mapping_score=tangram_mapping_score,
+        group_labels=result.group_labels,
+        group_scores=result.group_scores,
+        markers_used=result.markers_used,
     )
     await ctx.set_adata(data_id, adata)
     return tool_result

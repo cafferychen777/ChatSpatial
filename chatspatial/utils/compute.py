@@ -20,7 +20,7 @@ Usage:
 """
 
 import inspect
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 import numpy as np
 import scanpy as sc
@@ -370,12 +370,44 @@ def ensure_diffmap(
     return True
 
 
+def spatial_graph_params(adata: "ad.AnnData") -> Optional[dict[str, Any]]:
+    """Return the construction parameters squidpy recorded for the spatial graph.
+
+    None when no graph exists or its parameters were not recorded.
+    """
+    if "spatial_connectivities" not in adata.obsp:
+        return None
+    metadata = adata.uns.get("spatial_neighbors")
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("params"), dict):
+        return None
+    graph: dict[str, Any] = {}
+    for key, value in metadata["params"].items():
+        if isinstance(value, np.generic):
+            value = value.item()
+        if isinstance(value, (str, int, float, bool)):
+            graph[key] = value
+    return graph
+
+
+def _spatial_graph_matches(
+    adata: "ad.AnnData", coord_type: str, n_neighs: int, n_rings: int
+) -> bool:
+    """Whether the stored spatial graph was built with the requested setting."""
+    graph = spatial_graph_params(adata)
+    if graph is None or graph.get("coord_type") != coord_type:
+        return False
+    if coord_type == "grid":
+        return graph.get("n_rings") == n_rings
+    return graph.get("n_neighbors") == n_neighs and not graph.get("delaunay", False)
+
+
 def ensure_spatial_neighbors(
     adata: "ad.AnnData",
     coord_type: Literal["grid", "generic"] = "generic",
     n_neighs: int = 6,
     n_rings: int = 1,
     spatial_key: str = "spatial",
+    rebuild_if_different: bool = False,
 ) -> bool:
     """
     Ensure spatial neighborhood graph is computed.
@@ -386,12 +418,20 @@ def ensure_spatial_neighbors(
         n_neighs: Number of neighbors (for generic coord_type)
         n_rings: Number of rings (for grid coord_type)
         spatial_key: Key for spatial coordinates in obsm
+        rebuild_if_different: Rebuild an existing graph unless its recorded
+            parameters match the requested ones. False reuses any existing graph.
 
     Returns:
         True if spatial neighbors was computed, False if already existed
     """
     if "spatial_connectivities" in adata.obsp:
-        return False
+        if not rebuild_if_different or _spatial_graph_matches(
+            adata, coord_type, n_neighs, n_rings
+        ):
+            return False
+        for key in ("spatial_connectivities", "spatial_distances"):
+            adata.obsp.pop(key, None)
+        adata.uns.pop("spatial_neighbors", None)
 
     if spatial_key not in adata.obsm:
         raise DataNotFoundError(

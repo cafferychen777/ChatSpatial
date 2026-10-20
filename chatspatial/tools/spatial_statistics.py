@@ -53,7 +53,7 @@ from ..utils.adata_utils import (
     validate_adata_basics,
     validate_obs_column,
 )
-from ..utils.compute import ensure_spatial_neighbors
+from ..utils.compute import ensure_spatial_neighbors, spatial_graph_params
 from ..utils.exceptions import (
     ChatSpatialError,
     DataError,
@@ -306,10 +306,27 @@ async def analyze_spatial_statistics(
             ensure_categorical(adata, params.cluster_key)
 
         # Ensure spatial neighbors using detected key (supports X_spatial, etc.)
+        # An existing graph (e.g. from compute_embeddings) is reused unless the
+        # caller explicitly asked for n_neighbors and the stored graph was
+        # built differently; then the requested kNN graph replaces it.
         detected_key = get_spatial_key(adata) or "spatial"
-        ensure_spatial_neighbors(
-            adata, n_neighs=params.n_neighbors, spatial_key=detected_key
+        n_neighbors_requested = "n_neighbors" in params.model_fields_set
+        had_graph = "spatial_connectivities" in adata.obsp
+        built = ensure_spatial_neighbors(
+            adata,
+            n_neighs=params.n_neighbors,
+            spatial_key=detected_key,
+            rebuild_if_different=n_neighbors_requested,
         )
+        spatial_graph: dict[str, Any] = dict(spatial_graph_params(adata) or {})
+        spatial_graph["source"] = (
+            "existing" if not built else "rebuilt" if had_graph else "computed"
+        )
+        if built and had_graph:
+            await ctx.warning(
+                "Replaced the stored spatial graph with a generic "
+                f"{params.n_neighbors}-nearest-neighbor graph as requested by n_neighbors."
+            )
         if config.needs_cluster:
             assert params.cluster_key is not None
             await _warn_about_groups_without_a_neighbourhood(
@@ -333,7 +350,8 @@ async def analyze_spatial_statistics(
         result.update(
             {
                 "n_cells": adata.n_obs,
-                "n_neighbors": params.n_neighbors,
+                "n_neighbors": spatial_graph.get("n_neighbors", params.n_neighbors),
+                "spatial_graph": spatial_graph,
             }
         )
 
@@ -349,10 +367,15 @@ async def analyze_spatial_statistics(
         parameters_dict: dict[str, int | float | str | list[str]] = {
             "n_neighbors": params.n_neighbors,
         }
+        for key, value in spatial_graph.items():
+            if not isinstance(value, bool):
+                parameters_dict[f"spatial_graph_{key}"] = value
         if params.cluster_key:
             parameters_dict["cluster_key"] = params.cluster_key
         if params.genes:
             parameters_dict["genes"] = params.genes
+        if params.gene_selection == "all":
+            parameters_dict["gene_selection"] = "all"
         # Add n_perms based on analysis type
         if params.analysis_type == "neighborhood":
             parameters_dict["n_perms"] = params.neighborhood_n_perms
@@ -403,6 +426,7 @@ async def analyze_spatial_statistics(
             # single uns table; the metadata entry lists every column they
             # wrote, so it is what a caller needs to find them.
             results_key=summary.get("results_key") or f"{analysis_name}_metadata",
+            spatial_graph=spatial_graph,
             statistics=result,  # Excluded from MCP response via Field(exclude=True)
         )
         await ctx.set_adata(data_id, adata)
@@ -941,6 +965,29 @@ def _rank_extremes(
     return ordered[:n_strongest], weakest
 
 
+def _select_autocorrelation_genes(
+    adata: ad.AnnData, params: SpatialStatisticsParameters, analysis_name: str
+) -> list[str]:
+    """Genes for a gene-level autocorrelation statistic (Moran's I, Geary's C)."""
+    if params.genes is None and params.gene_selection == "all":
+        return adata.var_names.astype(str).tolist()
+    return select_genes_for_analysis(
+        adata,
+        genes=params.genes,
+        n_genes=params.n_top_genes,
+        analysis_name=analysis_name,
+    )
+
+
+def _add_rank_column(results_df: pd.DataFrame, statistic: str, ascending: bool) -> None:
+    """Rank genes by the statistic, 1 = strongest autocorrelation (NaN last)."""
+    results_df["rank"] = (
+        results_df[statistic]
+        .rank(ascending=ascending, method="first", na_option="bottom")
+        .astype(int)
+    )
+
+
 def _analyze_morans_i(
     adata: ad.AnnData,
     params: SpatialStatisticsParameters,
@@ -958,13 +1005,7 @@ def _analyze_morans_i(
     The analysis is performed on highly variable genes by default, but a
     specific gene list can be provided.
     """
-    # Unified gene selection
-    genes = select_genes_for_analysis(
-        adata,
-        genes=params.genes,
-        n_genes=params.n_top_genes,
-        analysis_name="Moran's I",
-    )
+    genes = _select_autocorrelation_genes(adata, params, "Moran's I")
 
     # Optimize parallelization
     n_jobs = _get_optimal_n_jobs(adata.n_obs, params.n_jobs)
@@ -995,6 +1036,7 @@ def _analyze_morans_i(
             feature="Moran's I gene-level p-value correction",
         )
         results_df["pval_norm_fdr"] = fdr_pvals
+        _add_rank_column(results_df, "I", ascending=False)
         adata.uns[moran_key] = results_df
 
         # Use FDR-corrected significance
@@ -1023,13 +1065,7 @@ def _analyze_gearys_c(
     ctx: "ToolContext",
 ) -> dict[str, Any]:
     """Compute Geary's C spatial autocorrelation."""
-    # Unified gene selection
-    genes = select_genes_for_analysis(
-        adata,
-        genes=params.genes,
-        n_genes=params.n_top_genes,
-        analysis_name="Geary's C",
-    )
+    genes = _select_autocorrelation_genes(adata, params, "Geary's C")
 
     sq.gr.spatial_autocorr(
         adata,
@@ -1053,7 +1089,8 @@ def _analyze_gearys_c(
                     feature="Geary's C gene-level p-value correction",
                 )
                 results_df["pval_norm_fdr"] = fdr_pvals
-                adata.uns[geary_key] = results_df
+            _add_rank_column(results_df, "C", ascending=True)
+            adata.uns[geary_key] = results_df
 
             if "pval_norm_fdr" in results_df.columns:
                 significant_genes = results_df[

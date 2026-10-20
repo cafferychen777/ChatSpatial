@@ -256,6 +256,7 @@ async def test_infer_cnv_infercnvpy_rejects_missing_gene_positions(
                 method="infercnvpy",
                 reference_key="cell_type",
                 reference_categories=["A"],
+                gene_positions="provided",
             ),
         )
 
@@ -1343,6 +1344,7 @@ async def test_infer_cnv_rejects_exclude_chromosomes_without_gene_positions(
                 reference_key="cell_type",
                 reference_categories=["A"],
                 exclude_chromosomes=["chrM"],
+                gene_positions="provided",
                 cluster_cells=False,
                 dendrogram=False,
             ),

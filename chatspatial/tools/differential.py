@@ -24,6 +24,7 @@ from ..utils.exceptions import (
     ParameterError,
     ProcessingError,
 )
+from ..utils.gene_classes import excluded_gene_mask
 from ..utils.results_export import export_analysis_result
 
 
@@ -41,6 +42,28 @@ def _build_de_key(
         return f"de_{method}_all_groups"
     g2 = group2 or "rest"
     return f"de_{method}_{group1}_vs_{g2}"
+
+
+def _excluded_genes(
+    gene_names: pd.Index, params: DifferentialExpressionParameters
+) -> tuple[np.ndarray | None, dict[str, int] | None]:
+    """Mask of genes removed before testing, and the count per class/pattern."""
+    if not params.exclude_gene_classes and not params.exclude_gene_patterns:
+        return None, None
+    mask, counts = excluded_gene_mask(
+        gene_names, params.exclude_gene_classes, params.exclude_gene_patterns
+    )
+    if mask.all():
+        raise DataError("Every gene matches the excluded gene classes or patterns.")
+    return mask, counts
+
+
+def _drop_excluded_genes(view, params: DifferentialExpressionParameters):
+    """Remove excluded genes from the expression view before ranking."""
+    mask, counts = _excluded_genes(view.var_names, params)
+    if mask is None:
+        return view, None
+    return view[:, ~mask].copy(), counts
 
 
 async def differential_expression(
@@ -121,6 +144,7 @@ async def differential_expression(
 
         # Scanpy would otherwise read adata.raw, which holds counts here.
         adata_filtered, de_source = build_log_normalized_view(adata_filtered)
+        adata_filtered, n_excluded = _drop_excluded_genes(adata_filtered, params)
 
         # Run rank_genes_groups on filtered data
         sc.tl.rank_genes_groups(
@@ -170,6 +194,8 @@ async def differential_expression(
                 "group_key": group_key,
                 "comparison_type": "all_groups",
                 "n_top_genes": n_top_genes,
+                "exclude_gene_classes": list(params.exclude_gene_classes),
+                "exclude_gene_patterns": list(params.exclude_gene_patterns),
             },
             results_keys={"uns": [per_run_key]},
             statistics={
@@ -190,6 +216,7 @@ async def differential_expression(
             comparison=f"All groups in {group_key}",
             n_genes=n_distinct_genes,
             top_genes_by_group=top_genes_by_group,
+            n_genes_excluded=n_excluded,
             statistics={
                 "method": method,
                 "n_groups": len(groups),
@@ -230,6 +257,7 @@ async def differential_expression(
 
     # Scanpy would otherwise read adata.raw, which holds counts here.
     temp_adata, de_source = build_log_normalized_view(temp_adata)
+    temp_adata, n_excluded = _drop_excluded_genes(temp_adata, params)
 
     # Run rank_genes_groups
     sc.tl.rank_genes_groups(
@@ -422,6 +450,8 @@ async def differential_expression(
             "comparison_type": "specific_groups",
             "n_top_genes": n_top_genes,
             "pseudocount": pseudocount,  # Track for reproducibility
+            "exclude_gene_classes": list(params.exclude_gene_classes),
+            "exclude_gene_patterns": list(params.exclude_gene_patterns),
         },
         results_keys={"uns": [per_run_key]},
         statistics={
@@ -449,6 +479,7 @@ async def differential_expression(
         n_genes=len(top_genes),
         top_genes_by_group={str(group1): top_genes},
         statistics=statistics,
+        n_genes_excluded=n_excluded,
     )
     await ctx.set_adata(data_id, result_adata)
     return result
@@ -631,6 +662,9 @@ async def _run_pydeseq2(
 
     # Create count DataFrame
     counts_df = pd.DataFrame(pseudobulk_counts, index=pseudobulk_ids, columns=var_names)
+    excluded, n_excluded = _excluded_genes(pd.Index(var_names), params)
+    if excluded is not None:
+        counts_df = counts_df.loc[:, ~excluded]
 
     # Check sample counts per condition
     condition_counts = metadata_df["condition"].value_counts()
@@ -707,6 +741,8 @@ async def _run_pydeseq2(
             "group2": group2,
             "comparison_type": "pseudobulk",
             "n_top_genes": params.n_top_genes,
+            "exclude_gene_classes": list(params.exclude_gene_classes),
+            "exclude_gene_patterns": list(params.exclude_gene_patterns),
         },
         results_keys={"uns": [uns_results_key]},
         statistics={
@@ -730,6 +766,7 @@ async def _run_pydeseq2(
         comparison=f"{group1} vs {group2}",
         n_genes=len(top_genes),
         top_genes_by_group={str(group1): top_genes},
+        n_genes_excluded=n_excluded,
         statistics={
             "method": "pydeseq2",
             "n_pseudobulk_samples": n_samples,

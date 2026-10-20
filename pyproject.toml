@@ -366,4 +366,4 @@ include = ["chatspatial", "chatspatial.*"]
 exclude = ["tests", "tests.*", "chatspatial.tests", "chatspatial.tests.*"]
 
 [tool.setuptools.package-data]
-chatspatial = ["py.typed"]
+chatspatial = ["py.typed", "resources/gene_positions/*.tsv.gz"]
