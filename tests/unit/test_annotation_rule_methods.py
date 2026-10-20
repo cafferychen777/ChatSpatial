@@ -191,7 +191,7 @@ async def test_marker_score_rejects_label_without_any_present_gene(no_export):
 @pytest.mark.asyncio
 async def test_marker_score_leaves_unlabeled_groups_missing(no_export):
     adata = _domain_adata()
-    domain = adata.obs["domain"].astype(object).to_numpy()
+    domain = adata.obs["domain"].astype(object).to_numpy(copy=True)
     domain[:3] = None
     adata.obs["domain"] = pd.Categorical(domain, categories=DOMAINS)
     ctx = DummyCtx(adata)
