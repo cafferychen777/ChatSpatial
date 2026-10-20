@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.6.0] - 2026-10-20
+
+### Added
+
+- `annotate_cell_types` method `marker_score`: labels the groups of an obs
+  column (e.g. spatial domains) by the mean log-normalized expression of
+  ordered marker-gene sets (`marker_genes`, `cluster_label`,
+  `marker_score_n_top`, `marker_score_exclusion`,
+  `marker_score_unassigned_label`, `output_key`). The result reports the score
+  of every group for every label and the label each group received.
+- `annotate_cell_types` method `threshold`: labels observations by a cutoff on
+  a numeric obs column such as a deconvolved proportion (`threshold_key`,
+  `threshold_value`, `threshold_comparison`, `threshold_pass_label`,
+  `threshold_fail_label`, `output_key`).
+- `analyze_cnv` annotates missing gene positions from bundled Ensembl 110
+  tables for GRCh38 and GRCm39 (`gene_positions`, `species`), matching on the
+  Ensembl gene ID and then the symbol, and reports the number matched.
+- `analyze_cnv` `exclude_gene_classes` (`immunoglobulin`, `ribosomal`,
+  `mitochondrial`, `hla`) and `exclude_gene_patterns` remove genes from the CNV
+  input before inference; `query_categories` restricts CNV clustering to the
+  given categories of `reference_key`.
+- `integrate_samples` `batch_correction=False` pools samples without batch
+  correction: genes shared by all samples, counts in `layers["counts"]`,
+  log-normalized `X`, every obs column and the spatial coordinates; inputs need
+  not be preprocessed. A mix of samples with and without integer counts is
+  refused, because their expression values are on different scales.
+- `analyze_cell_communication` `subset_key` and `subset_categories` run any
+  method on a subset of observations.
+- `analyze_spatial_statistics` `gene_selection="all"` computes Moran's I or
+  Geary's C for every gene; the per-gene table, now with a `rank` column, stays
+  in `adata.uns` and only the top genes are returned.
+- `find_markers` `exclude_gene_classes` and `exclude_gene_patterns` remove
+  genes before ranking, with the same class rules as `analyze_cnv` (shared in
+  `chatspatial/utils/gene_classes.py`); the result reports `n_genes_excluded`.
+- Method count is now 67 across 13 analytical categories.
+
+### Changed
+
+- `analyze_cnv` no longer fails when `adata.var` lacks chromosome/start/end:
+  the default `gene_positions="auto"` annotates them. Use
+  `gene_positions="provided"` for the previous behaviour.
+
+### Fixed
+
+- `analyze_spatial_statistics` ignored an explicit `n_neighbors` when the data
+  already held a spatial graph, for example the grid graph built by
+  `compute_embeddings`, and computed the statistic on that graph. When
+  `n_neighbors` is given, a stored graph built with other settings is now
+  rebuilt; the result reports the graph used in `spatial_graph`.
+
 ## [v1.5.10] - 2026-10-11
 
 ### Changed
